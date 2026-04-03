@@ -7,10 +7,10 @@ class DLPC900:
     """
     DLPC900 USB HID driver.  DLPU018J §1.2
 
-    64-byte packet layout:
-      Byte 0      : Flag  (0x40=write, 0xC0=read+reply)
+    64-byte packet layout (DLPU018J §1.2):
+      Byte 0      : Flag  (0x00=write, 0xC0=read+reply)
       Byte 1      : Sequence counter
-      Bytes 2-3   : Length = 2 (cmd) + len(data)  <-- Critical Fix
+      Bytes 2-3   : Length = 2 (cmd) + len(data)
       Bytes 4-5   : USB Command LSB, MSB
       Bytes 6+    : Data
     """
@@ -42,7 +42,10 @@ class DLPC900:
         return v
 
     def send_packet(self, cmd_id, data=b'', read=False):
-        flag = 0xC0 if read else 0x40
+        # DLPU018J §1.2.3:
+        #   write: bit7=0, bit6=0 -> 0x00
+        #   read : bit7=1, bit6=1 -> 0xC0
+        flag = 0xC0 if read else 0x00
         seq  = self._seq_next()
         # Length = 2-byte command + data  (DLPU018 §1.2.1)
         plen = 2 + len(data)
@@ -69,6 +72,7 @@ class DLPC900:
                 except usb.core.USBError as e2:
                     print(f"[DLPC900] USB write error after retry: {e2}")
                     raise
+        return seq
 
     def read_response(self, timeout=1000):
         try:
@@ -76,24 +80,97 @@ class DLPC900:
         except Exception:
             return None
 
+    def _response_base(self, resp):
+        if not resp or len(resp) < 4:
+            return None
+        # Some stacks include HID report ID (0x00) as first byte.
+        if len(resp) >= 5 and resp[0] == 0x00 and (resp[1] & 0x80):
+            return 1
+        return 0
+
+    def _response_seq(self, resp):
+        base = self._response_base(resp)
+        if base is None or len(resp) < base + 2:
+            return None
+        return resp[base + 1]
+
+    def _response_payload(self, resp, cmd_id=None):
+        """Extract data payload from a read response.
+
+        Handles both observed layouts:
+          - [flag, seq, lenL, lenH, cmdL, cmdH, data...]
+          - [flag, seq, lenL, lenH, data...]
+        and optional leading report-id byte.
+        """
+        base = self._response_base(resp)
+        if base is None or len(resp) < base + 4:
+            return b''
+
+        plen = resp[base + 2] | (resp[base + 3] << 8)
+        if plen < 0:
+            return b''
+
+        # Preferred: command echo present and matches expected command.
+        if cmd_id is not None and len(resp) >= base + 6:
+            cmd_l = cmd_id & 0xFF
+            cmd_h = (cmd_id >> 8) & 0xFF
+            if resp[base + 4] == cmd_l and resp[base + 5] == cmd_h:
+                data_start = base + 6
+                # Some firmwares report length = command + data, others = data only.
+                cands = []
+                if plen >= 2:
+                    cands.append(plen - 2)
+                cands.append(plen)
+                for data_len in cands:
+                    if data_len <= 0:
+                        continue
+                    data_end = min(len(resp), data_start + data_len)
+                    if data_end > data_start:
+                        return resp[data_start:data_end]
+                return b''
+
+        # Fallback: no command echo in response.
+        data_start = base + 4
+        if plen == 0:
+            return b''
+        data_end = min(len(resp), data_start + plen)
+        return resp[data_start:data_end]
+
     def send_read(self, cmd_id):
-        self.send_packet(cmd_id, b'', read=True)
-        return self.read_response()
+        seq = self.send_packet(cmd_id, b'', read=True)
+        # Match sequence byte to avoid stale buffered packets.
+        last_resp = None
+        for _ in range(6):
+            resp = self.read_response()
+            if resp is None:
+                continue
+            last_resp = resp
+            rsp_seq = self._response_seq(resp)
+            if rsp_seq is None:
+                continue
+            if rsp_seq == seq:
+                return resp
+        return last_resp
 
     # ---- diagnostic --------------------------------------------------
     def get_display_mode(self):
         r = self.send_read(0x1A1B)
-        if r and len(r) >= 7:
-            return r[6], (r[0] >> 5) & 1   # (mode, error_flag) Mode is at byte 6, Flag is at byte 0.
+        payload = self._response_payload(r, 0x1A1B)
+        if payload:
+            base = self._response_base(r)
+            flag = r[base] if base is not None and len(r) > base else 0
+            return payload[0], (flag >> 5) & 1
         return None, None
 
     def get_hardware_status(self):
         r = self.send_read(0x1A0A)
-        return r[6] if (r and len(r) >= 7) else None
+        payload = self._response_payload(r, 0x1A0A)
+        return payload[0] if payload else None
 
     def get_last_error(self):
         r = self.send_read(0x0100)
-        return r[6] if (r and len(r) >= 7) else None
+        payload = self._response_payload(r, 0x0100)
+        return payload[0] if payload else None
 
     # ---- mode / source -----------------------------------------------
     def set_display_mode(self, mode):
@@ -178,8 +255,9 @@ class DLPC900:
     def get_port_config(self):
         """Read 0x1A03: Port and Clock Configuration (DLPU018J §2.3.3.1)."""
         r = self.send_read(0x1A03)
-        if r and len(r) >= 7:
-            val = r[6]
+        payload = self._response_payload(r, 0x1A03)
+        if payload:
+            val = payload[0]
             pixel_mode = val & 0x03
             pixel_clock = (val >> 2) & 0x03
             data_enable = (val >> 4) & 0x01
@@ -199,8 +277,8 @@ class DLPC900:
         """Read 0x1A3C: Parallel Port Configuration (DLPU018J §2.3.2.1).
         Returns the board's view of DMD area, active area, pixel clock."""
         r = self.send_read(0x1A3C)
-        if r and len(r) >= 24:
-            data = r[6:]  # Skip header bytes
+        data = self._response_payload(r, 0x1A3C)
+        if data and len(data) >= 18:
             total_w  = struct.unpack_from('<H', data, 0)[0]
             total_h  = struct.unpack_from('<H', data, 2)[0]
             active_w = struct.unpack_from('<H', data, 4)[0]
@@ -225,8 +303,9 @@ class DLPC900:
         """Read 0x1A0C: Main Status (DLPU018J §2.1.3).
         Returns DMD park state, sequencer run, video lock, port sync validity."""
         r = self.send_read(0x1A0C)
-        if r and len(r) >= 7:
-            val = r[6]
+        payload = self._response_payload(r, 0x1A0C)
+        if payload:
+            val = payload[0]
             return {
                 'dmd_parked': bool(val & 0x01),
                 'sequencer_running': bool(val & 0x02),

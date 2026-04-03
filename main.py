@@ -79,47 +79,73 @@ def wait_for_external_lock(dlpc, timeout_s=4.0):
 
 
 def configure_dlpc900_for_video_pattern(dlpc):
-    print("Configuring DLPC900 for 1920x1080 @ 60Hz input -> 512x512 crop -> 24x bitplane sequence...")
+    print("Configuring DLPC900 for 1920x1080 @ 60Hz Video Pattern Mode (24 bit-planes)...")
+    print("Following TI documentation sequence (DLPU018J Section 5.1)...")
 
+    # Step 1: Stop any existing pattern playback
     dlpc.start_pattern_display(0)
     time.sleep(0.2)
 
+    # Step 2: Configure LEDs
     dlpc.set_led_current(255, 255, 255)
     dlpc.set_led_enables(True, True, True, sequencer=True)
 
+    # Step 3: Enter Video Mode (0) FIRST with DisplayPort source
+    # Per DLPU018J p.56: "Must first change to Video Mode (0) with desired source enabled"
+    print("  - Entering Video Mode (0) with DisplayPort source...")
     dlpc.set_display_mode(0x00)
-    dlpc.set_input_source(0, 1)
+    dlpc.set_input_source(0, 1)  # DisplayPort
     dlpc.toggle_dual_pixel_mode(True)
     dlpc.apply_block_lock_workaround()
 
+    # Step 4: Wait for sync lock (REQUIRED before mode 2 transition)
+    print("  - Waiting for external source sync lock...")
     if wait_for_external_lock(dlpc, timeout_s=4.0):
-        print("External source lock acquired.")
+        print("  - External source lock acquired. Ready for Video Pattern Mode.")
     else:
-        print("[WARNING] External source lock not reported before mode switch.")
+        print("  - [WARNING] External source lock not reported!")
+        print("  - [WARNING] Video Pattern Mode transition may fail without sync lock.")
 
-    time.sleep(0.4)
+    # Step 5: Set display mode to Video Pattern Mode (0x02)
+    # Per DLPU018J p.56: "Takes approximately 300ms to complete the transition"
+    print("  - Switching to Video Pattern Mode (0x02)...")
     dlpc.set_display_mode(0x02)
-    time.sleep(0.4)
+    
+    # CRITICAL: Wait 300ms for mode transition as per documentation
+    print("  - Waiting 300ms for mode transition (per TI spec)...")
+    time.sleep(0.3)
+    
     dlpc.apply_block_lock_workaround()
+    
+    # Additional settling time
+    time.sleep(0.1)
 
-    # Hardware crop to 512x512 centered (required for Video Pattern Mode transition)
-    dlpc.set_input_display_resolution(704, 284, 512, 512)
+    # Step 6: Verify we're actually in mode 2
+    mode, _ = dlpc.get_display_mode()
+    print(f"  - Display mode readback: {mode} (expected: 2)")
 
+    # Step 7: Define pattern LUT (bit-plane extraction)
     entries, exposure_us = build_lut_entries(TARGET_HZ)
-    print(f"LUT: {BITPLANES} entries, exposure={exposure_us}us, projected binary rate={BITPLANES * TARGET_HZ} Hz")
+    print(f"  - LUT: {BITPLANES} entries, exposure={exposure_us}us, binary rate={BITPLANES * TARGET_HZ} Hz")
     dlpc.set_pattern_lut_definition(entries)
     dlpc.set_pattern_lut_config(BITPLANES, repeat=True)
+    
+    # Step 8: Start pattern sequencer
+    print("  - Starting pattern sequencer...")
     dlpc.start_pattern_display(2)
-
-    # Some boards occasionally ignore the first start. Retry once if needed.
     time.sleep(0.2)
+
+    # Verify mode stuck
     mode, _ = dlpc.get_display_mode()
     if mode != 2:
-        print("[WARNING] Video Pattern Mode not latched, retrying start sequence once...")
+        print(f"  - [WARNING] Mode readback shows {mode}, not 2! Retrying...")
         dlpc.set_display_mode(0x02)
-        time.sleep(0.2)
+        time.sleep(0.3)
         dlpc.apply_block_lock_workaround()
         dlpc.start_pattern_display(2)
+        time.sleep(0.2)
+        mode, _ = dlpc.get_display_mode()
+        print(f"  - After retry, mode readback: {mode}")
 
 
 def verify_runtime_state(dlpc):
@@ -131,8 +157,8 @@ def verify_runtime_state(dlpc):
         "display_mode_is_video_pattern": mode == 2,
         "sequencer_running": bool(ms.get("sequencer_running", False)),
         # Note: external_source_locked reports False even in working configurations
-        # "active_is_512x512": dd.get("active_pixels_per_line") == 512 and dd.get("active_lines_per_frame") == 512,
         # Note: display dimensions readback shows garbage during config, not reliable for verification
+        # Note: No longer using hardware crop (512x512) - testing full 1920x1080 input
     }
 
     print("Verification:")
@@ -141,8 +167,9 @@ def verify_runtime_state(dlpc):
 
     all_ok = all(checks.values())
     if not all_ok:
-        print("[WARNING] Runtime verification checks failed - but this may still work.")
-        print("           The baseline had failing checks but visible checkerboard output.")
+        print("[WARNING] Runtime verification checks failed!")
+        print("           Video Pattern Mode (2) not active or sequencer not running.")
+        print("           Check DisplayPort sync lock and mode transition timing.")
     else:
         print("[OK] Runtime verification passed (mode=VideoPattern, sequencer running).")
     return all_ok
