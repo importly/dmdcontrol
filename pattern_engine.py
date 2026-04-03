@@ -70,6 +70,34 @@ class PatternEngine:
             b |= (binary_images[i+16] << i)
         return np.stack([r, g, b], axis=-1)
 
+    def rgb_to_binary_patterns(self, rgb_array):
+        """
+        Convert RGB888 image to 24 binary bit-plane patterns.
+        
+        Args:
+            rgb_array: numpy array with shape (height, width, 3) containing RGB values 0-255
+            
+        Returns:
+            List of 24 binary numpy arrays (values 0 or 1)
+            Order: G0-G7, R0-R7, B0-B7 (matches DLPC900 bit-plane extraction)
+        """
+        if rgb_array.shape[:2] != (self.height, self.width):
+            raise ValueError(f"RGB array must be {self.height}x{self.width}, got {rgb_array.shape[:2]}")
+        
+        patterns = []
+        # Green channel: bits 0-7
+        for bit in range(8):
+            patterns.append((rgb_array[:, :, 1] >> bit) & 1)
+        # Red channel: bits 8-15
+        for bit in range(8):
+            patterns.append((rgb_array[:, :, 0] >> bit) & 1)
+        # Blue channel: bits 16-23
+        for bit in range(8):
+            patterns.append((rgb_array[:, :, 2] >> bit) & 1)
+        
+        return patterns
+
+
     def display_frame(self, frame_array):
         glBindTexture(GL_TEXTURE_2D, self.tex_id)
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, self.width, self.height, 0, GL_RGB, GL_UNSIGNED_BYTE, frame_array)

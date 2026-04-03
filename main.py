@@ -181,6 +181,7 @@ def run():
     parser.add_argument("--monitor", type=int, default=0, help="GLFW monitor index")
     parser.add_argument("--test-checkerboard", action="store_true", help="Display static checkerboard for runtime")
     parser.add_argument("--test-ordering", action="store_true", help="Display bit-ordering diagnostic for 60s")
+    parser.add_argument("--test-numbered", action="store_true", help="Display numbered region diagnostic")
     parser.add_argument("--runtime-seconds", type=int, default=60, help="Runtime for diagnostic patterns")
     parser.add_argument("--wake-dp", action="store_true", help="Wake DP receiver in main.py (normally done by run_dmd.sh)")
     args = parser.parse_args()
@@ -206,26 +207,34 @@ def run():
         from pattern_engine import PatternEngine
         engine = PatternEngine(monitor_index=args.monitor, fps=TARGET_HZ)
 
+        # Generate initial frame based on test mode
         if args.test_ordering:
             print("Starting Diagnostic Mode: Bit Ordering Sweep...")
             patterns = engine.generate_ordering_diagnostic_patterns(1920, 1080)
-            frame = engine.pack_patterns(patterns)
-            engine.display_frame(frame)
+        elif args.test_numbered:
+            print("Starting Diagnostic Mode: Numbered Regions (6x4 grid)...")
+            from debug_numbered_regions import generate_numbered_regions
+            numbered_rgb = generate_numbered_regions(1920, 1080, grid_cols=6, grid_rows=4)
+            # Convert RGB to 24 binary patterns
+            patterns = engine.rgb_to_binary_patterns(numbered_rgb)
         else:
             print("Starting Diagnostic Mode: Static Checkerboard...")
             patterns = engine.generate_checkerboard()
-            frame = engine.pack_patterns(patterns)
-            engine.display_frame(frame)
+        
+        frame = engine.pack_patterns(patterns)
+        engine.display_frame(frame)
 
         time.sleep(1.0)
         print_board_snapshot(dlpc, "POST-FIRST-FRAME (after GL stream)")
         verify_runtime_state(dlpc)
 
-        hold_s = args.runtime_seconds if (args.test_checkerboard or args.test_ordering) else 15
+        hold_s = args.runtime_seconds if (args.test_checkerboard or args.test_ordering or args.test_numbered) else 15
         print(f"Holding output for {hold_s} seconds...")
-        if args.test_checkerboard:
+        if args.test_checkerboard or args.test_numbered:
+            # Static pattern - just hold
             time.sleep(hold_s)
         else:
+            # Dynamic pattern - update each frame
             end_t = time.time() + hold_s
             while time.time() < end_t and not engine.should_close():
                 if args.test_ordering:
