@@ -10,14 +10,15 @@ set -e
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-# Parse hz from args, default 60
+# Parse hz from args without modifying $@
 HZ=60
-for i in "$@"; do
-    if [[ "$1" == "--hz" ]]; then
-        HZ="$2"
+# Save arguments in an array to iterate over them safely
+ARGS=("$@")
+for ((i=0; i<${#ARGS[@]}; i++)); do
+    if [[ "${ARGS[i]}" == "--hz" && $((i+1)) -lt ${#ARGS[@]} ]]; then
+        HZ="${ARGS[i+1]}"
         break
     fi
-    shift
 done
 
 echo "=== xinitrc_dmd: Configuring display for fixed ${HZ}Hz ==="
