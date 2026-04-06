@@ -9,11 +9,14 @@ except ImportError:
 from dlpc900_hid import DLPC900
 from logger import setup_logger, logger
 
+
 def generate_solid_color(color_idx, width=1920, height=1080):
     import numpy as np
+
     img = np.zeros((height, width, 3), dtype=np.uint8)
     img[:, :, color_idx] = 255
     return img
+
 
 TARGET_HZ = 60
 BITPLANES = 24
@@ -319,8 +322,8 @@ def run():
                 trig_patterns = engine.generate_checkerboard(block_size=1)
             elif args.test_lines:
                 trig_patterns = engine.generate_lines()
-                elif args.test_colors:
-                    trig_patterns = engine.rgb_to_binary_patterns(generate_solid_color(0))
+            elif args.test_colors:
+                trig_patterns = engine.rgb_to_binary_patterns(generate_solid_color(0))
             elif args.test_gradient:
                 trig_patterns = engine.generate_gradient()
             else:
