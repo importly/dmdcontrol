@@ -77,7 +77,7 @@ class PatternEngine:
             g |= binary_images[i] << i
             r |= binary_images[i + 8] << i
             b |= binary_images[i + 16] << i
-        return np.stack([r, g, b], axis=-1)
+        return np.ascontiguousarray(np.stack([r, g, b], axis=-1))
 
     def rgb_to_binary_patterns(self, rgb_array):
         """

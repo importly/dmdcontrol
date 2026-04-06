@@ -353,27 +353,19 @@ def run():
             log_board_snapshot(dlpc, "POST-FIRST-FRAME (after GL stream)")
             verify_runtime_state(dlpc)
 
-            # Static patterns don't need re-rendering, dynamic ones do
-            is_dynamic = args.test_ordering or args.test_solid
-
-            if not is_dynamic:
-                # Static pattern - just hold
-                time.sleep(args.runtime_seconds)
-            else:
-                # Dynamic pattern - update each frame
-                end_t = time.time() + args.runtime_seconds
-                while time.time() < end_t and not engine.should_close():
-                    if args.test_ordering:
-                        patterns = engine.generate_ordering_diagnostic_patterns(
-                            1920, 1080
-                        )
-                    elif args.test_solid:
-                        # Toggle
-                        val = 1 if int(time.time() * target_hz) % 2 == 0 else 0
-                        patterns = engine.generate_solid(val)
-
+            # ALWAYS render in a loop to keep OpenGL / VSYNC / X11 alive
+            end_t = time.time() + args.runtime_seconds
+            while time.time() < end_t and not engine.should_close():
+                if args.test_ordering:
+                    patterns = engine.generate_ordering_diagnostic_patterns(1920, 1080)
                     frame = engine.pack_patterns(patterns)
-                    engine.display_frame(frame)
+                elif args.test_solid:
+                    val = 1 if int(time.time() * target_hz) % 2 == 0 else 0
+                    patterns = engine.generate_solid(val)
+                    frame = engine.pack_patterns(patterns)
+
+                # Re-display the frame to prevent X11 from blanking the unresponsive window
+                engine.display_frame(frame)
 
     except Exception as exc:
         logger.exception(f"[ERROR] Runtime failed: {exc}")
