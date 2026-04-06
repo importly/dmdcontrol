@@ -16,4 +16,7 @@ if (Test-Path $EXCLUDE_FILE) {
     wsl rsync -avz -e "ssh" ./ "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DEST}"
 }
 
+Write-Host "Converting line endings to Unix format..." -ForegroundColor Cyan
+wsl ssh "${REMOTE_USER}@${REMOTE_HOST}" "cd ${REMOTE_DEST} && dos2unix *.sh *.py"
+
 Write-Host "Done." -ForegroundColor Green

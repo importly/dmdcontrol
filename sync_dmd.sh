@@ -15,4 +15,7 @@ else
     rsync -avz ./ "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DEST}"
 fi
 
+echo "Converting line endings to Unix format..."
+ssh "${REMOTE_USER}@${REMOTE_HOST}" "cd ${REMOTE_DEST} && dos2unix *.sh *.py"
+
 echo "Done."
