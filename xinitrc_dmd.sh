@@ -55,6 +55,8 @@ xrandr --output "$DP_OUTPUT" --set "dithering mode" "off" 2>/dev/null || true
 xrandr --output "$DP_OUTPUT" --set "dithering depth" "8 bpc" 2>/dev/null || true
 # Color range (some AMD/Intel drivers)
 xrandr --output "$DP_OUTPUT" --set "color range" "Full" 2>/dev/null || true
+# Force 8-bit color depth to prevent 10-bit deep color scaling which ruins bit packing
+xrandr --output "$DP_OUTPUT" --set "max bpc" 8 2>/dev/null || true
 
 # ── Define and force a custom modeline to break YCbCr detection ──
 # To force the GPU to send raw RGB 4:4:4 instead of compressed YCbCr 4:2:2,
