@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 from PIL import Image
 
@@ -43,6 +45,8 @@ def generate_gradient(width, height):
 
 def save_diagnostic_images():
     width, height = 1920, 1080
+    out_dir = "diagnostic_images"
+    os.makedirs(out_dir, exist_ok=True)
 
     print(f"Generating {width}x{height} diagnostic images...")
 
@@ -60,7 +64,7 @@ def save_diagnostic_images():
         # When saving 24 packed bits to an RGB PNG, the colors will look weird to a human,
         # but that's exactly what the DLPC900 needs to extract 24 bit-planes.
         img = Image.fromarray(packed_frame)
-        filename = f"diagnostic_{name}.png"
+        filename = os.path.join(out_dir, f"diagnostic_{name}.png")
         img.save(filename)
         print(f"Saved {filename}")
 

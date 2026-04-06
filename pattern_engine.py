@@ -57,7 +57,14 @@ class PatternEngine:
         glfw.make_context_current(self.window)
         glfw.swap_interval(1)  # Sync to VSync
 
-        glViewport(0, 0, width, height)
+        # Verify 1:1 Framebuffer scaling
+        fb_w, fb_h = glfw.get_framebuffer_size(self.window)
+        if fb_w != width or fb_h != height:
+            logger.warning(
+                f"[WARNING] Framebuffer size {fb_w}x{fb_h} does not match requested {width}x{height}! 1:1 pixel mapping will fail."
+            )
+
+        glViewport(0, 0, fb_w, fb_h)
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
         glOrtho(0, width, height, 0, -1, 1)

@@ -230,7 +230,12 @@ def run():
     parser.add_argument(
         "--test-single-pixel",
         action="store_true",
-        help="Display 1x1 single pixel checkerboard",
+        help="Display 1x1 single pixel checkerboard (Note: creates optical diffraction bands with lasers)",
+    )
+    parser.add_argument(
+        "--test-2x2",
+        action="store_true",
+        help="Display 2x2 pixel checkerboard to verify 1:1 mapping vs optical diffraction",
     )
     parser.add_argument(
         "--test-lines", action="store_true", help="Display alternating 1-pixel lines"
@@ -320,6 +325,8 @@ def run():
                 trig_patterns = engine.rgb_to_binary_patterns(numbered_rgb)
             elif args.test_single_pixel:
                 trig_patterns = engine.generate_checkerboard(block_size=1)
+            elif args.test_2x2:
+                trig_patterns = engine.generate_checkerboard(block_size=2)
             elif args.test_lines:
                 trig_patterns = engine.generate_lines()
             elif args.test_colors:
@@ -359,6 +366,9 @@ def run():
             elif args.test_single_pixel:
                 logger.info("[+] Starting Diagnostic Mode: 1x1 Single Pixel...")
                 patterns = engine.generate_checkerboard(block_size=1)
+            elif args.test_2x2:
+                logger.info("[+] Starting Diagnostic Mode: 2x2 Checkerboard...")
+                patterns = engine.generate_checkerboard(block_size=2)
             elif args.test_lines:
                 logger.info("[+] Starting Diagnostic Mode: 1-pixel Lines...")
                 patterns = engine.generate_lines()
