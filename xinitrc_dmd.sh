@@ -39,9 +39,22 @@ fi
 echo "Detected display output: $DP_OUTPUT"
 
 # ── Print current display state for diagnostics ──
-echo "--- Current xrandr state ---"
-xrandr --query 2>&1 | head -30
+echo "--- Current xrandr properties ---"
+xrandr --prop 2>&1 | head -50
 echo "---"
+
+# ── Force RGB Full Range & Disable Dithering ──
+echo "Attempting to force Full RGB Range and disable dithering on $DP_OUTPUT..."
+
+# Intel / AMD common property
+xrandr --output "$DP_OUTPUT" --set "Broadcast RGB" "Full" 2>/dev/null || true
+# AMD specific dithering
+xrandr --output "$DP_OUTPUT" --set "dither" "off" 2>/dev/null || true
+# Nouveau specific dithering
+xrandr --output "$DP_OUTPUT" --set "dithering mode" "off" 2>/dev/null || true
+xrandr --output "$DP_OUTPUT" --set "dithering depth" "8 bpc" 2>/dev/null || true
+# Color range (some AMD/Intel drivers)
+xrandr --output "$DP_OUTPUT" --set "color range" "Full" 2>/dev/null || true
 
 # ── Define and force the precise modeline ──
 if [ "$HZ" = "120" ]; then
