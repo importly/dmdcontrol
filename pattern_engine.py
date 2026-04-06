@@ -174,8 +174,8 @@ class PatternEngine:
 
     def generate_lines(self):
         y, x = np.indices((self.height, self.width))
-        lines = (x + y) % 2
-        lines = lines.astype(np.uint8)
+        # 1-pixel wide vertical lines
+        lines = (x % 2).astype(np.uint8)
         return [lines for _ in range(24)]
 
     def generate_solid(self, val):
@@ -186,9 +186,9 @@ class PatternEngine:
         patterns = []
         x = np.indices((self.height, self.width))[1]
         for i in range(24):
-            # A pattern that has increasing width, so bit 0 covers 1/24th of screen, bit 23 covers 24/24ths
-            threshold = (self.width / 24) * (i + 1)
-            grad = (x < threshold).astype(np.uint8)
+            # Left side (x < 80) has 1 bitplane ON. Right side (x >= 1840) has all 24 ON.
+            threshold = (self.width / 24) * i
+            grad = (x >= threshold).astype(np.uint8)
             patterns.append(grad)
         return patterns
 
