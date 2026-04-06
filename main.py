@@ -317,7 +317,7 @@ def run():
             if args.test_checkerboard:
                 trig_patterns = engine.generate_checkerboard()
             elif args.test_numbered:
-                from debug_numbered_regions import generate_numbered_regions
+                from debug_scripts.debug_numbered_regions import generate_numbered_regions
 
                 numbered_rgb = generate_numbered_regions(
                     1920, 1080, grid_cols=6, grid_rows=4
@@ -357,7 +357,7 @@ def run():
                 logger.info(
                     "[+] Starting Diagnostic Mode: Numbered Regions (6x4 grid)..."
                 )
-                from debug_numbered_regions import generate_numbered_regions
+                from debug_scripts.debug_numbered_regions import generate_numbered_regions
 
                 numbered_rgb = generate_numbered_regions(
                     1920, 1080, grid_cols=6, grid_rows=4
