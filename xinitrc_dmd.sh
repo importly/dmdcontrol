@@ -60,7 +60,6 @@ xrandr --output "$DP_OUTPUT" --set "color range" "Full" 2>/dev/null || true
 if [ "$HZ" = "120" ]; then
     MODE_NAME="1920x1080_120"
     # CVT-R 1920x1080 @ 120Hz reduced blanking
-    # 1920x1080 119.93 Hz (cvt -r 1920 1080 120)
     xrandr --newmode "$MODE_NAME" 311.50 1920 1968 2000 2080 1080 1083 1088 1248 +hsync -vsync 2>/dev/null || true
 else
     MODE_NAME="1920x1080_60"
@@ -72,18 +71,23 @@ echo "Adding mode $MODE_NAME to output $DP_OUTPUT..."
 xrandr --addmode "$DP_OUTPUT" "$MODE_NAME" 2>/dev/null || true
 xrandr --output "$DP_OUTPUT" --mode "$MODE_NAME" 2>&1 || {
     echo "[WARNING] Failed to set mode $MODE_NAME. Trying standard 1920x1080..."
-    # Fallback: try to set the output to any available 1920x1080 mode
     xrandr --output "$DP_OUTPUT" --mode "1920x1080" 2>&1 || {
         echo "[ERROR] Could not set any 1920x1080 mode. Continuing with default..."
     }
 }
+
+# Apply dithering disable AGAIN after setting mode (some drivers reset it on mode change)
+xrandr --output "$DP_OUTPUT" --set "dithering mode" "off" 2>/dev/null || true
+xrandr --output "$DP_OUTPUT" --set "dithering depth" "8 bpc" 2>/dev/null || true
+xrandr --output "$DP_OUTPUT" --set "Broadcast RGB" "Full" 2>/dev/null || true
+xrandr --output "$DP_OUTPUT" --set "dither" "off" 2>/dev/null || true
 
 # ── Wait for the mode switch to stabilize ──
 sleep 1
 
 # ── Print final display state ──
 echo "--- xrandr state after mode set ---"
-xrandr --query 2>&1 | head -20
+xrandr --prop | grep -A 15 "$DP_OUTPUT connected" 2>&1 || true
 echo "---"
 
 # ── Launch the pattern engine ──
