@@ -12,8 +12,8 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-echo "Waiting 3 seconds for Xorg and GPU to detect the DP hotplug event..."
-sleep 3
+echo "Waiting 6 seconds for Xorg and GPU to detect the DP hotplug event..."
+sleep 6
 
 echo "=== Launching Pattern Engine (via xinitrc_dmd.sh wrapper) ==="
 # The xinitrc wrapper handles: fixed 1920x1080@60 mode set -> python launch
