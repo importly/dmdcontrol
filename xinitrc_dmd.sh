@@ -56,15 +56,17 @@ xrandr --output "$DP_OUTPUT" --set "dithering depth" "8 bpc" 2>/dev/null || true
 # Color range (some AMD/Intel drivers)
 xrandr --output "$DP_OUTPUT" --set "color range" "Full" 2>/dev/null || true
 
-# ── Define and force the precise modeline ──
+# ── Define and force a custom modeline to break YCbCr detection ──
+# To force the GPU to send raw RGB 4:4:4 instead of compressed YCbCr 4:2:2,
+# we use a slightly non-standard pixel clock. This prevents the driver from 
+# matching it to a "Standard TV Mode" in its EDID database.
 if [ "$HZ" = "120" ]; then
-    MODE_NAME="1920x1080_120"
-    # CVT-R 1920x1080 @ 120Hz reduced blanking
+    MODE_NAME="1920x1080_120_RAW"
     xrandr --newmode "$MODE_NAME" 311.50 1920 1968 2000 2080 1080 1083 1088 1248 +hsync -vsync 2>/dev/null || true
 else
-    MODE_NAME="1920x1080_60"
-    # CVT-R 1920x1080 @ 60Hz reduced blanking
-    xrandr --newmode "$MODE_NAME" 138.50 1920 1968 2000 2080 1080 1083 1088 1111 +hsync -vsync 2>/dev/null || true
+    MODE_NAME="1920x1080_60_RAW"
+    # CVT-R 1920x1080 @ 60Hz reduced blanking, but tweaked pixel clock (138.50 -> 138.51)
+    xrandr --newmode "$MODE_NAME" 138.51 1920 1968 2000 2080 1080 1083 1088 1111 +hsync -vsync 2>/dev/null || true
 fi
 
 echo "Adding mode $MODE_NAME to output $DP_OUTPUT..."
@@ -80,6 +82,7 @@ xrandr --output "$DP_OUTPUT" --mode "$MODE_NAME" 2>&1 || {
 xrandr --output "$DP_OUTPUT" --set "dithering mode" "off" 2>/dev/null || true
 xrandr --output "$DP_OUTPUT" --set "dithering depth" "8 bpc" 2>/dev/null || true
 xrandr --output "$DP_OUTPUT" --set "Broadcast RGB" "Full" 2>/dev/null || true
+xrandr --output "$DP_OUTPUT" --set "color range" "Full" 2>/dev/null || true
 xrandr --output "$DP_OUTPUT" --set "dither" "off" 2>/dev/null || true
 
 # ── Wait for the mode switch to stabilize ──

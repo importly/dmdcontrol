@@ -9,6 +9,11 @@ except ImportError:
 from dlpc900_hid import DLPC900
 from logger import setup_logger, logger
 
+def generate_solid_color(color_idx, width=1920, height=1080):
+    import numpy as np
+    img = np.zeros((height, width, 3), dtype=np.uint8)
+    img[:, :, color_idx] = 255
+    return img
 
 TARGET_HZ = 60
 BITPLANES = 24
@@ -228,7 +233,9 @@ def run():
         "--test-lines", action="store_true", help="Display alternating 1-pixel lines"
     )
     parser.add_argument(
-        "--test-solid", action="store_true", help="Display solid black/white"
+        "--test-colors",
+        action="store_true",
+        help="Display sequence of pure RGB channels",
     )
     parser.add_argument(
         "--test-gradient",
@@ -312,8 +319,8 @@ def run():
                 trig_patterns = engine.generate_checkerboard(block_size=1)
             elif args.test_lines:
                 trig_patterns = engine.generate_lines()
-            elif args.test_solid:
-                trig_patterns = engine.generate_solid(1)
+                elif args.test_colors:
+                    trig_patterns = engine.rgb_to_binary_patterns(generate_solid_color(0))
             elif args.test_gradient:
                 trig_patterns = engine.generate_gradient()
             else:
@@ -352,9 +359,9 @@ def run():
             elif args.test_lines:
                 logger.info("[+] Starting Diagnostic Mode: 1-pixel Lines...")
                 patterns = engine.generate_lines()
-            elif args.test_solid:
-                logger.info("[+] Starting Diagnostic Mode: Solid On/Off...")
-                patterns = engine.generate_solid(1)
+            elif args.test_colors:
+                logger.info("[+] Starting Diagnostic Mode: Color Channels (R/G/B)...")
+                patterns = engine.rgb_to_binary_patterns(generate_solid_color(0))
             elif args.test_gradient:
                 logger.info("[+] Starting Diagnostic Mode: Temporal Gradient...")
                 patterns = engine.generate_gradient()
@@ -370,9 +377,16 @@ def run():
             verify_runtime_state(dlpc)
 
             # Pre-generate frames for dynamic patterns to prevent stuttering in the render loop
-            if args.test_solid:
-                solid_black = engine.pack_patterns(engine.generate_solid(0))
-                solid_white = engine.pack_patterns(engine.generate_solid(1))
+            if args.test_colors:
+                solid_r = engine.pack_patterns(
+                    engine.rgb_to_binary_patterns(generate_solid_color(0))
+                )
+                solid_g = engine.pack_patterns(
+                    engine.rgb_to_binary_patterns(generate_solid_color(1))
+                )
+                solid_b = engine.pack_patterns(
+                    engine.rgb_to_binary_patterns(generate_solid_color(2))
+                )
 
             video_out = None
             if args.capture and cv2 is not None:
@@ -389,9 +403,14 @@ def run():
             # ALWAYS render in a loop to keep OpenGL / VSYNC / X11 alive
             end_t = time.time() + args.runtime_seconds
             while time.time() < end_t and not engine.should_close():
-                if args.test_solid:
-                    val = 1 if int(time.time() * target_hz) % 2 == 0 else 0
-                    frame = solid_white if val == 1 else solid_black
+                if args.test_colors:
+                    sec = int(time.time() * 2) % 3
+                    if sec == 0:
+                        frame = solid_r
+                    elif sec == 1:
+                        frame = solid_g
+                    else:
+                        frame = solid_b
 
                 # Re-display the frame to prevent X11 from blanking the unresponsive window
                 engine.display_frame(frame)
