@@ -1,6 +1,11 @@
 import argparse
 import time
 
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+
 from dlpc900_hid import DLPC900
 from logger import setup_logger, logger
 
@@ -105,6 +110,12 @@ def configure_dlpc900_for_video_pattern(dlpc, target_hz=60):
     dlpc.set_display_mode(0x00)
     dlpc.set_input_source(0, 1)  # DisplayPort
     dlpc.toggle_dual_pixel_mode(True)
+
+    # CRITICAL FIX: Explicitly tell the DLPC900 to use the full 1920x1080 active area.
+    # Otherwise, it might remember a previous 512x512 crop from Flash and truncate patterns!
+    logger.debug("  - Forcing Input Display Resolution to 1920x1080...")
+    dlpc.set_input_display_resolution(0, 0, 1920, 1080)
+
     dlpc.apply_block_lock_workaround()
 
     # Step 4: Wait for sync lock (REQUIRED before mode 2 transition)
@@ -237,6 +248,11 @@ def run():
         "--wake-dp", action="store_true", help="Wake DP receiver in main.py"
     )
     parser.add_argument(
+        "--capture",
+        type=str,
+        help="Save the generated packed frames to an mp4 video (e.g. test.mp4)",
+    )
+    parser.add_argument(
         "-v", "--verbose", action="store_true", help="Enable verbose diagnostic logging"
     )
     args = parser.parse_args()
@@ -353,19 +369,41 @@ def run():
             log_board_snapshot(dlpc, "POST-FIRST-FRAME (after GL stream)")
             verify_runtime_state(dlpc)
 
+            # Pre-generate frames for dynamic patterns to prevent stuttering in the render loop
+            if args.test_solid:
+                solid_black = engine.pack_patterns(engine.generate_solid(0))
+                solid_white = engine.pack_patterns(engine.generate_solid(1))
+
+            video_out = None
+            if args.capture and cv2 is not None:
+                logger.info(f"[+] Recording packed frames to {args.capture}")
+                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                video_out = cv2.VideoWriter(
+                    args.capture, fourcc, target_hz, (1920, 1080), isColor=True
+                )
+            elif args.capture and cv2 is None:
+                logger.warning(
+                    "[WARNING] Cannot capture video, opencv-python is not installed."
+                )
+
             # ALWAYS render in a loop to keep OpenGL / VSYNC / X11 alive
             end_t = time.time() + args.runtime_seconds
             while time.time() < end_t and not engine.should_close():
-                if args.test_ordering:
-                    patterns = engine.generate_ordering_diagnostic_patterns(1920, 1080)
-                    frame = engine.pack_patterns(patterns)
-                elif args.test_solid:
+                if args.test_solid:
                     val = 1 if int(time.time() * target_hz) % 2 == 0 else 0
-                    patterns = engine.generate_solid(val)
-                    frame = engine.pack_patterns(patterns)
+                    frame = solid_white if val == 1 else solid_black
 
                 # Re-display the frame to prevent X11 from blanking the unresponsive window
                 engine.display_frame(frame)
+
+                if video_out is not None:
+                    # Convert RGB (OpenGL format) to BGR (OpenCV format)
+                    bgr_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    video_out.write(bgr_frame)
+
+            if video_out is not None:
+                video_out.release()
+                logger.info(f"[+] Video saved to {args.capture}")
 
     except Exception as exc:
         logger.exception(f"[ERROR] Runtime failed: {exc}")
