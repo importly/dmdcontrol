@@ -10,7 +10,17 @@ set -e
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "=== xinitrc_dmd: Configuring display for fixed 60Hz ==="
+# Parse hz from args, default 60
+HZ=60
+for i in "$@"; do
+    if [[ "$1" == "--hz" ]]; then
+        HZ="$2"
+        break
+    fi
+    shift
+done
+
+echo "=== xinitrc_dmd: Configuring display for fixed ${HZ}Hz ==="
 
 # ── Wait for X to be fully ready ──
 sleep 1
@@ -32,10 +42,17 @@ echo "--- Current xrandr state ---"
 xrandr --query 2>&1 | head -30
 echo "---"
 
-# ── Define and force the precise 60Hz modeline ──
-MODE_NAME="1920x1080_60"
-# CVT-R 1920x1080 @ 60Hz reduced blanking
-xrandr --newmode "$MODE_NAME" 138.50 1920 1968 2000 2080 1080 1083 1088 1111 +hsync -vsync 2>/dev/null || true
+# ── Define and force the precise modeline ──
+if [ "$HZ" = "120" ]; then
+    MODE_NAME="1920x1080_120"
+    # CVT-R 1920x1080 @ 120Hz reduced blanking
+    # 1920x1080 119.93 Hz (cvt -r 1920 1080 120)
+    xrandr --newmode "$MODE_NAME" 311.50 1920 1968 2000 2080 1080 1083 1088 1248 +hsync -vsync 2>/dev/null || true
+else
+    MODE_NAME="1920x1080_60"
+    # CVT-R 1920x1080 @ 60Hz reduced blanking
+    xrandr --newmode "$MODE_NAME" 138.50 1920 1968 2000 2080 1080 1083 1088 1111 +hsync -vsync 2>/dev/null || true
+fi
 
 echo "Adding mode $MODE_NAME to output $DP_OUTPUT..."
 xrandr --addmode "$DP_OUTPUT" "$MODE_NAME" 2>/dev/null || true
@@ -57,5 +74,6 @@ echo "---"
 
 # ── Launch the pattern engine ──
 echo "=== Launching main.py ==="
+# Notice we pass the original arguments intact, so main.py gets --hz if supplied
 exec env PYTHONPATH=/home/main/.local/lib/python3.14/site-packages \
     /usr/bin/python3 "$SCRIPT_DIR/main.py" --monitor 0 "$@"

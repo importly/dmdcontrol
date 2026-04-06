@@ -2,6 +2,7 @@
 # run_dmd.sh
 # Automates the sequence of waking up the DisplayPort receiver on the DLPC900 
 # and launching the X11 pattern generator
+set -e
 
 echo "=== DLPC900 Initialization & DP Wake ==="
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,7 +17,6 @@ echo "Waiting 6 seconds for Xorg and GPU to detect the DP hotplug event..."
 sleep 6
 
 echo "=== Launching Pattern Engine (via xinitrc_dmd.sh wrapper) ==="
-# The xinitrc wrapper handles: fixed 1920x1080@60 mode set -> python launch
-# Forward CLI arguments to main.py (only --hz 60 is supported)
+# The xinitrc wrapper handles: fixed 1920x1080 mode set -> python launch
 chmod +x "$SCRIPT_DIR/xinitrc_dmd.sh"
 echo 'REDACTED' | sudo -S xinit "$SCRIPT_DIR/xinitrc_dmd.sh" "$@" -- :0 vt1

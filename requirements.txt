@@ -1,0 +1,7 @@
+# Python dependencies for DMD Control System
+glfw
+PyOpenGL
+numpy
+Pillow
+pyusb
+rich

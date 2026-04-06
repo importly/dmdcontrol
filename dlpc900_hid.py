@@ -2,6 +2,8 @@ import usb.core
 import usb.util
 import struct
 import time
+from logger import logger
+
 
 class DLPC900:
     """
@@ -14,13 +16,22 @@ class DLPC900:
       Bytes 4-5   : USB Command LSB, MSB
       Bytes 6+    : Data
     """
+
     VID = 0x0451
     PID = 0xC900
 
     def __init__(self):
-        self.dev = usb.core.find(idVendor=self.VID, idProduct=self.PID)
+        try:
+            self.dev = usb.core.find(idVendor=self.VID, idProduct=self.PID)
+        except Exception as e:
+            logger.critical(f"[DLPC900] USB backend error during initialization: {e}")
+            raise RuntimeError(f"USB backend error: {e}")
+
         if self.dev is None:
-            raise ValueError('DLPC900 not found on USB bus')
+            logger.critical(
+                "[DLPC900] Device not found on USB bus. Ensure it is powered on and connected."
+            )
+            raise ValueError("DLPC900 not found on USB bus")
 
         for intf_num in (0, 1):
             try:
@@ -33,35 +44,40 @@ class DLPC900:
         usb.util.claim_interface(self.dev, 0)
 
         self.ep_out = 0x01
-        self.ep_in  = 0x81
-        self._seq   = 0
+        self.ep_in = 0x81
+        self._seq = 0
 
     def _seq_next(self):
         v = self._seq & 0xFF
         self._seq = (self._seq + 1) & 0xFF
         return v
 
-    def send_packet(self, cmd_id, data=b'', read=False):
+    def send_packet(self, cmd_id, data=b"", read=False):
         # DLPU018J §1.2.3:
         #   write: bit7=0, bit6=0 -> 0x00
         #   read : bit7=1, bit6=1 -> 0xC0
         flag = 0xC0 if read else 0x00
-        seq  = self._seq_next()
+        seq = self._seq_next()
         # Length = 2-byte command + data  (DLPU018 §1.2.1)
         plen = 2 + len(data)
-        hdr = bytes([
-            flag,
-            seq,
-            plen & 0xFF,
-            (plen >> 8) & 0xFF,
-            cmd_id & 0xFF,
-            (cmd_id >> 8) & 0xFF,
-        ]) + data
-        
+        hdr = (
+            bytes(
+                [
+                    flag,
+                    seq,
+                    plen & 0xFF,
+                    (plen >> 8) & 0xFF,
+                    cmd_id & 0xFF,
+                    (cmd_id >> 8) & 0xFF,
+                ]
+            )
+            + data
+        )
+
         # Pad/split into 64-byte frames
         for off in range(0, max(len(hdr), 1), 64):
-            chunk = hdr[off:off+64]
-            chunk += b'\x00' * (64 - len(chunk))
+            chunk = hdr[off : off + 64]
+            chunk += b"\x00" * (64 - len(chunk))
             try:
                 self.dev.write(self.ep_out, chunk, timeout=500)
             except usb.core.USBError as e:
@@ -70,7 +86,7 @@ class DLPC900:
                 try:
                     self.dev.write(self.ep_out, chunk, timeout=500)
                 except usb.core.USBError as e2:
-                    print(f"[DLPC900] USB write error after retry: {e2}")
+                    logger.error(f"[DLPC900] USB write error after retry: {e2}")
                     raise
         return seq
 
@@ -104,11 +120,11 @@ class DLPC900:
         """
         base = self._response_base(resp)
         if base is None or len(resp) < base + 4:
-            return b''
+            return b""
 
         plen = resp[base + 2] | (resp[base + 3] << 8)
         if plen < 0:
-            return b''
+            return b""
 
         # Preferred: command echo present and matches expected command.
         if cmd_id is not None and len(resp) >= base + 6:
@@ -127,17 +143,17 @@ class DLPC900:
                     data_end = min(len(resp), data_start + data_len)
                     if data_end > data_start:
                         return resp[data_start:data_end]
-                return b''
+                return b""
 
         # Fallback: no command echo in response.
         data_start = base + 4
         if plen == 0:
-            return b''
+            return b""
         data_end = min(len(resp), data_start + plen)
         return resp[data_start:data_end]
 
     def send_read(self, cmd_id):
-        seq = self.send_packet(cmd_id, b'', read=True)
+        seq = self.send_packet(cmd_id, b"", read=True)
         # Match sequence byte to avoid stale buffered packets.
         last_resp = None
         for _ in range(6):
@@ -174,13 +190,15 @@ class DLPC900:
 
     # ---- mode / source -----------------------------------------------
     def set_display_mode(self, mode):
-        self.send_packet(0x1A1B, struct.pack('<B', mode))
+        self.send_packet(0x1A1B, struct.pack("<B", mode))
 
     def set_input_source(self, source=0, bit_depth_sel=1):
         val = (source & 0x07) | ((bit_depth_sel & 0x03) << 3)
-        self.send_packet(0x1A00, struct.pack('<B', val))
+        self.send_packet(0x1A00, struct.pack("<B", val))
 
-    def set_port_config(self, pixel_mode=2, pixel_clock=0, data_enable=0, sync_select=0):
+    def set_port_config(
+        self, pixel_mode=2, pixel_clock=0, data_enable=0, sync_select=0
+    ):
         """Set 0x1A03 Port/Clock config (DLPU018J Table 2-52)."""
         val = (
             (pixel_mode & 0x03)
@@ -188,26 +206,26 @@ class DLPC900:
             | ((data_enable & 0x01) << 4)
             | ((sync_select & 0x01) << 5)
         )
-        self.send_packet(0x1A03, struct.pack('<B', val))
+        self.send_packet(0x1A03, struct.pack("<B", val))
 
     def set_internal_test_pattern(self, pattern):
         # Source must be 1 (internal) first
-        self.send_packet(0x1203, struct.pack('<B', pattern))
+        self.send_packet(0x1203, struct.pack("<B", pattern))
 
     # ---- LEDs --------------------------------------------------------
     def set_led_enables(self, r=True, g=True, b=True, sequencer=True):
-        val  = (1 if r else 0)
+        val = 1 if r else 0
         val |= (1 if g else 0) << 1
         val |= (1 if b else 0) << 2
-        val |= (0x08 if sequencer else 0)
-        self.send_packet(0x1A07, struct.pack('<B', val))
+        val |= 0x08 if sequencer else 0
+        self.send_packet(0x1A07, struct.pack("<B", val))
 
     def set_led_current(self, r=255, g=255, b=255):
-        self.send_packet(0x0B01, struct.pack('<BBB', r, g, b))
+        self.send_packet(0x0B01, struct.pack("<BBB", r, g, b))
 
     # ---- DMD park ----------------------------------------------------
     def set_dmd_park(self, park):
-        self.send_packet(0x0609, struct.pack('<B', 1 if park else 0))
+        self.send_packet(0x0609, struct.pack("<B", 1 if park else 0))
 
     def apply_block_lock_workaround(self):
         """DLPT028: Park then Unpark after any mode change."""
@@ -218,38 +236,54 @@ class DLPC900:
 
     # ---- pattern sequencer -------------------------------------------
     def start_pattern_display(self, mode):
-        self.send_packet(0x1A24, struct.pack('<B', mode))
+        self.send_packet(0x1A24, struct.pack("<B", mode))
 
     def set_pattern_lut_config(self, num_entries, repeat=True):
         """0x1A31: num_entries LUT entries, repeat indefinitely."""
         num_to_display = 0 if repeat else num_entries
-        self.send_packet(0x1A31, struct.pack('<HI', num_entries, num_to_display))
+        self.send_packet(0x1A31, struct.pack("<HI", num_entries, num_to_display))
 
     def set_pattern_lut_definition(self, entries):
         """
         0x1A34  12 bytes/entry:
           entry = (idx, exp_us, clear, depth, led, dark_us, bit_pos)
         """
-        payload = b''
-        for (idx, exp_us, clear, depth, led, dark_us, bit_pos) in entries:
-            exp3  = struct.pack('<I', exp_us)[:3]
-            dark3 = struct.pack('<I', dark_us)[:3]
-            b5    = (1 if clear else 0) | ((depth-1) << 1) | ((led & 7) << 4)
-            b9    = 0
-            b1011 = struct.pack('<H', (bit_pos & 0x1F) << 11)
-            payload += struct.pack('<H', idx) + exp3 + struct.pack('<B', b5) + dark3 + struct.pack('<B', b9) + b1011
+        payload = b""
+        for idx, exp_us, clear, depth, led, dark_us, bit_pos in entries:
+            exp3 = struct.pack("<I", exp_us)[:3]
+            dark3 = struct.pack("<I", dark_us)[:3]
+            b5 = (1 if clear else 0) | ((depth - 1) << 1) | ((led & 7) << 4)
+            b9 = 0
+            b1011 = struct.pack("<H", (bit_pos & 0x1F) << 11)
+            payload += (
+                struct.pack("<H", idx)
+                + exp3
+                + struct.pack("<B", b5)
+                + dark3
+                + struct.pack("<B", b9)
+                + b1011
+            )
         self.send_packet(0x1A34, payload)
 
     # ---- Windowing / Hardware Crop -----------------------------------
-    def set_input_display_resolution(self, in_x, in_y, in_w, in_h, out_x=None, out_y=None, out_w=None, out_h=None):
+    def set_input_display_resolution(
+        self, in_x, in_y, in_w, in_h, out_x=None, out_y=None, out_w=None, out_h=None
+    ):
         out_x = in_x if out_x is None else out_x
         out_y = in_y if out_y is None else out_y
         out_w = in_w if out_w is None else out_w
         out_h = in_h if out_h is None else out_h
-        self.send_packet(0x1000, struct.pack('<HHHHHHHH', in_x, in_y, in_w, in_h, out_x, out_y, out_w, out_h))
+        self.send_packet(
+            0x1000,
+            struct.pack(
+                "<HHHHHHHH", in_x, in_y, in_w, in_h, out_x, out_y, out_w, out_h
+            ),
+        )
 
     def toggle_dual_pixel_mode(self, enable):
-        self.set_port_config(pixel_mode=(2 if enable else 0), pixel_clock=0, data_enable=0, sync_select=0)
+        self.set_port_config(
+            pixel_mode=(2 if enable else 0), pixel_clock=0, data_enable=0, sync_select=0
+        )
 
     # ---- diagnostic read-back ----------------------------------------
     def get_port_config(self):
@@ -262,14 +296,18 @@ class DLPC900:
             pixel_clock = (val >> 2) & 0x03
             data_enable = (val >> 4) & 0x01
             sync_select = (val >> 5) & 0x01
-            modes = {0: 'Single Pixel Port 1', 1: 'Single Pixel Port 2',
-                     2: 'Dual Pixel P1-P2', 3: 'Dual Pixel P2-P1'}
+            modes = {
+                0: "Single Pixel Port 1",
+                1: "Single Pixel Port 2",
+                2: "Dual Pixel P1-P2",
+                3: "Dual Pixel P2-P1",
+            }
             return {
-                'pixel_mode': modes.get(pixel_mode, f'Unknown({pixel_mode})'),
-                'pixel_clock': f'Clock {pixel_clock + 1}',
-                'data_enable': f'DE {data_enable + 1}',
-                'sync_select': f'P{sync_select + 1} VSync/HSync',
-                'raw': hex(val)
+                "pixel_mode": modes.get(pixel_mode, f"Unknown({pixel_mode})"),
+                "pixel_clock": f"Clock {pixel_clock + 1}",
+                "data_enable": f"DE {data_enable + 1}",
+                "sync_select": f"P{sync_select + 1} VSync/HSync",
+                "raw": hex(val),
             }
         return None
 
@@ -279,23 +317,23 @@ class DLPC900:
         r = self.send_read(0x1A3C)
         data = self._response_payload(r, 0x1A3C)
         if data and len(data) >= 18:
-            total_w  = struct.unpack_from('<H', data, 0)[0]
-            total_h  = struct.unpack_from('<H', data, 2)[0]
-            active_w = struct.unpack_from('<H', data, 4)[0]
-            active_h = struct.unpack_from('<H', data, 6)[0]
-            first_px = struct.unpack_from('<H', data, 8)[0]
-            first_ln = struct.unpack_from('<H', data, 10)[0]
-            bot_ln   = struct.unpack_from('<H', data, 12)[0]
-            pclk_khz = struct.unpack_from('<I', data, 14)[0]
+            total_w = struct.unpack_from("<H", data, 0)[0]
+            total_h = struct.unpack_from("<H", data, 2)[0]
+            active_w = struct.unpack_from("<H", data, 4)[0]
+            active_h = struct.unpack_from("<H", data, 6)[0]
+            first_px = struct.unpack_from("<H", data, 8)[0]
+            first_ln = struct.unpack_from("<H", data, 10)[0]
+            bot_ln = struct.unpack_from("<H", data, 12)[0]
+            pclk_khz = struct.unpack_from("<I", data, 14)[0]
             return {
-                'total_pixels_per_line': total_w,
-                'total_lines_per_frame': total_h,
-                'active_pixels_per_line': active_w,
-                'active_lines_per_frame': active_h,
-                'first_active_pixel': first_px,
-                'first_active_line': first_ln,
-                'bottom_field_first_line': bot_ln,
-                'pixel_clock_khz': pclk_khz
+                "total_pixels_per_line": total_w,
+                "total_lines_per_frame": total_h,
+                "active_pixels_per_line": active_w,
+                "active_lines_per_frame": active_h,
+                "first_active_pixel": first_px,
+                "first_active_line": first_ln,
+                "bottom_field_first_line": bot_ln,
+                "pixel_clock_khz": pclk_khz,
             }
         return None
 
@@ -307,12 +345,12 @@ class DLPC900:
         if payload:
             val = payload[0]
             return {
-                'dmd_parked': bool(val & 0x01),
-                'sequencer_running': bool(val & 0x02),
-                'video_frozen': bool(val & 0x04),
-                'external_source_locked': bool(val & 0x08),
-                'port1_syncs_valid': bool(val & 0x10),
-                'port2_syncs_valid': bool(val & 0x20),
-                'raw': hex(val)
+                "dmd_parked": bool(val & 0x01),
+                "sequencer_running": bool(val & 0x02),
+                "video_frozen": bool(val & 0x04),
+                "external_source_locked": bool(val & 0x08),
+                "port1_syncs_valid": bool(val & 0x10),
+                "port2_syncs_valid": bool(val & 0x20),
+                "raw": hex(val),
             }
         return None
