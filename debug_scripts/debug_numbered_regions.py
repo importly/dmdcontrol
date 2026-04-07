@@ -33,14 +33,14 @@ def generate_numbered_regions(width, height, grid_cols=6, grid_rows=4):
     cell_width = width // grid_cols
     cell_height = height // grid_rows
 
-    # Colors to cycle through for visual distinction
+    # Grayscale colors to cycle through (pure R=G=B prevents Linux YCbCr chroma subsampling)
     colors = [
-        (255, 100, 100),  # Red
-        (100, 255, 100),  # Green
-        (100, 100, 255),  # Blue
-        (255, 255, 100),  # Yellow
-        (255, 100, 255),  # Magenta
-        (100, 255, 255),  # Cyan
+        (255, 255, 255),  # White
+        (128, 128, 128),  # Gray
+        (64, 64, 64),     # Dark Gray
+        (192, 192, 192),  # Light Gray
+        (32, 32, 32),     # Very Dark Gray
+        (96, 96, 96),     # Medium Dark Gray
     ]
 
     region_num = 1

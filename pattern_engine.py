@@ -192,9 +192,14 @@ class PatternEngine:
     def generate_gradient(self):
         patterns = []
         x = np.indices((self.height, self.width))[1]
+        
+        # Build 24 bitplanes. To bypass YCbCr chroma subsampling on Linux, 
+        # we must ensure the packed RGB buffer is purely grayscale (R=G=B).
+        # We do this by grouping the 24 bitplanes into 8 spatial bands.
+        # Bit 0 of G, R, B all turn on at band 0. Bit 1 at band 1, etc.
         for i in range(24):
-            # Left side (x < 80) has 1 bitplane ON. Right side (x >= 1840) has all 24 ON.
-            threshold = (self.width / 24) * i
+            bit_index = i % 8  # Modulo 8 ensures patterns 0=8=16, 1=9=17, etc.
+            threshold = (self.width / 8) * bit_index
             grad = (x >= threshold).astype(np.uint8)
             patterns.append(grad)
         return patterns
