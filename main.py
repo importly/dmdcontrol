@@ -129,7 +129,12 @@ def configure_dlpc900_for_video_pattern(dlpc, target_hz=60):
     logger.debug("  - Entering Video Mode (0) with DisplayPort source...")
     dlpc.set_display_mode(0x00)
     dlpc.set_input_source(0, 1)  # DisplayPort
-    dlpc.toggle_dual_pixel_mode(True)
+    
+    # Secure the Global Hardware Trigger configs
+    # TRIG_OUT_1 marks sequence start
+    dlpc.configure_trigger_out_1(enable=True, polarity_high=True, rising_delay_us=0, falling_delay_us=20)
+    # TRIG_OUT_2 marks per-pattern start
+    dlpc.configure_trigger_out_2(enable=True, polarity_high=True, rising_delay_us=0, falling_delay_us=20)
 
     # CRITICAL FIX: Explicitly tell the DLPC900 to use the full 1920x1080 active area.
     # Otherwise, it might remember a previous 512x512 crop from Flash and truncate patterns!

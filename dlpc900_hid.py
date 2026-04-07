@@ -207,6 +207,17 @@ class DLPC900:
             | ((sync_select & 0x01) << 5)
         )
         self.send_packet(0x1A03, struct.pack("<B", val))
+    def configure_trigger_out_1(self, enable=True, polarity_high=True, rising_delay_us=0, falling_delay_us=10):
+        """0x1A1D: Trigger Out 1 Configuration."""
+        b0 = (1 if enable else 0) | ((1 if polarity_high else 0) << 1)
+        payload = struct.pack("<BHH", b0, rising_delay_us, falling_delay_us)
+        self.send_packet(0x1A1D, payload)
+        
+    def configure_trigger_out_2(self, enable=True, polarity_high=True, rising_delay_us=0, falling_delay_us=10):
+        """0x1A1E: Trigger Out 2 Configuration."""
+        b0 = (1 if enable else 0) | ((1 if polarity_high else 0) << 1)
+        payload = struct.pack("<BHH", b0, rising_delay_us, falling_delay_us)
+        self.send_packet(0x1A1E, payload)
 
     def set_internal_test_pattern(self, pattern):
         # Source must be 1 (internal) first
