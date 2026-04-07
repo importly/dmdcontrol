@@ -129,6 +129,7 @@ def configure_dlpc900_for_video_pattern(dlpc, target_hz=60):
     logger.debug("  - Entering Video Mode (0) with DisplayPort source...")
     dlpc.set_display_mode(0x00)
     dlpc.set_input_source(0, 1)  # DisplayPort
+    dlpc.toggle_dual_pixel_mode(True)
     
     # Secure the Global Hardware Trigger configs
     # TRIG_OUT_1 marks sequence start
