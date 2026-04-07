@@ -77,6 +77,10 @@ class PatternEngine:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
 
     def pack_patterns(self, binary_images):
+        """
+        Packs 24 independent binary masks into a single 24-bit RGB frame.
+        WARNING: This requires RGB 4:4:4 video without YCbCr chroma subsampling.
+        """
         r = np.zeros((self.height, self.width), dtype=np.uint8)
         g = np.zeros((self.height, self.width), dtype=np.uint8)
         b = np.zeros((self.height, self.width), dtype=np.uint8)
@@ -85,6 +89,25 @@ class PatternEngine:
             r |= binary_images[i + 8] << i
             b |= binary_images[i + 16] << i
         return np.ascontiguousarray(np.stack([r, g, b], axis=-1))
+
+    def pack_patterns_safe_8bit(self, binary_images):
+        """
+        Future-proof wrapper that packs up to 8 independent binary masks into a pure grayscale frame.
+        Because R=G=B, this perfectly bypasses Linux YCbCr chroma subsampling and dithering natively.
+        The 8 bitplanes are duplicated across Green, Red, and Blue channels for a total of 24 planes.
+        
+        Args:
+            binary_images: List of up to 8 binary numpy arrays (0 or 1)
+        """
+        if len(binary_images) > 8:
+            logger.warning("[WARNING] pack_patterns_safe_8bit received more than 8 patterns. Only the first 8 will be used.")
+            
+        gray = np.zeros((self.height, self.width), dtype=np.uint8)
+        for i in range(min(8, len(binary_images))):
+            gray |= binary_images[i] << i
+            
+        # Duplicate the gray channel into R, G, and B
+        return np.ascontiguousarray(np.stack([gray, gray, gray], axis=-1))
 
     def rgb_to_binary_patterns(self, rgb_array):
         """
