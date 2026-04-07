@@ -81,7 +81,12 @@ def log_board_snapshot(dlpc, tag):
 
 
 def build_lut_entries(target_hz):
-    exposure_us = int((1_000_000 / target_hz) / BITPLANES)
+    # CRITICAL FIX: GPU DisplayPort VSYNC has jitter. If the total sequence length
+    # exactly equals 16666us, any early VSYNC will cause the sequencer to abort
+    # and stall for multiple frames. We subtract 1500us to leave a safe margin.
+    frame_period_us = (1_000_000 / target_hz) - 1500
+    exposure_us = int(frame_period_us / BITPLANES)
+    
     entries = []
     for bit_pos in range(BITPLANES):
         entries.append((bit_pos, exposure_us, True, 1, 7, 0, bit_pos))
