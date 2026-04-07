@@ -154,17 +154,13 @@ class PatternEngine:
         glClear(GL_COLOR_BUFFER_BIT)
         glEnable(GL_TEXTURE_2D)
         glBegin(GL_QUADS)
-        # Flip both X and Y axis to optically correct the projection output
-        glTexCoord2f(1, 1)
-        glVertex2f(0, 0)
-        
-        glTexCoord2f(0, 1)
-        glVertex2f(self.width, 0)
-        
         glTexCoord2f(0, 0)
-        glVertex2f(self.width, self.height)
-        
+        glVertex2f(0, 0)
         glTexCoord2f(1, 0)
+        glVertex2f(self.width, 0)
+        glTexCoord2f(1, 1)
+        glVertex2f(self.width, self.height)
+        glTexCoord2f(0, 1)
         glVertex2f(0, self.height)
         glEnd()
         glDisable(GL_TEXTURE_2D)
@@ -286,6 +282,9 @@ class PatternEngine:
         text_y = (self.height + text_size[1]) // 2
         
         cv2.putText(canvas, time_str, (text_x, text_y), font, font_scale, color, thickness, cv2.LINE_AA)
+        
+        # Flips the image across both X and Y axis for optical mirroring in the light engine
+        canvas = np.flip(canvas, axis=(0, 1))
         
         return np.ascontiguousarray(np.stack([canvas, canvas, canvas], axis=-1))
 
