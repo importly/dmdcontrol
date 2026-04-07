@@ -154,13 +154,17 @@ class PatternEngine:
         glClear(GL_COLOR_BUFFER_BIT)
         glEnable(GL_TEXTURE_2D)
         glBegin(GL_QUADS)
-        glTexCoord2f(0, 0)
-        glVertex2f(0, 0)
-        glTexCoord2f(1, 0)
-        glVertex2f(self.width, 0)
+        # Flip both X and Y axis to optically correct the projection output
         glTexCoord2f(1, 1)
-        glVertex2f(self.width, self.height)
+        glVertex2f(0, 0)
+        
         glTexCoord2f(0, 1)
+        glVertex2f(self.width, 0)
+        
+        glTexCoord2f(0, 0)
+        glVertex2f(self.width, self.height)
+        
+        glTexCoord2f(1, 0)
         glVertex2f(0, self.height)
         glEnd()
         glDisable(GL_TEXTURE_2D)
