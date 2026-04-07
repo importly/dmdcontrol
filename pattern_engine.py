@@ -212,6 +212,50 @@ class PatternEngine:
         solid = np.full((self.height, self.width), val, dtype=np.uint8)
         return [solid for _ in range(24)]
 
+    def generate_snake_frame(self, grid_w=24, grid_h=13):
+        import random
+        # Initialize snake state if it doesn't exist
+        if not hasattr(self, 'snake_pos'):
+            self.snake_pos = [(grid_w//2, grid_h//2), (grid_w//2 - 1, grid_h//2), (grid_w//2 - 2, grid_h//2), (grid_w//2 - 3, grid_h//2)]
+            self.snake_dir = (1, 0)
+        
+        # Move snake
+        head_x, head_y = self.snake_pos[0]
+        dx, dy = self.snake_dir
+        
+        # Randomly change direction, but don't reverse
+        if random.random() < 0.2:
+            possible_dirs = [(1,0), (-1,0), (0,1), (0,-1)]
+            possible_dirs = [(nx, ny) for nx, ny in possible_dirs if (nx, ny) != (-dx, -dy)]
+            self.snake_dir = random.choice(possible_dirs)
+            dx, dy = self.snake_dir
+            
+        new_head = (head_x + dx, head_y + dy)
+        new_head = (new_head[0] % grid_w, new_head[1] % grid_h)
+        
+        self.snake_pos.insert(0, new_head)
+        self.snake_pos.pop() # remove tail
+        
+        # Draw grid
+        grid = np.zeros((grid_h, grid_w), dtype=np.uint8)
+        for x, y in self.snake_pos:
+            grid[y, x] = 255
+            
+        # Fast nearest neighbor scaling
+        block_w = self.width // grid_w
+        block_h = self.height // grid_h
+        frame_2d = np.repeat(np.repeat(grid, block_h, axis=0), block_w, axis=1)
+        
+        # Pad if there are remainder pixels
+        if frame_2d.shape != (self.height, self.width):
+            padded = np.zeros((self.height, self.width), dtype=np.uint8)
+            h, w = frame_2d.shape
+            padded[:min(h, self.height), :min(w, self.width)] = frame_2d[:min(h, self.height), :min(w, self.width)]
+            frame_2d = padded
+            
+        # Return directly packed RGB frame (pure Grayscale for chroma bypass)
+        return np.ascontiguousarray(np.stack([frame_2d, frame_2d, frame_2d], axis=-1))
+
     def generate_gradient(self):
         patterns = []
         x = np.indices((self.height, self.width))[1]

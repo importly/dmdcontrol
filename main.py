@@ -246,6 +246,11 @@ def run():
         help="Display sequence of pure RGB channels",
     )
     parser.add_argument(
+        "--test-snake",
+        action="store_true",
+        help="Display high-speed randomly moving snake (tests 60fps dynamic refresh and triggers)",
+    )
+    parser.add_argument(
         "--test-gradient",
         action="store_true",
         help="Display temporal duty-cycle gradient",
@@ -375,6 +380,10 @@ def run():
             elif args.test_colors:
                 logger.info("[+] Starting Diagnostic Mode: Color Channels (R/G/B)...")
                 patterns = engine.rgb_to_binary_patterns(generate_solid_color(0))
+            elif args.test_snake:
+                logger.info("[+] Starting Diagnostic Mode: 60FPS Snake...")
+                # The snake generates a pre-packed frame directly
+                patterns = None
             elif args.test_gradient:
                 logger.info("[+] Starting Diagnostic Mode: Temporal Gradient...")
                 patterns = engine.generate_gradient()
@@ -382,7 +391,11 @@ def run():
                 logger.info("[+] Starting Diagnostic Mode: Static Checkerboard...")
                 patterns = engine.generate_checkerboard()
 
-            frame = engine.pack_patterns(patterns)
+            if patterns is not None:
+                frame = engine.pack_patterns(patterns)
+            else:
+                frame = engine.generate_snake_frame()
+                
             engine.display_frame(frame)
 
             time.sleep(1.0)
@@ -400,6 +413,9 @@ def run():
                 solid_b = engine.pack_patterns(
                     engine.rgb_to_binary_patterns(generate_solid_color(2))
                 )
+            elif args.test_snake:
+                # We will generate this on the fly, but we need an initial frame
+                frame = engine.generate_snake_frame()
 
             video_out = None
             if args.capture and cv2 is not None:
@@ -424,6 +440,9 @@ def run():
                         frame = solid_g
                     else:
                         frame = solid_b
+                elif args.test_snake:
+                    # Generate the next frame dynamically (~1ms execution time)
+                    frame = engine.generate_snake_frame()
 
                 # Re-display the frame to prevent X11 from blanking the unresponsive window
                 engine.display_frame(frame)

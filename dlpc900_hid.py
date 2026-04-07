@@ -253,7 +253,8 @@ class DLPC900:
             exp3 = struct.pack("<I", exp_us)[:3]
             dark3 = struct.pack("<I", dark_us)[:3]
             b5 = (1 if clear else 0) | ((depth - 1) << 1) | ((led & 7) << 4)
-            b9 = 0
+            # b9: Trigger Out Configuration. Bit 1 enables TRIG_OUT_2, Bit 0 enables TRIG_OUT_1.
+            b9 = 2  # Enable TRIG_OUT_2 hardware trigger signal
             b1011 = struct.pack("<H", (bit_pos & 0x1F) << 11)
             payload += (
                 struct.pack("<H", idx)
