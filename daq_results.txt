@@ -1,0 +1,24 @@
+============================================================
+  AD2 Trigger Diagnostic - Scanning ALL channels
+============================================================
+Close the WaveForms GUI before running!
+
+Device opened (handle=1)
+
+--- Phase 1: Analog Scope Channels (1+, 2+) ---
+  Scope Ch1 (1+): min=0.158V  max=0.276V  avg=0.220V  rising_edges=0
+  Scope Ch2 (2+): min=-0.002V  max=0.002V  avg=0.000V  rising_edges=0
+
+--- Phase 2: Digital IO Channels (DIO 0-15) ---
+  DIO- 0: HIGH   0.00% | Rising edges:     0
+  DIO- 1: HIGH   0.00% | Rising edges:     0
+  DIO- 2: HIGH   0.00% | Rising edges:     0
+  DIO- 3: HIGH   0.00% | Rising edges:     0
+
+============================================================
+  SUMMARY
+============================================================
+  NO SIGNAL found on any channel.
+  Check: Is the DMD running? Is the wire connected?
+
+Done.

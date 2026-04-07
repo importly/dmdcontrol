@@ -207,18 +207,71 @@ class DLPC900:
             | ((sync_select & 0x01) << 5)
         )
         self.send_packet(0x1A03, struct.pack("<B", val))
-    def configure_trigger_out_1(self, enable=True, polarity_high=True, rising_delay_us=0, falling_delay_us=10):
-        """0x1A1D: Trigger Out 1 Configuration."""
-        # Polarity: 0 = Active High, 1 = Active Low
-        b0 = (1 if enable else 0) | ((0 if polarity_high else 1) << 1)
-        payload = struct.pack("<BHH", b0, rising_delay_us, falling_delay_us)
+    def configure_trigger_out_1(self, polarity_high=True, rising_delay_us=0, falling_delay_us=20):
+        """0x1A1D: Trigger Out 1 Configuration (DLPU018J Table 2-118).
+
+        Byte 0, Bit 0: Polarity (0 = Non-inverted / Active High, 1 = Inverted / Active Low)
+        Byte 0, Bits 7:1: Reserved (must be 0)
+        Bytes 1-2: Rising edge delay (int16, µs, range -20 to 20000)
+        Bytes 3-4: Falling edge delay (int16, µs, range -20 to 20000)
+
+        Constraints:
+          Non-inverted: rising_delay <= falling_delay
+          Inverted:     rising_delay >= falling_delay
+          Minimum pulse width: 20 µs
+        """
+        b0 = 0 if polarity_high else 1
+        payload = struct.pack("<Bhh", b0, rising_delay_us, falling_delay_us)
         self.send_packet(0x1A1D, payload)
         
-    def configure_trigger_out_2(self, enable=True, polarity_high=True, rising_delay_us=0, falling_delay_us=10):
-        """0x1A1E: Trigger Out 2 Configuration."""
-        b0 = (1 if enable else 0) | ((0 if polarity_high else 1) << 1)
-        payload = struct.pack("<BHH", b0, rising_delay_us, falling_delay_us)
+    def configure_trigger_out_2(self, polarity_high=True, rising_delay_us=0, falling_delay_us=20):
+        """0x1A1E: Trigger Out 2 Configuration (DLPU018J Table 2-120).
+
+        Byte 0, Bit 0: Polarity (0 = Non-inverted / Active High, 1 = Inverted / Active Low)
+        Byte 0, Bits 7:1: Reserved (must be 0)
+        Bytes 1-2: Rising edge delay (int16, µs, range -20 to 20000)
+        Bytes 3-4: Falling edge delay (int16, µs, range -20 to 20000)
+
+        Constraints:
+          Non-inverted: rising_delay <= falling_delay
+          Inverted:     rising_delay >= falling_delay
+          Minimum pulse width: 20 µs
+        """
+        b0 = 0 if polarity_high else 1
+        payload = struct.pack("<Bhh", b0, rising_delay_us, falling_delay_us)
         self.send_packet(0x1A1E, payload)
+
+    def get_trigger_out_1(self):
+        """Read back 0x1A1D: Trigger Out 1 config."""
+        r = self.send_read(0x1A1D)
+        payload = self._response_payload(r, 0x1A1D)
+        if payload and len(payload) >= 5:
+            polarity = payload[0] & 0x01
+            rising = struct.unpack_from("<h", payload, 1)[0]
+            falling = struct.unpack_from("<h", payload, 3)[0]
+            return {
+                "polarity": "Inverted" if polarity else "Non-inverted",
+                "rising_delay_us": rising,
+                "falling_delay_us": falling,
+                "raw": payload.hex(),
+            }
+        return {"raw": payload.hex() if payload else "NO_RESPONSE"}
+
+    def get_trigger_out_2(self):
+        """Read back 0x1A1E: Trigger Out 2 config."""
+        r = self.send_read(0x1A1E)
+        payload = self._response_payload(r, 0x1A1E)
+        if payload and len(payload) >= 5:
+            polarity = payload[0] & 0x01
+            rising = struct.unpack_from("<h", payload, 1)[0]
+            falling = struct.unpack_from("<h", payload, 3)[0]
+            return {
+                "polarity": "Inverted" if polarity else "Non-inverted",
+                "rising_delay_us": rising,
+                "falling_delay_us": falling,
+                "raw": payload.hex(),
+            }
+        return {"raw": payload.hex() if payload else "NO_RESPONSE"}
 
     def set_internal_test_pattern(self, pattern):
         # Source must be 1 (internal) first
@@ -265,9 +318,10 @@ class DLPC900:
             exp3 = struct.pack("<I", exp_us)[:3]
             dark3 = struct.pack("<I", dark_us)[:3]
             b5 = (1 if clear else 0) | ((depth - 1) << 1) | ((led & 7) << 4)
-            # b9: Trigger Out Configuration. Bit 1 enables TRIG_OUT_2 (per pattern). 
-            # Bit 0 enables TRIG_OUT_1 (which should ONLY fire at the start of the sequence!)
-            b9 = 3 if idx == 0 else 2
+            # b9: Trigger Out 2 Suppression (DLPU018J Table 2-143).
+            # Bit 0: 0 = TRIG_OUT_2 enabled for this pattern, 1 = suppressed.
+            # TRIG_OUT_1 is hardwired to frame every pattern exposure; it has no per-LUT control.
+            b9 = 0  # Enable TRIG_OUT_2 on every pattern (24 micropulses per frame)
             b1011 = struct.pack("<H", (bit_pos & 0x1F) << 11)
             payload += (
                 struct.pack("<H", idx)

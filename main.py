@@ -131,12 +131,6 @@ def configure_dlpc900_for_video_pattern(dlpc, target_hz=60):
     dlpc.set_input_source(0, 1)  # DisplayPort
     dlpc.toggle_dual_pixel_mode(True)
     
-    # Secure the Global Hardware Trigger configs
-    # TRIG_OUT_1 marks sequence start
-    dlpc.configure_trigger_out_1(enable=True, polarity_high=True, rising_delay_us=0, falling_delay_us=20)
-    # TRIG_OUT_2 marks per-pattern start
-    dlpc.configure_trigger_out_2(enable=True, polarity_high=True, rising_delay_us=0, falling_delay_us=20)
-
     # CRITICAL FIX: Explicitly tell the DLPC900 to use the full 1920x1080 active area.
     # Otherwise, it might remember a previous 512x512 crop from Flash and truncate patterns!
     logger.debug("  - Forcing Input Display Resolution to 1920x1080...")
@@ -171,6 +165,23 @@ def configure_dlpc900_for_video_pattern(dlpc, target_hz=60):
     # Step 6: Verify we're actually in mode 2
     mode, _ = dlpc.get_display_mode()
     logger.debug(f"  - Display mode readback: {mode} (expected: 2)")
+
+    # Secure the Global Hardware Trigger configs (DLPU018J Table 2-118/2-120)
+    # Byte 0 Bit 0 = polarity (0=non-inverted). There is NO enable bit in the spec.
+    # Non-inverted constraint: rising_delay <= falling_delay. Min pulse width: 20µs.
+    dlpc.configure_trigger_out_1(polarity_high=True, rising_delay_us=0, falling_delay_us=20)
+    err = dlpc.get_last_error()
+    logger.debug(f"  - TRIG_OUT_1 config sent. Last error: {err}")
+    
+    dlpc.configure_trigger_out_2(polarity_high=True, rising_delay_us=0, falling_delay_us=20)
+    err = dlpc.get_last_error()
+    logger.debug(f"  - TRIG_OUT_2 config sent. Last error: {err}")
+    
+    # Read back trigger configs to verify hardware accepted them
+    t1 = dlpc.get_trigger_out_1()
+    t2 = dlpc.get_trigger_out_2()
+    logger.info(f"  - TRIG_OUT_1 readback: {t1}")
+    logger.info(f"  - TRIG_OUT_2 readback: {t2}")
 
     # Step 7: Define pattern LUT (bit-plane extraction)
     entries, exposure_us = build_lut_entries(target_hz)
