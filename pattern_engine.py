@@ -283,8 +283,8 @@ class PatternEngine:
         
         cv2.putText(canvas, time_str, (text_x, text_y), font, font_scale, color, thickness, cv2.LINE_AA)
         
-        # Flips the image across both X and Y axis for optical mirroring in the light engine
-        canvas = np.flip(canvas, axis=(0, 1))
+        # Flips the image across the Y axis only (horizontal mirror) for optical alignment
+        canvas = np.flip(canvas, axis=1)
         
         return np.ascontiguousarray(np.stack([canvas, canvas, canvas], axis=-1))
 
