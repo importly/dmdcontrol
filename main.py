@@ -263,6 +263,11 @@ def run():
         help="Display high-speed randomly moving snake (tests 60fps dynamic refresh and triggers)",
     )
     parser.add_argument(
+        "--test-clock",
+        action="store_true",
+        help="Display a massive high-speed microsecond clock (tests for visual stutter and latency)",
+    )
+    parser.add_argument(
         "--test-gradient",
         action="store_true",
         help="Display temporal duty-cycle gradient",
@@ -396,6 +401,9 @@ def run():
                 logger.info("[+] Starting Diagnostic Mode: 60FPS Snake...")
                 # The snake generates a pre-packed frame directly
                 patterns = None
+            elif args.test_clock:
+                logger.info("[+] Starting Diagnostic Mode: Microsecond Clock...")
+                patterns = None
             elif args.test_gradient:
                 logger.info("[+] Starting Diagnostic Mode: Temporal Gradient...")
                 patterns = engine.generate_gradient()
@@ -405,8 +413,10 @@ def run():
 
             if patterns is not None:
                 frame = engine.pack_patterns(patterns)
-            else:
+            elif args.test_snake:
                 frame = engine.generate_snake_frame()
+            elif args.test_clock:
+                frame = engine.generate_clock_frame()
                 
             engine.display_frame(frame)
 
@@ -428,6 +438,8 @@ def run():
             elif args.test_snake:
                 # We will generate this on the fly, but we need an initial frame
                 frame = engine.generate_snake_frame()
+            elif args.test_clock:
+                frame = engine.generate_clock_frame()
 
             video_out = None
             if args.capture and cv2 is not None:
@@ -455,6 +467,8 @@ def run():
                 elif args.test_snake:
                     # Generate the next frame dynamically (~1ms execution time)
                     frame = engine.generate_snake_frame()
+                elif args.test_clock:
+                    frame = engine.generate_clock_frame()
 
                 # Re-display the frame to prevent X11 from blanking the unresponsive window
                 engine.display_frame(frame)

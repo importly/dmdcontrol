@@ -256,6 +256,35 @@ class PatternEngine:
         # Return directly packed RGB frame (pure Grayscale for chroma bypass)
         return np.ascontiguousarray(np.stack([frame_2d, frame_2d, frame_2d], axis=-1))
 
+    def generate_clock_frame(self):
+        """
+        Generates a 1920x1080 pure grayscale frame with a massive microsecond clock timestamp.
+        """
+        import time
+        from datetime import datetime
+        
+        # We need cv2 to render the text
+        import cv2
+        
+        canvas = np.zeros((self.height, self.width), dtype=np.uint8)
+        
+        # Format: HH:MM:SS.usec
+        time_str = datetime.now().strftime("%H:%M:%S.%f")
+        
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 5
+        thickness = 15
+        color = 255
+        
+        # Roughly center the text
+        text_size = cv2.getTextSize(time_str, font, font_scale, thickness)[0]
+        text_x = (self.width - text_size[0]) // 2
+        text_y = (self.height + text_size[1]) // 2
+        
+        cv2.putText(canvas, time_str, (text_x, text_y), font, font_scale, color, thickness, cv2.LINE_AA)
+        
+        return np.ascontiguousarray(np.stack([canvas, canvas, canvas], axis=-1))
+
     def generate_gradient(self):
         patterns = []
         x = np.indices((self.height, self.width))[1]
