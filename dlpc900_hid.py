@@ -318,10 +318,9 @@ class DLPC900:
             exp3 = struct.pack("<I", exp_us)[:3]
             dark3 = struct.pack("<I", dark_us)[:3]
             b5 = (1 if clear else 0) | ((depth - 1) << 1) | ((led & 7) << 4)
-            # b9: Trigger Out 2 Suppression (DLPU018J Table 2-143).
-            # Bit 0: 0 = TRIG_OUT_2 enabled for this pattern, 1 = suppressed.
-            # TRIG_OUT_1 is hardwired to frame every pattern exposure; it has no per-LUT control.
-            b9 = 0  # Enable TRIG_OUT_2 on every pattern (24 micropulses per frame)
+            # Some older firmware explicitly crashes and sets an empty LUT if ANY bits in b9 are non-zero!
+            # We must set b9 = 0 unconditionally to keep the display alive.
+            b9 = 0
             b1011 = struct.pack("<H", (bit_pos & 0x1F) << 11)
             payload += (
                 struct.pack("<H", idx)
