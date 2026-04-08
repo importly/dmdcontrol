@@ -23,7 +23,9 @@ BITPLANES = 24
 MIN_EXPOSURE_US = 150
 INTER_PATTERN_DARK_US = 0
 MAX_BINARY_RATE_HZ_DLP6500 = 9523
-SAFE_MARGIN_US = 10.0
+SAFE_MARGIN_US = 250.0
+MAX_MEASURED_VSYNC_DEVIATION_RATIO = 0.25
+DEFAULT_SEQUENCE_UTILIZATION = 0.90
 
 
 def log_board_snapshot(dlpc, tag):
@@ -84,9 +86,16 @@ def log_board_snapshot(dlpc, tag):
     logger.debug("=" * 66)
 
 
-def build_lut_entries(dlpc, target_hz):
+def build_lut_entries(
+    dlpc,
+    target_hz,
+    sequence_utilization=DEFAULT_SEQUENCE_UTILIZATION,
+    trig2_frame_zero=False,
+):
     if target_hz <= 0:
         raise ValueError("target_hz must be positive")
+    if sequence_utilization <= 0.0 or sequence_utilization > 1.0:
+        raise ValueError("sequence_utilization must be in the interval (0, 1].")
 
     measured_frame_hz = None
     dd = dlpc.get_display_dimensions()
@@ -101,7 +110,25 @@ def build_lut_entries(dlpc, target_hz):
         if total_pixels > 0 and pixel_clock_hz > 0:
             measured_frame_hz = pixel_clock_hz / total_pixels
 
+    if measured_frame_hz is not None:
+        rel_err = abs(measured_frame_hz - float(target_hz)) / float(target_hz)
+        if rel_err > MAX_MEASURED_VSYNC_DEVIATION_RATIO:
+            logger.warning(
+                "[WARNING] Ignoring unstable measured VSYNC %.3f Hz (target %.3f Hz, deviation %.1f%%). "
+                "Using target Hz for LUT timing. Display dims at measurement: total=%sx%s, active=%sx%s, pclk=%skHz",
+                measured_frame_hz,
+                float(target_hz),
+                rel_err * 100.0,
+                dd.get("total_pixels_per_line") if dd else "?",
+                dd.get("total_lines_per_frame") if dd else "?",
+                dd.get("active_pixels_per_line") if dd else "?",
+                dd.get("active_lines_per_frame") if dd else "?",
+                dd.get("pixel_clock_khz") if dd else "?",
+            )
+            measured_frame_hz = None
+
     effective_frame_hz = measured_frame_hz if measured_frame_hz else float(target_hz)
+    timing_source = "measured" if measured_frame_hz else "target_fallback"
     frame_period_us = 1_000_000.0 / effective_frame_hz
     safe_frame_period_us = frame_period_us - SAFE_MARGIN_US
     if safe_frame_period_us <= 0:
@@ -124,9 +151,10 @@ def build_lut_entries(dlpc, target_hz):
         )
 
     min_segment_us = MIN_EXPOSURE_US + INTER_PATTERN_DARK_US
-    segment_budget_us = safe_frame_period_us / BITPLANES
+    usable_frame_period_us = safe_frame_period_us * sequence_utilization
+    segment_budget_us = usable_frame_period_us / BITPLANES
     if segment_budget_us < min_segment_us:
-        max_safe_hz = 1_000_000.0 / ((BITPLANES * min_segment_us) + SAFE_MARGIN_US)
+        max_safe_hz = 1_000_000.0 / ((BITPLANES * min_segment_us / sequence_utilization) + SAFE_MARGIN_US)
         raise ValueError(
             f"Requested sequence exceeds VSYNC budget: each pattern has {segment_budget_us:.2f} us "
             f"but needs >= {min_segment_us} us (exposure {MIN_EXPOSURE_US} us + dark {INTER_PATTERN_DARK_US} us). "
@@ -134,23 +162,22 @@ def build_lut_entries(dlpc, target_hz):
         )
 
     # Keep explicit margin so sequence completion is strictly earlier than the next VSYNC.
-    segment_us = int(safe_frame_period_us / BITPLANES)
+    segment_us = int(usable_frame_period_us / BITPLANES)
     exposure_us = segment_us - INTER_PATTERN_DARK_US
     if exposure_us < MIN_EXPOSURE_US:
-        max_safe_hz = 1_000_000.0 / ((BITPLANES * min_segment_us) + SAFE_MARGIN_US)
+        max_safe_hz = 1_000_000.0 / ((BITPLANES * min_segment_us / sequence_utilization) + SAFE_MARGIN_US)
         raise ValueError(
             f"Computed exposure {exposure_us} us is below minimum {MIN_EXPOSURE_US} us. "
             f"Reduce source frame rate to <= {max_safe_hz:.2f} Hz."
         )
 
     total_sequence_us = (exposure_us + INTER_PATTERN_DARK_US) * BITPLANES
+    idle_headroom_us = frame_period_us - total_sequence_us
 
     entries = []
     for bit_pos in range(BITPLANES):
         clear_flag = bit_pos == (BITPLANES - 1)
-        # TODO(FrameZeroAnchor): For event-camera sequence anchoring, set trig2_disable = (bit_pos != 0)
-        # so TRIG_OUT_2 pulses only on the first bitplane of each frame.
-        trig2_disable = False
+        trig2_disable = (bit_pos != 0) if trig2_frame_zero else False
         entries.append(
             (
                 bit_pos,
@@ -165,8 +192,12 @@ def build_lut_entries(dlpc, target_hz):
         )
 
     timing = {
+        "timing_source": timing_source,
+        "sequence_utilization": sequence_utilization,
+        "trig2_mode": "frame_zero" if trig2_frame_zero else "per_bitplane",
         "frame_period_us": frame_period_us,
         "safe_frame_period_us": safe_frame_period_us,
+        "usable_frame_period_us": usable_frame_period_us,
         "safe_margin_us": SAFE_MARGIN_US,
         "measured_frame_hz": measured_frame_hz,
         "effective_frame_hz": effective_frame_hz,
@@ -175,6 +206,7 @@ def build_lut_entries(dlpc, target_hz):
         "exposure_us": exposure_us,
         "dark_us": INTER_PATTERN_DARK_US,
         "total_sequence_us": total_sequence_us,
+        "idle_headroom_us": idle_headroom_us,
     }
     return entries, timing
 
@@ -189,7 +221,58 @@ def wait_for_external_lock(dlpc, timeout_s=4.0):
     return False
 
 
-def configure_dlpc900_for_video_pattern(dlpc, target_hz=60):
+def wait_for_sequencer_running(dlpc, timeout_s=1.5):
+    start = time.time()
+    while time.time() - start < timeout_s:
+        ms = dlpc.get_main_status()
+        if ms and ms.get("sequencer_running"):
+            return True
+        time.sleep(0.1)
+    return False
+
+
+def ensure_video_pattern_mode(dlpc, retries=3, poll_timeout_s=1.2):
+    mode, _ = dlpc.get_display_mode()
+    if mode == 2:
+        return True
+
+    for attempt in range(1, retries + 1):
+        logger.warning(
+            f"[WARNING] Mode readback shows {mode}, not 2! Retrying mode transition ({attempt}/{retries})..."
+        )
+        dlpc.set_display_mode(0x02)
+
+        # Give the DLPC900 time to complete internal mode reallocation, then poll briefly.
+        time.sleep(0.35)
+        deadline = time.time() + poll_timeout_s
+        while time.time() < deadline:
+            mode, _ = dlpc.get_display_mode()
+            if mode == 2:
+                logger.debug(f"  - After retry {attempt}, mode readback: {mode}")
+                return True
+            time.sleep(0.1)
+
+        logger.debug(f"  - After retry {attempt}, mode readback: {mode}")
+
+    return False
+
+
+def apply_pattern_sequence(dlpc, entries):
+    order = [int(entry[0]) for entry in entries]
+    dlpc.set_pattern_lut_definition(entries)
+    dlpc.set_pattern_lut_config(len(entries), repeat=True)
+    dlpc.set_pattern_lut_reorder(order, repeat=True)
+    dlpc.start_pattern_display(2)
+    time.sleep(0.2)
+
+
+def configure_dlpc900_for_video_pattern(
+    dlpc,
+    target_hz=60,
+    dual_pixel=False,
+    sequence_utilization=DEFAULT_SEQUENCE_UTILIZATION,
+    trig2_frame_zero=False,
+):
     logger.info(
         f"[+] Configuring DLPC900 for 1920x1080 @ {target_hz}Hz Video Pattern Mode ({BITPLANES} bit-planes)..."
     )
@@ -208,7 +291,10 @@ def configure_dlpc900_for_video_pattern(dlpc, target_hz=60):
     logger.debug("  - Entering Video Mode (0) with DisplayPort source...")
     dlpc.set_display_mode(0x00)
     dlpc.set_input_source(0, 1)  # DisplayPort
-    dlpc.toggle_dual_pixel_mode(True)
+    dlpc.toggle_dual_pixel_mode(bool(dual_pixel))
+    logger.info(
+        f"[+] Parallel input pixel mode: {'Dual P1-P2' if dual_pixel else 'Single P1'}"
+    )
     
     # CRITICAL FIX: Explicitly tell the DLPC900 to use the full 1920x1080 active area.
     # Otherwise, it might remember a previous 512x512 crop from Flash and truncate patterns!
@@ -222,9 +308,10 @@ def configure_dlpc900_for_video_pattern(dlpc, target_hz=60):
     if wait_for_external_lock(dlpc, timeout_s=4.0):
         logger.info("[+] External source lock acquired. Ready for Video Pattern Mode.")
     else:
-        logger.warning("[WARNING] External source lock not reported!")
-        logger.warning(
-            "[WARNING] Video Pattern Mode transition may fail without sync lock."
+        ms = dlpc.get_main_status() or {}
+        raise RuntimeError(
+            "External source sync lock was not acquired. "
+            f"Main status: {ms}. Without lock, Video Pattern Mode and trigger outputs are unreliable."
         )
 
     # Step 5: Set display mode to Video Pattern Mode (0x02)
@@ -245,6 +332,13 @@ def configure_dlpc900_for_video_pattern(dlpc, target_hz=60):
     mode, _ = dlpc.get_display_mode()
     logger.debug(f"  - Display mode readback: {mode} (expected: 2)")
 
+    if not ensure_video_pattern_mode(dlpc, retries=3, poll_timeout_s=1.5):
+        ms = dlpc.get_main_status() or {}
+        raise RuntimeError(
+            "Failed to enter Video Pattern Mode (mode 2) after retries. "
+            f"Mode readback: {mode}, main status: {ms}. Trigger outputs are disabled in Video Mode."
+        )
+
     # Secure the Global Hardware Trigger configs (DLPU018J Table 2-118/2-120)
     # Byte 0 Bit 0 = polarity (0=non-inverted). There is NO enable bit in the spec.
     # Non-inverted constraint: rising_delay <= falling_delay. Min pulse width: 20µs.
@@ -263,7 +357,15 @@ def configure_dlpc900_for_video_pattern(dlpc, target_hz=60):
     logger.info(f"  - TRIG_OUT_2 readback: {t2}")
 
     # Step 7: Define pattern LUT (bit-plane extraction)
-    entries, timing = build_lut_entries(dlpc, target_hz)
+    entries, timing = build_lut_entries(
+        dlpc,
+        target_hz,
+        sequence_utilization=sequence_utilization,
+        trig2_frame_zero=trig2_frame_zero,
+    )
+    logger.info(
+        f"[TIMING] LUT timing source: {timing['timing_source']} (effective VSYNC {timing['effective_frame_hz']:.3f} Hz)."
+    )
     if timing["measured_frame_hz"] and abs(timing["measured_frame_hz"] - target_hz) > 0.5:
         logger.warning(
             f"[WARNING] Source VSYNC is {timing['measured_frame_hz']:.3f} Hz while --hz is {target_hz} Hz. "
@@ -271,40 +373,78 @@ def configure_dlpc900_for_video_pattern(dlpc, target_hz=60):
         )
     logger.info(
         f"[+] LUT: {BITPLANES} entries, exposure={timing['exposure_us']}us, "
-        f"dark={timing['dark_us']}us, sequence={timing['total_sequence_us']:.1f}/{timing['safe_frame_period_us']:.1f}us "
-        f"(margin {timing['safe_margin_us']:.1f}us from {timing['frame_period_us']:.1f}us VSYNC), "
+        f"dark={timing['dark_us']}us, sequence={timing['total_sequence_us']:.1f}/{timing['usable_frame_period_us']:.1f}us "
+        f"(utilization {timing['sequence_utilization']:.2f}, reserved margin {timing['safe_margin_us']:.1f}us, "
+        f"idle headroom {timing['idle_headroom_us']:.1f}us from {timing['frame_period_us']:.1f}us VSYNC), "
         f"binary rate req={timing['requested_binary_rate_hz']:.1f}Hz, "
         f"effective={timing['effective_binary_rate_hz']:.1f}Hz"
     )
-    dlpc.set_pattern_lut_definition(entries)
-    dlpc.set_pattern_lut_config(BITPLANES, repeat=True)
+    if timing["trig2_mode"] == "frame_zero":
+        logger.info(
+            "[SCOPE] Expected TRIG_OUT_2: ~20us pulse width, triggered only on bitplane 0."
+        )
+        logger.info(
+            f"[SCOPE] TRIG_OUT_2 mode: frame_zero anchor (~{timing['effective_frame_hz']:.3f} pulses/s)."
+        )
+    else:
+        logger.info(
+            "[SCOPE] Expected TRIG_OUT_2: ~20us pulse width, active at each bitplane start."
+        )
+        logger.info(
+            f"[SCOPE] TRIG_OUT_2 mode: per_bitplane (~{timing['effective_binary_rate_hz']:.1f} pulses/s)."
+        )
+    logger.info(
+        f"[SCOPE] Expected TRIG_OUT_1: ~{timing['effective_frame_hz']:.3f} pulses/s. "
+        "With dark=0us, pulse may appear as a wide frame-level gate."
+    )
+    logger.info(f"[+] Applying LUT reorder with {len(entries)} entries...")
+    apply_pattern_sequence(dlpc, entries)
 
-    # Step 8: Start pattern sequencer
-    logger.info("[+] Starting pattern sequencer...")
-    dlpc.start_pattern_display(2)
-    time.sleep(0.2)
+    # Step 8: Sequencer start command was issued in apply_pattern_sequence().
+    logger.info("[+] Pattern sequencer start command issued.")
 
-    # Verify mode stuck
-    mode, _ = dlpc.get_display_mode()
-    if mode != 2:
-        logger.warning(f"[WARNING] Mode readback shows {mode}, not 2! Retrying...")
-        dlpc.set_display_mode(0x02)
-        time.sleep(0.3)
-        dlpc.apply_block_lock_workaround()
-        dlpc.start_pattern_display(2)
-        time.sleep(0.2)
+    # Verify mode remained latched after start command.
+    if not ensure_video_pattern_mode(dlpc, retries=2, poll_timeout_s=1.0):
         mode, _ = dlpc.get_display_mode()
-        logger.debug(f"  - After retry, mode readback: {mode}")
+        ms = dlpc.get_main_status() or {}
+        raise RuntimeError(
+            "Mode dropped out of Video Pattern Mode after sequencer start. "
+            f"Mode readback: {mode}, main status: {ms}."
+        )
+
+    if not wait_for_sequencer_running(dlpc, timeout_s=1.5):
+        ms = dlpc.get_main_status() or {}
+        hw = dlpc.get_hardware_status()
+        raise RuntimeError(
+            "Pattern sequencer did not report running after start command. "
+            f"Main status: {ms}, hardware status: {hw}."
+        )
+
+    hw = dlpc.get_hardware_status()
+    if hw is not None and (hw & 0xC0):
+        logger.warning(
+            f"[WARNING] Hardware status indicates sequencer abort/error bits set (0x{hw:02X}). "
+            "These bits can be latched from prior faults; monitor runtime watchdog for live state changes."
+        )
+
+    return {
+        "entries": entries,
+        "timing": timing,
+    }
 
 
 def verify_runtime_state(dlpc):
     ms = dlpc.get_main_status() or {}
-    dd = dlpc.get_display_dimensions() or {}
     mode, _ = dlpc.get_display_mode()
+    hw = dlpc.get_hardware_status()
+
+    seq_abort = bool(hw & 0x40) if hw is not None else False
+    seq_error = bool(hw & 0x80) if hw is not None else False
 
     checks = {
         "display_mode_is_video_pattern": mode == 2,
         "sequencer_running": bool(ms.get("sequencer_running", False)),
+        "external_source_locked": bool(ms.get("external_source_locked", False)),
     }
 
     logger.debug("Verification:")
@@ -315,12 +455,19 @@ def verify_runtime_state(dlpc):
     if not all_ok:
         logger.warning("[WARNING] Runtime verification checks failed!")
         logger.warning(
-            "           Video Pattern Mode (2) not active or sequencer not running."
+            "           Video Pattern Mode (2), source lock, or sequencer health check failed."
         )
         logger.warning(
             "           Check DisplayPort sync lock and mode transition timing."
         )
+        if hw is not None:
+            logger.warning(f"           Hardware status raw: 0x{hw:02X}")
     else:
+        if seq_abort or seq_error:
+            logger.warning(
+                f"[WARNING] Runtime health bits indicate abort/error flags are set (0x{hw:02X}) despite mode/sequencer lock. "
+                "Treat as sticky/historical unless watchdog shows active dropouts."
+            )
         logger.info(
             "[OK] Runtime verification passed (mode=VideoPattern, sequencer running)."
         )
@@ -390,6 +537,39 @@ def run():
         "--wake-dp", action="store_true", help="Wake DP receiver in main.py"
     )
     parser.add_argument(
+        "--dual-pixel",
+        action="store_true",
+        help="Force dual-pixel P1-P2 mode for DLPC900 parallel input (default: single-pixel P1)",
+    )
+    parser.add_argument(
+        "--seq-utilization",
+        type=float,
+        default=DEFAULT_SEQUENCE_UTILIZATION,
+        help=(
+            "Fraction of the safe frame budget allocated to LUT exposure timing (0<value<=1). "
+            "Lower values increase idle headroom and improve robustness."
+        ),
+    )
+    parser.add_argument(
+        "--trig2-frame-zero",
+        action="store_true",
+        help=(
+            "Emit TRIG_OUT_2 only on LUT bitplane 0 (single frame anchor). "
+            "Default mode emits TRIG_OUT_2 on every bitplane."
+        ),
+    )
+    parser.add_argument(
+        "--abort-recover-cooldown",
+        type=float,
+        default=8.0,
+        help="Seconds between automatic abort recovery attempts while runtime watchdog detects sequencer abort.",
+    )
+    parser.add_argument(
+        "--no-auto-recover-abort",
+        action="store_true",
+        help="Disable automatic sequencer re-arm attempts when abort bit is detected during runtime.",
+    )
+    parser.add_argument(
         "--capture",
         type=str,
         help="Save the generated packed frames to an mp4 video (e.g. test.mp4)",
@@ -406,6 +586,10 @@ def run():
         logger.error(f"Unsupported Hz: {args.hz}. Only 60Hz and 120Hz are supported.")
         raise SystemExit(f"Unsupported Hz: {args.hz}")
 
+    if args.seq_utilization <= 0.0 or args.seq_utilization > 1.0:
+        logger.error("--seq-utilization must be in the interval (0, 1].")
+        raise SystemExit("Invalid --seq-utilization value")
+
     # Allow configuration of TARGET_HZ
     target_hz = args.hz
 
@@ -420,7 +604,13 @@ def run():
             dlpc.send_packet(0x1A01, bytes([2]))
             time.sleep(1.0)
 
-        configure_dlpc900_for_video_pattern(dlpc, target_hz)
+        sequence_state = configure_dlpc900_for_video_pattern(
+            dlpc,
+            target_hz,
+            dual_pixel=args.dual_pixel,
+            sequence_utilization=args.seq_utilization,
+            trig2_frame_zero=args.trig2_frame_zero,
+        )
 
         log_board_snapshot(dlpc, "POST-CONFIG (before GL stream)")
 
@@ -531,7 +721,11 @@ def run():
 
             time.sleep(1.0)
             log_board_snapshot(dlpc, "POST-FIRST-FRAME (after GL stream)")
-            verify_runtime_state(dlpc)
+            if not verify_runtime_state(dlpc):
+                raise RuntimeError(
+                    "Runtime state check failed after first frame. "
+                    "Triggers are likely unavailable because mode 2/sequencer/lock is not valid."
+                )
 
             # Pre-generate frames for dynamic patterns to prevent stuttering in the render loop
             solid_r = frame
@@ -573,6 +767,9 @@ def run():
 
             # ALWAYS render in a loop to keep OpenGL / VSYNC / X11 alive
             end_t = time.time() + args.runtime_seconds
+            watchdog_interval_s = 2.0 if args.verbose else 0.0
+            watchdog_last = time.monotonic()
+            last_abort_recover_at = 0.0
             while time.time() < end_t and not engine.should_close():
                 if args.test_colors:
                     sec = int(time.time() * 2) % 3
@@ -590,6 +787,42 @@ def run():
 
                 # Re-display the frame to prevent X11 from blanking the unresponsive window
                 engine.display_frame(frame)
+
+                if watchdog_interval_s > 0.0:
+                    now_monotonic = time.monotonic()
+                    if (now_monotonic - watchdog_last) >= watchdog_interval_s:
+                        ms = dlpc.get_main_status() or {}
+                        mode, _ = dlpc.get_display_mode()
+                        hw = dlpc.get_hardware_status()
+                        hw_txt = f"0x{hw:02X}" if hw is not None else "None"
+                        logger.debug(
+                            f"[WATCHDOG] mode={mode} seq={bool(ms.get('sequencer_running', False))} "
+                            f"lock={bool(ms.get('external_source_locked', False))} hw={hw_txt}"
+                        )
+
+                        auto_recover_abort = not args.no_auto_recover_abort
+                        has_abort = bool(hw & 0x40) if hw is not None else False
+                        if auto_recover_abort and has_abort:
+                            if (now_monotonic - last_abort_recover_at) >= args.abort_recover_cooldown:
+                                logger.warning(
+                                    "[WATCHDOG] Sequencer abort bit detected; attempting automatic sequence re-arm."
+                                )
+                                try:
+                                    dlpc.start_pattern_display(0)
+                                    time.sleep(0.05)
+                                    if not ensure_video_pattern_mode(dlpc, retries=2, poll_timeout_s=1.0):
+                                        logger.warning(
+                                            "[WATCHDOG] Auto-recover failed to latch Video Pattern Mode before re-arm."
+                                        )
+                                    else:
+                                        apply_pattern_sequence(dlpc, sequence_state["entries"])
+                                        logger.warning("[WATCHDOG] Auto-recover sequence re-arm issued.")
+                                except Exception as recover_exc:
+                                    logger.warning(f"[WATCHDOG] Auto-recover failed: {recover_exc}")
+                                finally:
+                                    last_abort_recover_at = now_monotonic
+
+                        watchdog_last = now_monotonic
 
                 if video_out is not None:
                     if cv2 is None:

@@ -308,6 +308,27 @@ class DLPC900:
         num_to_display = 0 if repeat else num_entries
         self.send_packet(0x1A31, struct.pack("<HI", num_entries, num_to_display))
 
+    def set_pattern_lut_reorder(self, order, repeat=True):
+        """0x1A32: Reorder LUT playback sequence.
+
+        Args:
+            order: Iterable of LUT pattern indices in playback order.
+            repeat: If True, number of patterns to display is 0 (indefinite repeat).
+        """
+        order_list = [int(idx) for idx in order]
+        if not order_list:
+            raise ValueError("Pattern LUT reorder list cannot be empty")
+
+        for idx in order_list:
+            if idx < 0 or idx > 399:
+                raise ValueError(f"Pattern reorder index out of range: {idx} (expected 0..399)")
+
+        nr = len(order_list)
+        np = 0 if repeat else nr
+        payload = struct.pack("<HI", nr, np)
+        payload += b"".join(struct.pack("<H", idx) for idx in order_list)
+        self.send_packet(0x1A32, payload)
+
     def set_pattern_lut_definition(self, entries):
         """
         0x1A34  12 bytes/entry:
