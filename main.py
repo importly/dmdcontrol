@@ -20,6 +20,10 @@ def generate_solid_color(color_idx, width=1920, height=1080):
 
 TARGET_HZ = 60
 BITPLANES = 24
+MIN_EXPOSURE_US = 150
+INTER_PATTERN_DARK_US = 0
+MAX_BINARY_RATE_HZ_DLP6500 = 9523
+SAFE_MARGIN_US = 10.0
 
 
 def log_board_snapshot(dlpc, tag):
@@ -80,20 +84,99 @@ def log_board_snapshot(dlpc, tag):
     logger.debug("=" * 66)
 
 
-def build_lut_entries(target_hz):
-    frame_period_us = (1_000_000 / target_hz) - 1500
-    dark_us = 105
-    
-    segment_us = int(frame_period_us / BITPLANES)
-    exposure_us = segment_us - dark_us
-    
-    if exposure_us < 150:
-        exposure_us = 150
-        
+def build_lut_entries(dlpc, target_hz):
+    if target_hz <= 0:
+        raise ValueError("target_hz must be positive")
+
+    measured_frame_hz = None
+    dd = dlpc.get_display_dimensions()
+    if (
+        dd
+        and dd.get("pixel_clock_khz")
+        and dd.get("total_pixels_per_line")
+        and dd.get("total_lines_per_frame")
+    ):
+        total_pixels = int(dd["total_pixels_per_line"]) * int(dd["total_lines_per_frame"])
+        pixel_clock_hz = int(dd["pixel_clock_khz"]) * 1000
+        if total_pixels > 0 and pixel_clock_hz > 0:
+            measured_frame_hz = pixel_clock_hz / total_pixels
+
+    effective_frame_hz = measured_frame_hz if measured_frame_hz else float(target_hz)
+    frame_period_us = 1_000_000.0 / effective_frame_hz
+    safe_frame_period_us = frame_period_us - SAFE_MARGIN_US
+    if safe_frame_period_us <= 0:
+        raise ValueError(
+            f"Frame period {frame_period_us:.2f} us is not larger than safety margin {SAFE_MARGIN_US:.2f} us."
+        )
+
+    requested_binary_rate_hz = float(target_hz) * BITPLANES
+    if requested_binary_rate_hz > MAX_BINARY_RATE_HZ_DLP6500:
+        raise ValueError(
+            f"Requested binary rate {requested_binary_rate_hz:.1f} Hz exceeds "
+            f"DLP6500 1-bit limit (~{MAX_BINARY_RATE_HZ_DLP6500} Hz)."
+        )
+
+    effective_binary_rate_hz = effective_frame_hz * BITPLANES
+    if effective_binary_rate_hz > MAX_BINARY_RATE_HZ_DLP6500:
+        raise ValueError(
+            f"Measured source binary rate {effective_binary_rate_hz:.1f} Hz exceeds "
+            f"DLP6500 1-bit limit (~{MAX_BINARY_RATE_HZ_DLP6500} Hz)."
+        )
+
+    min_segment_us = MIN_EXPOSURE_US + INTER_PATTERN_DARK_US
+    segment_budget_us = safe_frame_period_us / BITPLANES
+    if segment_budget_us < min_segment_us:
+        max_safe_hz = 1_000_000.0 / ((BITPLANES * min_segment_us) + SAFE_MARGIN_US)
+        raise ValueError(
+            f"Requested sequence exceeds VSYNC budget: each pattern has {segment_budget_us:.2f} us "
+            f"but needs >= {min_segment_us} us (exposure {MIN_EXPOSURE_US} us + dark {INTER_PATTERN_DARK_US} us). "
+            f"Reduce source frame rate to <= {max_safe_hz:.2f} Hz."
+        )
+
+    # Keep explicit margin so sequence completion is strictly earlier than the next VSYNC.
+    segment_us = int(safe_frame_period_us / BITPLANES)
+    exposure_us = segment_us - INTER_PATTERN_DARK_US
+    if exposure_us < MIN_EXPOSURE_US:
+        max_safe_hz = 1_000_000.0 / ((BITPLANES * min_segment_us) + SAFE_MARGIN_US)
+        raise ValueError(
+            f"Computed exposure {exposure_us} us is below minimum {MIN_EXPOSURE_US} us. "
+            f"Reduce source frame rate to <= {max_safe_hz:.2f} Hz."
+        )
+
+    total_sequence_us = (exposure_us + INTER_PATTERN_DARK_US) * BITPLANES
+
     entries = []
     for bit_pos in range(BITPLANES):
-        entries.append((bit_pos, exposure_us, True, 1, 7, dark_us, bit_pos))
-    return entries, exposure_us
+        clear_flag = bit_pos == (BITPLANES - 1)
+        # TODO(FrameZeroAnchor): For event-camera sequence anchoring, set trig2_disable = (bit_pos != 0)
+        # so TRIG_OUT_2 pulses only on the first bitplane of each frame.
+        trig2_disable = False
+        entries.append(
+            (
+                bit_pos,
+                exposure_us,
+                clear_flag,
+                1,
+                7,
+                INTER_PATTERN_DARK_US,
+                trig2_disable,
+                bit_pos,
+            )
+        )
+
+    timing = {
+        "frame_period_us": frame_period_us,
+        "safe_frame_period_us": safe_frame_period_us,
+        "safe_margin_us": SAFE_MARGIN_US,
+        "measured_frame_hz": measured_frame_hz,
+        "effective_frame_hz": effective_frame_hz,
+        "requested_binary_rate_hz": requested_binary_rate_hz,
+        "effective_binary_rate_hz": effective_binary_rate_hz,
+        "exposure_us": exposure_us,
+        "dark_us": INTER_PATTERN_DARK_US,
+        "total_sequence_us": total_sequence_us,
+    }
+    return entries, timing
 
 
 def wait_for_external_lock(dlpc, timeout_s=4.0):
@@ -165,7 +248,7 @@ def configure_dlpc900_for_video_pattern(dlpc, target_hz=60):
     # Secure the Global Hardware Trigger configs (DLPU018J Table 2-118/2-120)
     # Byte 0 Bit 0 = polarity (0=non-inverted). There is NO enable bit in the spec.
     # Non-inverted constraint: rising_delay <= falling_delay. Min pulse width: 20µs.
-    dlpc.configure_trigger_out_1(polarity_high=True, rising_delay_us=0, falling_delay_us=20)
+    dlpc.configure_trigger_out_1(polarity_high=True, rising_delay_us=5, falling_delay_us=20)
     err = dlpc.get_last_error()
     logger.debug(f"  - TRIG_OUT_1 config sent. Last error: {err}")
     
@@ -180,9 +263,18 @@ def configure_dlpc900_for_video_pattern(dlpc, target_hz=60):
     logger.info(f"  - TRIG_OUT_2 readback: {t2}")
 
     # Step 7: Define pattern LUT (bit-plane extraction)
-    entries, exposure_us = build_lut_entries(target_hz)
+    entries, timing = build_lut_entries(dlpc, target_hz)
+    if timing["measured_frame_hz"] and abs(timing["measured_frame_hz"] - target_hz) > 0.5:
+        logger.warning(
+            f"[WARNING] Source VSYNC is {timing['measured_frame_hz']:.3f} Hz while --hz is {target_hz} Hz. "
+            f"Sequencer timing follows source VSYNC ({timing['effective_frame_hz']:.3f} Hz)."
+        )
     logger.info(
-        f"[+] LUT: {BITPLANES} entries, exposure={exposure_us}us, binary rate={BITPLANES * target_hz} Hz"
+        f"[+] LUT: {BITPLANES} entries, exposure={timing['exposure_us']}us, "
+        f"dark={timing['dark_us']}us, sequence={timing['total_sequence_us']:.1f}/{timing['safe_frame_period_us']:.1f}us "
+        f"(margin {timing['safe_margin_us']:.1f}us from {timing['frame_period_us']:.1f}us VSYNC), "
+        f"binary rate req={timing['requested_binary_rate_hz']:.1f}Hz, "
+        f"effective={timing['effective_binary_rate_hz']:.1f}Hz"
     )
     dlpc.set_pattern_lut_definition(entries)
     dlpc.set_pattern_lut_config(BITPLANES, repeat=True)
@@ -385,6 +477,7 @@ def run():
 
         else:
             # Generate initial frame based on test mode
+            frame = None
             if args.test_ordering:
                 logger.info("[+] Starting Diagnostic Mode: Bit Ordering Sweep...")
                 patterns = engine.generate_ordering_diagnostic_patterns(1920, 1080)
@@ -430,6 +523,9 @@ def run():
                 frame = engine.generate_snake_frame()
             elif args.test_clock:
                 frame = engine.generate_clock_frame()
+
+            if frame is None:
+                raise RuntimeError("No initial frame generated for the selected mode.")
                 
             engine.display_frame(frame)
 
@@ -438,6 +534,9 @@ def run():
             verify_runtime_state(dlpc)
 
             # Pre-generate frames for dynamic patterns to prevent stuttering in the render loop
+            solid_r = frame
+            solid_g = frame
+            solid_b = frame
             if args.test_colors:
                 solid_r = engine.pack_patterns(
                     engine.rgb_to_binary_patterns(generate_solid_color(0))
@@ -457,8 +556,14 @@ def run():
             video_out = None
             if args.capture and cv2 is not None:
                 logger.info(f"[+] Recording packed frames to {args.capture}")
-                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                video_out = cv2.VideoWriter(
+                video_writer_fourcc = getattr(cv2, "VideoWriter_fourcc", None)
+                if video_writer_fourcc is None:
+                    raise RuntimeError("OpenCV does not expose VideoWriter_fourcc in this environment.")
+                fourcc = video_writer_fourcc(*"mp4v")
+                video_writer_cls = getattr(cv2, "VideoWriter", None)
+                if video_writer_cls is None:
+                    raise RuntimeError("OpenCV does not expose VideoWriter in this environment.")
+                video_out = video_writer_cls(
                     args.capture, fourcc, target_hz, (1920, 1080), isColor=True
                 )
             elif args.capture and cv2 is None:
@@ -487,8 +592,14 @@ def run():
                 engine.display_frame(frame)
 
                 if video_out is not None:
+                    if cv2 is None:
+                        raise RuntimeError("OpenCV capture path requested but cv2 is unavailable.")
+                    cvt_color = getattr(cv2, "cvtColor", None)
+                    color_rgb2bgr = getattr(cv2, "COLOR_RGB2BGR", None)
+                    if cvt_color is None or color_rgb2bgr is None:
+                        raise RuntimeError("OpenCV color conversion APIs are unavailable in this environment.")
                     # Convert RGB (OpenGL format) to BGR (OpenCV format)
-                    bgr_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                    bgr_frame = cvt_color(frame, color_rgb2bgr)
                     video_out.write(bgr_frame)
 
             if video_out is not None:

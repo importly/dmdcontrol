@@ -311,24 +311,88 @@ class DLPC900:
     def set_pattern_lut_definition(self, entries):
         """
         0x1A34  12 bytes/entry:
-          entry = (idx, exp_us, clear, depth, led, dark_us, bit_pos)
+          entry = (idx, exp_us, clear, depth, led, dark_us, trig2_disable, bit_pos)
+          optional: (idx, exp_us, clear, depth, led, dark_us, trig2_disable, bit_pos, image_index)
+
+        Byte packing follows DLPU018J Table 2-143:
+          - byte 9 bit0: trigger 2 disable for this pattern
+          - byte 9 bit1: extended bit depth flag (depth 9-16)
+          - bytes 10-11 bits 15:11: frame/bit position in video pattern mode
+          - bytes 10-11 bits 10:0: image pattern index (unused in video mode)
         """
         payload = b""
-        for idx, exp_us, clear, depth, led, dark_us, bit_pos in entries:
-            exp3 = struct.pack("<I", exp_us)[:3]
-            dark3 = struct.pack("<I", dark_us)[:3]
-            b5 = (1 if clear else 0) | ((depth - 1) << 1) | ((led & 7) << 4)
-            # Some older firmware explicitly crashes and sets an empty LUT if ANY bits in b9 are non-zero!
-            # We must set b9 = 0 unconditionally to keep the display alive.
-            b9 = 0
-            b1011 = struct.pack("<H", (bit_pos & 0x1F) << 11)
+        for entry in entries:
+            if len(entry) == 8:
+                (
+                    idx,
+                    exp_us,
+                    clear,
+                    depth,
+                    led,
+                    dark_us,
+                    trig2_disable,
+                    bit_pos,
+                ) = entry
+                image_index = 0
+            elif len(entry) == 9:
+                (
+                    idx,
+                    exp_us,
+                    clear,
+                    depth,
+                    led,
+                    dark_us,
+                    trig2_disable,
+                    bit_pos,
+                    image_index,
+                ) = entry
+            else:
+                raise ValueError(
+                    "Each LUT entry must contain 8 or 9 items: "
+                    "(idx, exp_us, clear, depth, led, dark_us, trig2_disable, bit_pos[, image_index])"
+                )
+
+            idx = int(idx)
+            exp_us = int(exp_us)
+            dark_us = int(dark_us)
+            depth = int(depth)
+            led = int(led)
+            bit_pos = int(bit_pos)
+            image_index = int(image_index)
+
+            if idx < 0 or idx > 399:
+                raise ValueError(f"Pattern index out of range: {idx} (expected 0..399)")
+            if exp_us < 0 or exp_us > 0xFFFFFF:
+                raise ValueError(f"Exposure out of range: {exp_us} (expected 0..16777215)")
+            if dark_us < 0 or dark_us > 0xFFFFFF:
+                raise ValueError(f"Dark time out of range: {dark_us} (expected 0..16777215)")
+            if depth < 1 or depth > 16:
+                raise ValueError(f"Bit depth out of range: {depth} (expected 1..16)")
+            if led < 0 or led > 7:
+                raise ValueError(f"LED mask out of range: {led} (expected 0..7)")
+            if bit_pos < 0 or bit_pos > 23:
+                raise ValueError(f"Bit position out of range: {bit_pos} (expected 0..23)")
+            if image_index < 0 or image_index > 0x07FF:
+                raise ValueError(
+                    f"Image index out of range: {image_index} (expected 0..2047)"
+                )
+
+            ext_depth = 1 if depth > 8 else 0
+            depth_field = (depth - 1) & 0x07
+
+            exp3 = struct.pack("<I", int(exp_us))[:3]
+            dark3 = struct.pack("<I", int(dark_us))[:3]
+            b5 = (1 if clear else 0) | (depth_field << 1) | ((led & 0x07) << 4)
+            b9 = (1 if trig2_disable else 0) | ((ext_depth & 0x01) << 1)
+            b1011 = (image_index & 0x07FF) | ((bit_pos & 0x1F) << 11)
+
             payload += (
                 struct.pack("<H", idx)
                 + exp3
                 + struct.pack("<B", b5)
                 + dark3
                 + struct.pack("<B", b9)
-                + b1011
+                + struct.pack("<H", b1011)
             )
         self.send_packet(0x1A34, payload)
 
