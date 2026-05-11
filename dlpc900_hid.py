@@ -360,3 +360,9 @@ class DLPC900:
 
     def set_internal_test_pattern(self, pattern):
         self._write(0x1203, struct.pack("<B", pattern))
+
+    def send_packet(self, cmd_id: int, data: bytes = b"", read: bool = False):
+        """Backward-compat shim: routes to _read or _write."""
+        if read:
+            return self._read(cmd_id)
+        self._write(cmd_id, data)

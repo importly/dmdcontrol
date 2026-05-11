@@ -256,6 +256,39 @@ def ensure_video_pattern_mode(dlpc, retries=3, poll_timeout_s=1.2):
     return False
 
 
+def mode3_warmup(duration_s=1.0):
+    """Run a brief Pattern On-The-Fly (mode 3) sequence before Video Pattern Mode.
+
+    Replicates the state left by mentor's pycrafter6500 code, which empirically
+    allowed Video Pattern Mode to initialize without the abort latch (hw 0x40).
+    The USB device is fully released before returning so DLPC900() can re-claim it.
+    """
+    import numpy as np
+    from pycrafter6500 import dmd
+    import usb.util as _usb_util
+
+    logger.info("[+] Mode 3 warm-up: loading all-white pattern via pycrafter6500...")
+    d = dmd()
+    img = np.ones((1080, 1920), dtype=np.uint8)
+    d.dmd_pattern_load(
+        pattern_file_list=[img],
+        exposure_val=int(duration_s * 1e6),
+        dark_time_val=0,
+        trigger_in_val=False,
+        trigger_out_val=False,
+        repeat=0,
+        open_from_file=False,
+    )
+    d.startsequence()
+    logger.info(f"[+] Mode 3 running for {duration_s}s...")
+    time.sleep(duration_s)
+    d.stopsequence()
+    _usb_util.dispose_resources(d.dev)
+    del d
+    time.sleep(0.2)
+    logger.info("[+] Mode 3 warm-up complete. USB released.")
+
+
 def apply_pattern_sequence(dlpc, entries):
     order = [int(entry[0]) for entry in entries]
     dlpc.set_pattern_lut_definition(entries)
@@ -644,6 +677,7 @@ def run():
     dlpc = None
     engine = None
     try:
+        mode3_warmup(duration_s=1.0)
         logger.info("[+] Initializing DLPC900...")
         dlpc = DLPC900()
 
