@@ -54,7 +54,7 @@ def merge(images):
         image8 = np.zeros((1080, 1920), dtype=np.uint8)
         for j in range(batch_size):
             image8 += images[i*8+j]*(1 << j)
-        image32 += image8*(1 << (i*8))
+        image32 += image8.astype(np.uint32)*(1 << (i*8))
     return image32
 
 
@@ -124,7 +124,7 @@ def encode_row(row, same_prev):
             j_start = j
             pixels = bgr(row[j]) + bgr(row[j+1])
             j += 2
-            while j == 1919 or not same_either[j]:
+            while j < 1919 and not same_either[j]:
                 pixels += bgr(row[j])
                 j += 1
             compressed += b'\x00' + enc128(j-j_start) + pixels

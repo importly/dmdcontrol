@@ -801,7 +801,18 @@ def run():
                 
             engine.display_frame(frame)
 
-            time.sleep(1.0)
+            # GL is now delivering frames. Re-arm the sequencer here so start_pattern_display(2)
+            # fires while VSYNC is already flowing — eliminates the mid-frame collision that
+            # causes the forced-swap abort latch (hw 0x40) seen when sequencer starts cold.
+            time.sleep(0.05)  # 3 VSYNC cycles at 60Hz — let GPU settle
+            logger.info("[+] Re-arming sequencer with GL stream active (GL-aware start)...")
+            dlpc.start_pattern_display(0)
+            time.sleep(0.05)
+            dlpc.apply_block_lock_workaround()
+            time.sleep(0.5)
+            apply_pattern_sequence(dlpc, sequence_state['entries'])
+            time.sleep(0.3)
+
             log_board_snapshot(dlpc, "POST-FIRST-FRAME (after GL stream)")
             if not verify_runtime_state(dlpc):
                 raise RuntimeError(
