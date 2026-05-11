@@ -90,8 +90,7 @@ def build_lut_entries(
     dlpc,
     target_hz,
     sequence_utilization=DEFAULT_SEQUENCE_UTILIZATION,
-    trig2_frame_zero=False,
-):
+    trig2_frame_zero=False,):
     if target_hz <= 0:
         raise ValueError("target_hz must be positive")
     if sequence_utilization <= 0.0 or sequence_utilization > 1.0:
@@ -265,6 +264,35 @@ def apply_pattern_sequence(dlpc, entries):
     dlpc.start_pattern_display(2)
     time.sleep(0.2)
 
+    # Immediately check for abort latch: if start_pattern_display(2) fired during a
+    # mid-frame GPU commit, hw bit 0x40 is set. Detect it here, clear it, and retry once
+    # rather than silently entering the main loop with broken triggers.
+    hw = dlpc.get_hardware_status()
+    if hw is not None and (hw & 0x40):
+        logger.warning(
+            f"[WARN] Abort latch (hw=0x{hw:02X}) set immediately after sequencer start. "
+            "Clearing and retrying: stop → park/unpark → resend LUT → restart."
+        )
+        dlpc.start_pattern_display(0)
+        time.sleep(0.1)
+        dlpc.apply_block_lock_workaround()
+        time.sleep(1.0)
+        # Resend full LUT config — required after park/unpark per DLPU018J
+        dlpc.set_pattern_lut_definition(entries)
+        dlpc.set_pattern_lut_config(len(entries), repeat=True)
+        dlpc.set_pattern_lut_reorder(order, repeat=True)
+        dlpc.start_pattern_display(2)
+        time.sleep(0.2)
+        hw2 = dlpc.get_hardware_status()
+        if hw2 is not None and (hw2 & 0x40):
+            logger.error(
+                f"[ERROR] Abort latch still set (hw=0x{hw2:02X}) after retry. "
+                "Triggers will be unreliable. Consider power cycling the DLPC900."
+            )
+        else:
+            hw2_str = f"0x{hw2:02X}" if hw2 is not None else "??"
+            logger.info(f"[+] Abort latch cleared after retry (hw={hw2_str}). Sequencer restarted.")
+
 
 def configure_dlpc900_for_video_pattern(
     dlpc,
@@ -290,7 +318,7 @@ def configure_dlpc900_for_video_pattern(
     # Per DLPU018J p.56: "Must first change to Video Mode (0) with desired source enabled"
     logger.debug("  - Entering Video Mode (0) with DisplayPort source...")
     dlpc.set_display_mode(0x00)
-    dlpc.set_input_source(0, 1)  # DisplayPort
+    dlpc.set_input_source(0, 1)  # DisplayPort TODO! try hdmi
     dlpc.toggle_dual_pixel_mode(bool(dual_pixel))
     logger.info(
         f"[+] Parallel input pixel mode: {'Dual P1-P2' if dual_pixel else 'Single P1'}"
@@ -306,7 +334,14 @@ def configure_dlpc900_for_video_pattern(
     # Step 4: Wait for sync lock (REQUIRED before mode 2 transition)
     logger.info("[+] Waiting for external source sync lock...")
     if wait_for_external_lock(dlpc, timeout_s=4.0):
-        logger.info("[+] External source lock acquired. Ready for Video Pattern Mode.")
+        logger.info("[+] External source lock acquired. Dwelling in Mode 0 for video buffer stabilization (3s)...")
+        # "external_source_locked" means VSYNC edges detected, not that the video buffer
+        # content is consistent. Dwelling here lets the DLPC900 fill its internal buffer
+        # with valid frames before we arm the sequencer. Without this, the first
+        # start_pattern_display(2) collides with a mid-frame GPU commit (forced-swap 0x08)
+        # which permanently latches the abort flag (0x40).
+        time.sleep(3.0)
+        logger.info("[+] Mode 0 buffer dwell complete. Ready for Video Pattern Mode.")
     else:
         ms = dlpc.get_main_status() or {}
         raise RuntimeError(
@@ -323,6 +358,11 @@ def configure_dlpc900_for_video_pattern(
     logger.debug("  - Waiting 300ms for mode transition (per TI spec)...")
     time.sleep(0.3)
 
+    # Explicitly stop before park: DLPU018J requires stop before park in Video Pattern Mode.
+    # Without this, the firmware latches the abort flag (hw bit 0x40) during park even when
+    # no sequence was running, because it sees a park without a preceding stop command.
+    dlpc.start_pattern_display(0)
+    time.sleep(0.05)
     dlpc.apply_block_lock_workaround()
 
     # Additional settling time
@@ -397,6 +437,14 @@ def configure_dlpc900_for_video_pattern(
         f"[SCOPE] Expected TRIG_OUT_1: ~{timing['effective_frame_hz']:.3f} pulses/s. "
         "With dark=0us, pulse may appear as a wide frame-level gate."
     )
+    # Wait for VSYNC buffer stabilization before arming the sequencer.
+    # The 300ms mode-transition spec covers the mode change itself, not the video
+    # buffer sync. Empirically, if start_pattern_display(2) fires before the DLPC900
+    # has processed several VSYNC cycles in mode 2, the first frame collision causes
+    # a forced-swap (hw 0x08) which latches the abort flag (0x40). Waiting ~2s lets
+    # the DLPC900 fully lock onto the GPU's VSYNC before the sequencer arms.
+    logger.debug("  - Final VSYNC settling wait (1s)...")
+    time.sleep(1.0)
     logger.info(f"[+] Applying LUT reorder with {len(entries)} entries...")
     apply_pattern_sequence(dlpc, entries)
 
@@ -802,7 +850,8 @@ def run():
 
                         auto_recover_abort = not args.no_auto_recover_abort
                         has_abort = bool(hw & 0x40) if hw is not None else False
-                        if auto_recover_abort and has_abort:
+                        seq_actually_stopped = not bool(ms.get('sequencer_running', True))
+                        if auto_recover_abort and has_abort and seq_actually_stopped:
                             if (now_monotonic - last_abort_recover_at) >= args.abort_recover_cooldown:
                                 logger.warning(
                                     "[WATCHDOG] Sequencer abort bit detected; attempting automatic sequence re-arm."
