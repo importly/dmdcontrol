@@ -256,38 +256,6 @@ def ensure_video_pattern_mode(dlpc, retries=3, poll_timeout_s=1.2):
     return False
 
 
-def mode3_warmup(duration_s=1.0):
-    """Run a brief Pattern On-The-Fly (mode 3) sequence before Video Pattern Mode.
-
-    Replicates the state left by mentor's pycrafter6500 code, which empirically
-    allowed Video Pattern Mode to initialize without the abort latch (hw 0x40).
-    The USB device is fully released before returning so DLPC900() can re-claim it.
-    """
-    import numpy as np
-    from pycrafter6500 import dmd
-    import usb.util as _usb_util
-
-    logger.info("[+] Mode 3 warm-up: loading all-white pattern via pycrafter6500...")
-    d = dmd()
-    img = np.ones((1080, 1920), dtype=np.uint8)
-    d.dmd_pattern_load(
-        pattern_file_list=[img],
-        exposure_val=int(duration_s * 1e6),
-        dark_time_val=0,
-        trigger_in_val=False,
-        trigger_out_val=False,
-        repeat=0,
-        open_from_file=False,
-    )
-    d.startsequence()
-    logger.info(f"[+] Mode 3 running for {duration_s}s...")
-    time.sleep(duration_s)
-    d.stopsequence()
-    _usb_util.dispose_resources(d.dev)
-    del d
-    time.sleep(0.2)
-    logger.info("[+] Mode 3 warm-up complete. USB released.")
-
 
 def apply_pattern_sequence(dlpc, entries):
     order = [int(entry[0]) for entry in entries]
@@ -367,14 +335,7 @@ def configure_dlpc900_for_video_pattern(
     # Step 4: Wait for sync lock (REQUIRED before mode 2 transition)
     logger.info("[+] Waiting for external source sync lock...")
     if wait_for_external_lock(dlpc, timeout_s=4.0):
-        logger.info("[+] External source lock acquired. Dwelling in Mode 0 for video buffer stabilization (3s)...")
-        # "external_source_locked" means VSYNC edges detected, not that the video buffer
-        # content is consistent. Dwelling here lets the DLPC900 fill its internal buffer
-        # with valid frames before we arm the sequencer. Without this, the first
-        # start_pattern_display(2) collides with a mid-frame GPU commit (forced-swap 0x08)
-        # which permanently latches the abort flag (0x40).
-        time.sleep(3.0)
-        logger.info("[+] Mode 0 buffer dwell complete. Ready for Video Pattern Mode.")
+        logger.info("[+] External source lock acquired.")
     else:
         ms = dlpc.get_main_status() or {}
         raise RuntimeError(
@@ -677,7 +638,6 @@ def run():
     dlpc = None
     engine = None
     try:
-        mode3_warmup(duration_s=1.0)
         logger.info("[+] Initializing DLPC900...")
         dlpc = DLPC900()
 
@@ -801,18 +761,7 @@ def run():
                 
             engine.display_frame(frame)
 
-            # GL is now delivering frames. Re-arm the sequencer here so start_pattern_display(2)
-            # fires while VSYNC is already flowing — eliminates the mid-frame collision that
-            # causes the forced-swap abort latch (hw 0x40) seen when sequencer starts cold.
-            time.sleep(0.05)  # 3 VSYNC cycles at 60Hz — let GPU settle
-            logger.info("[+] Re-arming sequencer with GL stream active (GL-aware start)...")
-            dlpc.start_pattern_display(0)
-            time.sleep(0.05)
-            dlpc.apply_block_lock_workaround()
-            time.sleep(0.5)
-            apply_pattern_sequence(dlpc, sequence_state['entries'])
-            time.sleep(0.3)
-
+            time.sleep(1.0)
             log_board_snapshot(dlpc, "POST-FIRST-FRAME (after GL stream)")
             if not verify_runtime_state(dlpc):
                 raise RuntimeError(

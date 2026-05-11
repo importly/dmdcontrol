@@ -17,10 +17,9 @@ import pycrafter6500
 from dmd_functions import dmd_pattern_load
 
 
-WARMUP_DURATION_S = 60
-NUM_PATTERNS      = 24       # fills one ERLE block exactly
-EXPOSURE_US       = 5000     # 5ms — matches mentor's 200Hz data collection cadence
-DARK_US           = 0
+WARMUP_DURATION_S = 20       # 20s — user confirmed promising at 26.5s; 60s was overkill
+EXPOSURE_US       = 10     # 5ms per pattern
+DARK_US           = 10
 REPEAT            = 0        # infinite loop
 
 
@@ -30,14 +29,15 @@ def main() -> None:
     print("[+] Connecting to DLPC900 via USB...")
     dlp = pycrafter6500.dmd()
 
-    print(f"[+] Generating {NUM_PATTERNS} random 1920x1080 binary patterns...")
-    rng = np.random.default_rng(seed=0xDEAD)
-    # Values 0 or 255 — dmd_pattern_load does //129 internally → 0 or 1
-    patterns = [rng.integers(0, 2, (1080, 1920), dtype=np.uint8) * 255
-                for _ in range(NUM_PATTERNS)]
+    # All-white + all-black: ERLE encodes runs of identical pixels near-instantly.
+    # 24 random 1080p images took ~10s to encode+upload; 2 solid images take ~1s.
+    patterns = [
+        np.full((1080, 1920), 255, dtype=np.uint8),  # all-white → 1 after //129
+        np.full((1080, 1920),   0, dtype=np.uint8),  # all-black → 0 after //129
+    ]
 
     print(f"[+] Loading into mode 3 (Pattern On-The-Fly) via dmd_pattern_load...")
-    print(f"    exposure={EXPOSURE_US}us  dark={DARK_US}us  repeat=infinite")
+    print(f"    {len(patterns)} patterns  exposure={EXPOSURE_US}us  dark={DARK_US}us  repeat=infinite")
     dmd_pattern_load(
         dlp=dlp,
         pattern_file_list=patterns,
