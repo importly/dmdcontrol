@@ -257,42 +257,48 @@ def ensure_video_pattern_mode(dlpc, retries=3, poll_timeout_s=1.2):
 
 
 
-def apply_pattern_sequence(dlpc, entries):
+def apply_pattern_sequence(dlpc, entries, frame_pump=None):
     order = [int(entry[0]) for entry in entries]
     dlpc.set_pattern_lut_definition(entries)
     dlpc.set_pattern_lut_config(len(entries), repeat=True)
     dlpc.set_pattern_lut_reorder(order, repeat=True)
+    if frame_pump is not None:
+        frame_pump()  # render fresh frames at the exact moment of arming
     dlpc.start_pattern_display(2)
     time.sleep(0.2)
 
-    # Immediately check for abort latch: if start_pattern_display(2) fired during a
-    # mid-frame GPU commit, hw bit 0x40 is set. Detect it here, clear it, and retry once
-    # rather than silently entering the main loop with broken triggers.
-    hw = dlpc.get_hardware_status()
-    if hw is not None and (hw & 0x40):
+    # Check for abort latch after start. Retry up to 5 times with non-round delays
+    # (non-multiples of 16.67ms) to avoid landing on the same VSYNC phase each attempt.
+    _RETRY_DELAYS = [0.37, 0.73, 1.17, 1.83, 2.53]
+    for attempt in range(1, len(_RETRY_DELAYS) + 1):
+        hw = dlpc.get_hardware_status()
+        if hw is None or not (hw & 0x40):
+            if attempt > 1:
+                hw_str = f"0x{hw:02X}" if hw is not None else "??"
+                logger.info(f"[+] Abort latch cleared on attempt {attempt} (hw={hw_str}). Sequencer running.")
+            break
         logger.warning(
-            f"[WARN] Abort latch (hw=0x{hw:02X}) set immediately after sequencer start. "
-            "Clearing and retrying: stop → park/unpark → resend LUT → restart."
+            f"[WARN] Abort latch (hw=0x{hw:02X}) after start attempt {attempt}. "
+            f"Clearing: stop → park/unpark → {_RETRY_DELAYS[attempt-1]:.2f}s → resend LUT → restart."
         )
         dlpc.start_pattern_display(0)
         time.sleep(0.1)
         dlpc.apply_block_lock_workaround()
-        time.sleep(1.0)
-        # Resend full LUT config — required after park/unpark per DLPU018J
+        time.sleep(_RETRY_DELAYS[attempt - 1])
         dlpc.set_pattern_lut_definition(entries)
         dlpc.set_pattern_lut_config(len(entries), repeat=True)
         dlpc.set_pattern_lut_reorder(order, repeat=True)
+        if frame_pump is not None:
+            frame_pump()
         dlpc.start_pattern_display(2)
         time.sleep(0.2)
-        hw2 = dlpc.get_hardware_status()
-        if hw2 is not None and (hw2 & 0x40):
-            logger.error(
-                f"[ERROR] Abort latch still set (hw=0x{hw2:02X}) after retry. "
-                "Triggers will be unreliable. Consider power cycling the DLPC900."
-            )
-        else:
-            hw2_str = f"0x{hw2:02X}" if hw2 is not None else "??"
-            logger.info(f"[+] Abort latch cleared after retry (hw={hw2_str}). Sequencer restarted.")
+    else:
+        hw_final = dlpc.get_hardware_status()
+        hw_final_str = f"0x{hw_final:02X}" if hw_final is not None else "??"
+        logger.error(
+            f"[ERROR] Abort latch persists (hw={hw_final_str}) after {len(_RETRY_DELAYS)} retries. "
+            "Triggers unreliable. Power cycle DLPC900."
+        )
 
 
 def configure_dlpc900_for_video_pattern(
@@ -301,6 +307,8 @@ def configure_dlpc900_for_video_pattern(
     dual_pixel=False,
     sequence_utilization=DEFAULT_SEQUENCE_UTILIZATION,
     trig2_frame_zero=False,
+    pre_arm_callback=None,
+    frame_pump=None,
 ):
     logger.info(
         f"[+] Configuring DLPC900 for 1920x1080 @ {target_hz}Hz Video Pattern Mode ({BITPLANES} bit-planes)..."
@@ -319,7 +327,7 @@ def configure_dlpc900_for_video_pattern(
     # Per DLPU018J p.56: "Must first change to Video Mode (0) with desired source enabled"
     logger.debug("  - Entering Video Mode (0) with DisplayPort source...")
     dlpc.set_display_mode(0x00)
-    dlpc.set_input_source(0, 1)  # DisplayPort TODO! try hdmi
+    dlpc.set_input_source(0, 1)  # DisplayPort 
     dlpc.toggle_dual_pixel_mode(bool(dual_pixel))
     logger.info(
         f"[+] Parallel input pixel mode: {'Dual P1-P2' if dual_pixel else 'Single P1'}"
@@ -335,7 +343,9 @@ def configure_dlpc900_for_video_pattern(
     # Step 4: Wait for sync lock (REQUIRED before mode 2 transition)
     logger.info("[+] Waiting for external source sync lock...")
     if wait_for_external_lock(dlpc, timeout_s=4.0):
-        logger.info("[+] External source lock acquired.")
+        logger.info("[+] External source lock acquired. Waiting 0.3s for video buffer to fill...")
+        time.sleep(3)
+        logger.info("[+] Video buffer dwell complete.")
     else:
         ms = dlpc.get_main_status() or {}
         raise RuntimeError(
@@ -372,6 +382,16 @@ def configure_dlpc900_for_video_pattern(
             "Failed to enter Video Pattern Mode (mode 2) after retries. "
             f"Mode readback: {mode}, main status: {ms}. Trigger outputs are disabled in Video Mode."
         )
+
+    # Re-acquire external lock in mode 2. The mode transition + park/unpark can reset
+    # the DP receiver pipeline, dropping the lock. If we arm start_pattern_display(2)
+    # before the DLPC900 re-locks, a forced-swap (hw 0x08) latches the abort (0x40).
+    logger.info("[+] Waiting for external source lock in Video Pattern Mode...")
+    if not wait_for_external_lock(dlpc, timeout_s=6.0):
+        logger.warning("[WARN] External lock not re-acquired in mode 2. Proceeding — triggers may be unreliable.")
+    else:
+        logger.info("[+] External lock confirmed in mode 2. Waiting 2s for DP pipeline to stabilize...")
+        time.sleep(2.0)
 
     # Secure the Global Hardware Trigger configs (DLPU018J Table 2-118/2-120)
     # Byte 0 Bit 0 = polarity (0=non-inverted). There is NO enable bit in the spec.
@@ -439,8 +459,15 @@ def configure_dlpc900_for_video_pattern(
     # the DLPC900 fully lock onto the GPU's VSYNC before the sequencer arms.
     logger.debug("  - Final VSYNC settling wait (1s)...")
     time.sleep(1.0)
+
+    # Prime the video buffer with live frames immediately before arming.
+    # GL must be rendering when start_pattern_display(2) fires — a stale/static
+    # DP frame causes forced-swap (hw 0x08) on every attempt.
+    if pre_arm_callback is not None:
+        pre_arm_callback()
+
     logger.info(f"[+] Applying LUT reorder with {len(entries)} entries...")
-    apply_pattern_sequence(dlpc, entries)
+    apply_pattern_sequence(dlpc, entries, frame_pump=frame_pump)
 
     # Step 8: Sequencer start command was issued in apply_pattern_sequence().
     logger.info("[+] Pattern sequencer start command issued.")
@@ -638,6 +665,9 @@ def run():
     dlpc = None
     engine = None
     try:
+        from pattern_engine import PatternEngine
+        engine = PatternEngine(monitor_index=args.monitor, fps=target_hz)
+
         logger.info("[+] Initializing DLPC900...")
         dlpc = DLPC900()
 
@@ -646,19 +676,28 @@ def run():
             dlpc.send_packet(0x1A01, bytes([2]))
             time.sleep(1.0)
 
+        black_frame = engine.pack_patterns(engine.generate_solid(0))
+
+        def _prime_video_buffer():
+            logger.info("[+] Priming DLPC900 video buffer with live GL frames before sequencer arm...")
+            for _ in range(12):  # ~200ms at 60Hz — fill the internal frame buffer
+                engine.display_frame(black_frame)
+
+        def _frame_pump():
+            for _ in range(3):  # ~50ms — fresh frames at the moment of start_pattern_display(2)
+                engine.display_frame(black_frame)
+
         sequence_state = configure_dlpc900_for_video_pattern(
             dlpc,
             target_hz,
             dual_pixel=args.dual_pixel,
             sequence_utilization=args.seq_utilization,
             trig2_frame_zero=args.trig2_frame_zero,
+            pre_arm_callback=_prime_video_buffer,
+            frame_pump=_frame_pump,
         )
 
-        log_board_snapshot(dlpc, "POST-CONFIG (before GL stream)")
-
-        from pattern_engine import PatternEngine
-
-        engine = PatternEngine(monitor_index=args.monitor, fps=target_hz)
+        log_board_snapshot(dlpc, "POST-CONFIG")
 
         logger.info(f"[+] Holding output for {args.runtime_seconds} seconds...")
 
@@ -762,7 +801,7 @@ def run():
             engine.display_frame(frame)
 
             time.sleep(1.0)
-            log_board_snapshot(dlpc, "POST-FIRST-FRAME (after GL stream)")
+            log_board_snapshot(dlpc, "POST-PATTERN-FRAME (after first pattern rendered)")
             if not verify_runtime_state(dlpc):
                 raise RuntimeError(
                     "Runtime state check failed after first frame. "
