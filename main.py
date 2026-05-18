@@ -9,15 +9,6 @@ except ImportError:
 from dlpc900_hid import DLPC900
 from logger import setup_logger, logger
 
-
-def generate_solid_color(color_idx, width=1920, height=1080):
-    import numpy as np
-
-    img = np.zeros((height, width, 3), dtype=np.uint8)
-    img[:, :, color_idx] = 255
-    return img
-
-
 TARGET_HZ = 60
 BITPLANES = 24
 MIN_EXPOSURE_US = 150
@@ -26,6 +17,13 @@ MAX_BINARY_RATE_HZ_DLP6500 = 9523
 SAFE_MARGIN_US = 250.0
 MAX_MEASURED_VSYNC_DEVIATION_RATIO = 0.25
 DEFAULT_SEQUENCE_UTILIZATION = 0.90
+
+def generate_solid_color(color_idx, width=1920, height=1080):
+    import numpy as np
+
+    img = np.zeros((height, width, 3), dtype=np.uint8)
+    img[:, :, color_idx] = 255
+    return img
 
 
 def log_board_snapshot(dlpc, tag):
@@ -568,7 +566,7 @@ def verify_runtime_state(dlpc):
     return all_ok
 
 
-def run():
+def main():
     parser = argparse.ArgumentParser(description="DLPC900 1080p Video Pattern Runtime")
     parser.add_argument(
         "--hz", type=int, default=60, help="Target Hz (60 or 120, experimental)"
@@ -959,4 +957,4 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    main()

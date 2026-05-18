@@ -47,7 +47,21 @@ class DLPC900:
                 pass
 
         self.dev.set_configuration()
-        usb.util.claim_interface(self.dev, 0)
+
+        # Dynamic HID interface enum (Finding 47): DLPC900 is composite USB.
+        # Linux frequently puts HID on intf 1; Windows on intf 0. Hard-coded 0
+        # caused silent endpoint mismatch on Linux. Find first intf with class=3.
+        cfg = self.dev.get_active_configuration()
+        hid_intf = None
+        for intf in cfg:
+            if intf.bInterfaceClass == 0x03:
+                hid_intf = intf.bInterfaceNumber
+                break
+        if hid_intf is None:
+            hid_intf = 0
+        self._hid_intf = hid_intf
+        logger.debug(f"[DLPC900] Claiming HID interface {hid_intf}")
+        usb.util.claim_interface(self.dev, hid_intf)
         self._seq = 0
 
     def _seq_next(self):
@@ -79,13 +93,14 @@ class DLPC900:
         for off in range(0, max(len(buf), 1), 64):
             chunk = bytes(buf[off : off + 64]).ljust(64, b"\x00")
             try:
-                self.dev.write(0x01, chunk, timeout=500)
+                self.dev.write(0x01, chunk, timeout=2000)
             except usb.core.USBError:
                 time.sleep(0.1)
-                self.dev.write(0x01, chunk, timeout=500)
+                self.dev.write(0x01, chunk, timeout=2000)
 
         # Drain the firmware response (ACK for writes, payload for reads).
         # Poll up to 6 packets; match on sequence byte.
+        # Timeout 2000ms (Finding 48): 500ms too short for multi-packet ACKs.
         #
         # Report-ID detection: some USB HID stacks prepend a 0x00 byte.
         # With our flag values (0x40 write-ACK, 0xC0 read-reply), the real
@@ -94,7 +109,7 @@ class DLPC900:
         last_resp = None
         for _ in range(6):
             try:
-                r = bytes(self.dev.read(0x81, 64, timeout=500))
+                r = bytes(self.dev.read(0x81, 64, timeout=2000))
             except Exception:
                 break
             base = 1 if (len(r) >= 2 and r[0] == 0x00) else 0
@@ -379,8 +394,12 @@ class DLPC900:
 
         entry = (idx, exp_us, clear, depth, led, dark_us, trig2_disable, bit_pos)
         optional 9th element: image_index (default 0, unused in Video Pattern Mode)
+
+        Finding 42: Send 24 separate 12-byte 0x1A34 commands (one per entry),
+        matching TI's LCR_SendPatLut(). Old code concatenated all entries into
+        one 288-byte payload spanning 5 HID packets — protocol-divergent and
+        relied on firmware to correctly buffer fragmented mega-payload.
         """
-        payload = b""
         for entry in entries:
             if len(entry) == 8:
                 idx, exp_us, clear, depth, led, dark_us, trig2_disable, bit_pos = entry
@@ -406,7 +425,7 @@ class DLPC900:
             b9          = (1 if trig2_disable else 0) | ((ext_depth & 0x01) << 1)
             b1011       = (image_index & 0x07FF) | ((bit_pos & 0x1F) << 11)
 
-            payload += (
+            entry_payload = (
                 struct.pack("<H", idx)
                 + exp3
                 + struct.pack("<B", b5)
@@ -414,7 +433,7 @@ class DLPC900:
                 + struct.pack("<B", b9)
                 + struct.pack("<H", b1011)
             )
-        self._write(0x1A34, payload)
+            self._write(0x1A34, entry_payload)
 
     # ---- misc --------------------------------------------------------
 
