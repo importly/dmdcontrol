@@ -83,6 +83,31 @@ def log_board_snapshot(dlpc, tag):
     if mode is not None:
         logger.debug(f"Display Mode:         {mode} (error flag: {err_flag})")
 
+    fw = dlpc.get_firmware_version()
+    if fw:
+        logger.debug(
+            f"Firmware Version:     app={fw['app']['str']} api={fw['api']['str']} "
+            f"sw_cfg={fw['sw_cfg']['str']} seq_cfg={fw['seq_cfg']['str']}"
+        )
+        if fw["app"]["major"] <= 5 and fw["app"]["minor"] == 0:
+            logger.warning(
+                "[WARNING] Firmware <= 5.0.x: DLPT028 block-lock workaround required (park/unpark after mode change)."
+            )
+        else:
+            logger.debug(
+                f"  Firmware {fw['app']['str']} > 5.0.x: DLPT028 errata fixed. Park/unpark may be unnecessary."
+            )
+
+    cs = dlpc.get_channel_swap()
+    if cs:
+        logger.debug(
+            f"Channel Swap:         {cs['swap_label']} (port {cs['port']}, raw {cs['raw']})"
+        )
+        if cs["swap_label"] != "ABC":
+            logger.debug(
+                f"  Note: non-default channel swap '{cs['swap_label']}' active. Affects RGB->bitplane pin mapping."
+            )
+
     logger.debug("=" * 66)
 
 
@@ -258,10 +283,11 @@ def ensure_video_pattern_mode(dlpc, retries=3, poll_timeout_s=1.2):
 
 
 def apply_pattern_sequence(dlpc, entries, frame_pump=None):
-    order = [int(entry[0]) for entry in entries]
+    # DLPU018J §2.4.4.3.4: Pattern Display LUT Reorder (0x1A32) is "only applicable
+    # in Pre-stored Pattern Mode and Pattern On-The-Fly Mode" — NOT Video Pattern Mode.
+    # TI reference GUI (patternmode.cpp:702-783) never calls 0x1A32 in the start path.
     dlpc.set_pattern_lut_definition(entries)
     dlpc.set_pattern_lut_config(len(entries), repeat=True)
-    dlpc.set_pattern_lut_reorder(order, repeat=True)
     if frame_pump is not None:
         frame_pump()  # render fresh frames at the exact moment of arming
     dlpc.start_pattern_display(2)
@@ -287,7 +313,6 @@ def apply_pattern_sequence(dlpc, entries, frame_pump=None):
         time.sleep(_RETRY_DELAYS[attempt - 1])
         dlpc.set_pattern_lut_definition(entries)
         dlpc.set_pattern_lut_config(len(entries), repeat=True)
-        dlpc.set_pattern_lut_reorder(order, repeat=True)
         if frame_pump is not None:
             frame_pump()
         dlpc.start_pattern_display(2)
@@ -355,12 +380,12 @@ def configure_dlpc900_for_video_pattern(
 
     # Step 5: Set display mode to Video Pattern Mode (0x02)
     # Per DLPU018J p.56: "Takes approximately 300ms to complete the transition"
+    # TI ref GUI (mainwindow.cpp:1180) uses Sleep(500) — pad for firmware variability.
     logger.debug("  - Switching to Video Pattern Mode (0x02)...")
     dlpc.set_display_mode(0x02)
 
-    # CRITICAL: Wait 300ms for mode transition as per documentation
-    logger.debug("  - Waiting 300ms for mode transition (per TI spec)...")
-    time.sleep(0.3)
+    logger.debug("  - Waiting 500ms for mode transition (TI ref GUI uses 500ms)...")
+    time.sleep(0.5)
 
     # Explicitly stop before park: DLPU018J requires stop before park in Video Pattern Mode.
     # Without this, the firmware latches the abort flag (hw bit 0x40) during park even when

@@ -105,6 +105,16 @@ class DLPC900:
                     resp = stripped
                     break
 
+        # NACK detection (TI: hidMessageStruct.head.flags.nack = bit 5).
+        # Firmware sets this when the command fails validation. Surfacing the
+        # error makes silent spec-violation NACKs visible in logs instead of
+        # being treated as success — matches TI's LCR_Write(ackRequired) check.
+        if resp is not None and (resp[0] & 0x20):
+            logger.warning(
+                f"[NACK] Firmware rejected cmd 0x{cmd_id:04X} (flags=0x{resp[0]:02X}). "
+                "Check command validity for current display mode."
+            )
+
         # Fall back to last received packet if seq never matched
         # (mirrors old send_read behaviour — prevents None from propagating
         # into _payload when the firmware is slightly slow).
@@ -169,6 +179,52 @@ class DLPC900:
                 "raw": hex(v),
             }
         return None
+
+    def get_firmware_version(self):
+        """0x0205: 16-byte response. Returns dict with app/api/swcfg/seqcfg versions.
+
+        Per DLPU018J Table 2-12, each version is 4 bytes:
+          [patch_lo, patch_hi, minor, major]
+        """
+        resp = self._read(0x0205)
+        p = self._payload(resp, min_len=16)
+        if not p or len(p) < 16:
+            return None
+        def _ver(buf):
+            return {
+                "major": buf[3],
+                "minor": buf[2],
+                "patch": buf[0] | (buf[1] << 8),
+                "str": f"{buf[3]}.{buf[2]}.{buf[0] | (buf[1] << 8)}",
+            }
+        return {
+            "app":     _ver(p[0:4]),
+            "api":     _ver(p[4:8]),
+            "sw_cfg":  _ver(p[8:12]),
+            "seq_cfg": _ver(p[12:16]),
+        }
+
+    def get_channel_swap(self):
+        """0x1A37: Returns channel-swap config byte.
+
+        Bit 0 = port (0=P1, 1=P2). Bits 3:1 = swap mode:
+          0=ABC, 1=CAB, 2=BCA, 3=ACB, 4=BAC, 5=CBA (DLPU018J Table 2-50).
+        Default reset = 0x8 (port=0, swap=4 = BAC = A/B swapped).
+        """
+        resp = self._read(0x1A37)
+        p = self._payload(resp)
+        if not p:
+            return None
+        v = p[0]
+        port = v & 0x01
+        swap = (v >> 1) & 0x07
+        labels = {0: "ABC", 1: "CAB", 2: "BCA", 3: "ACB", 4: "BAC", 5: "CBA"}
+        return {
+            "raw": hex(v),
+            "port": f"P{port + 1}",
+            "swap_code": swap,
+            "swap_label": labels.get(swap, f"Unknown({swap})"),
+        }
 
     def get_display_dimensions(self):
         resp = self._read(0x1A3C)
@@ -305,7 +361,7 @@ class DLPC900:
         self._write(0x1A31, struct.pack("<HI", num_entries, num_to_display))
 
     def set_pattern_lut_reorder(self, order, repeat=True):
-        """0x1A32: Reorder LUT playback sequence for Video Pattern Mode."""
+        """0x1A32: Reorder LUT playback sequence for Pattern Mode.""" 
         order_list = [int(idx) for idx in order]
         if not order_list:
             raise ValueError("Pattern LUT reorder list cannot be empty")
@@ -334,9 +390,13 @@ class DLPC900:
             else:
                 raise ValueError("Each LUT entry must have 8 or 9 elements")
 
-            idx = int(idx); exp_us = int(exp_us); dark_us = int(dark_us)
-            depth = int(depth); led = int(led)
-            bit_pos = int(bit_pos); image_index = int(image_index)
+            idx = int(idx)
+            exp_us = int(exp_us)
+            dark_us = int(dark_us)
+            depth = int(depth)
+            led = int(led)
+            bit_pos = int(bit_pos)
+            image_index = int(image_index)
 
             ext_depth   = 1 if depth > 8 else 0
             depth_field = (depth - 1) & 0x07

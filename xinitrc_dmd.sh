@@ -67,8 +67,10 @@ if [ "$HZ" = "120" ]; then
     xrandr --newmode "$MODE_NAME" 311.50 1920 1968 2000 2080 1080 1083 1088 1248 +hsync -vsync 2>/dev/null || true
 else
     MODE_NAME="1920x1080_60_RAW"
-    # CVT-R 1920x1080 @ 60Hz reduced blanking, but tweaked pixel clock (138.50 -> 138.51)
-    xrandr --newmode "$MODE_NAME" 138.51 1920 1968 2000 2080 1080 1083 1088 1111 +hsync -vsync 2>/dev/null || true
+    # Pixel clock chosen so frame rate = pclk / (htotal*vtotal) = 138.6528MHz / (2080*1111) = 60.000Hz EXACT.
+    # Prior value 138.51 produced 59.946Hz, which DLPC900 sequencer treats as sync mismatch (forced-swap abort).
+    # Non-standard pclk also still defeats GPU YCbCr 4:2:2 fallback (138.500 = CVT-R standard).
+    xrandr --newmode "$MODE_NAME" 138.6528 1920 1968 2000 2080 1080 1083 1088 1111 +hsync -vsync 2>/dev/null || true
 fi
 
 echo "Adding mode $MODE_NAME to output $DP_OUTPUT..."
