@@ -31,6 +31,7 @@ PATTERN_MODES = {
     "snake":         ("60FPS Snake",               lambda e: (None, "snake")),
     "clock":         ("Microsecond Clock",         lambda e: (None, "clock")),
     "gradient":      ("Temporal Gradient",         lambda e: (e.generate_gradient(), None)),
+    "kernel":        ("3x3 Kernel Variations (512 patterns)", lambda e: (None, "kernel")),
 }
 
 PATTERN_NAMES = list(PATTERN_MODES.keys())

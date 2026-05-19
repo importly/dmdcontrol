@@ -333,6 +333,60 @@ class PatternEngine:
             patterns.append(img)
         return patterns
 
+    def generate_kernel_masks(self, kernel_px):
+        """Generate 512 binary masks, one per 3x3 binary kernel variation.
+
+        Each mask is a (height, width) uint8 array of 0/1 with a centered
+        kernel_px x kernel_px square divided into a 3x3 grid of cells.
+        Bit b of the kernel index k (0..511) drives the cell at
+        (row=b//3, col=b%3). bit 0 = top-left, bit 8 = bottom-right.
+        """
+        if kernel_px % 3 != 0:
+            raise ValueError(f"kernel_px ({kernel_px}) must be a multiple of 3")
+        if kernel_px > min(self.width, self.height):
+            raise ValueError(
+                f"kernel_px ({kernel_px}) exceeds frame {self.width}x{self.height}"
+            )
+        cell = kernel_px // 3
+        x0 = (self.width - kernel_px) // 2
+        y0 = (self.height - kernel_px) // 2
+        masks = []
+        for k in range(512):
+            m = np.zeros((self.height, self.width), dtype=np.uint8)
+            for bit in range(9):
+                if k & (1 << bit):
+                    row, col = bit // 3, bit % 3
+                    yy, xx = y0 + row * cell, x0 + col * cell
+                    m[yy : yy + cell, xx : xx + cell] = 1
+            masks.append(m)
+        return masks
+
+    def pack_kernel_frames(self, masks, slots_per_frame=24, blank_end_frame=False):
+        """Pack a list of kernel masks into VSYNC RGB frames.
+
+        slots_per_frame: number of masks consumed by the LUT per VSYNC (1..24).
+        Each RGB frame still carries 24 bit-positions; unused positions (those
+        not referenced by the LUT) are zero-padded and ignored by the sequencer.
+
+        Returns ceil(len(masks)/slots_per_frame) RGB frames. The last group
+        is zero-padded if shorter than slots_per_frame.
+        If blank_end_frame=True, appends one fully-black RGB frame as a
+        per-cycle sync marker.
+        """
+        if slots_per_frame < 1 or slots_per_frame > 24:
+            raise ValueError(f"slots_per_frame ({slots_per_frame}) must be in [1, 24].")
+        pad = (-len(masks)) % slots_per_frame
+        black_mask = np.zeros((self.height, self.width), dtype=np.uint8)
+        padded = list(masks) + [black_mask] * pad
+        unused = [black_mask] * (24 - slots_per_frame)
+        frames = [
+            self.pack_patterns(padded[i : i + slots_per_frame] + unused)
+            for i in range(0, len(padded), slots_per_frame)
+        ]
+        if blank_end_frame:
+            frames.append(self.pack_patterns([black_mask] * 24))
+        return frames
+
     def should_close(self):
         return (
             glfw.window_should_close(self.window)

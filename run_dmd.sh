@@ -19,4 +19,9 @@ sleep 6
 echo "=== Launching Pattern Engine (via xinitrc_dmd.sh wrapper) ==="
 # The xinitrc wrapper handles: fixed 1920x1080 mode set -> python launch
 chmod +x "$SCRIPT_DIR/xinitrc_dmd.sh"
-echo 'REDACTED' | sudo -S xinit "$SCRIPT_DIR/xinitrc_dmd.sh" "$@" -- :0 vt1
+PASS_FILE="$SCRIPT_DIR/.env_pass"
+if [ ! -f "$PASS_FILE" ]; then
+    echo "Error: $PASS_FILE not found. Create it with: echo 'YOUR_PASSWORD' > $PASS_FILE && chmod 600 $PASS_FILE"
+    exit 1
+fi
+sudo -S xinit "$SCRIPT_DIR/xinitrc_dmd.sh" "$@" -- :0 vt1 < "$PASS_FILE"

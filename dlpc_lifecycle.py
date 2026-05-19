@@ -106,11 +106,17 @@ def build_lut_entries(
     target_hz,
     sequence_utilization=DEFAULT_SEQUENCE_UTILIZATION,
     trig2_frame_zero=False,
+    entries_count=None,
+    per_entry_exposure_us=None,
 ):
     if target_hz <= 0:
         raise ValueError("target_hz must be positive")
     if sequence_utilization <= 0.0 or sequence_utilization > 1.0:
         raise ValueError("sequence_utilization must be in the interval (0, 1].")
+    if entries_count is None:
+        entries_count = BITPLANES
+    if entries_count < 1 or entries_count > BITPLANES:
+        raise ValueError(f"entries_count ({entries_count}) must be in [1, {BITPLANES}].")
 
     measured_frame_hz = None
     dd = dlpc.get_display_dimensions()
@@ -151,14 +157,14 @@ def build_lut_entries(
             f"Frame period {frame_period_us:.2f} us is not larger than safety margin {SAFE_MARGIN_US:.2f} us."
         )
 
-    requested_binary_rate_hz = float(target_hz) * BITPLANES
+    requested_binary_rate_hz = float(target_hz) * entries_count
     if requested_binary_rate_hz > MAX_BINARY_RATE_HZ_DLP6500:
         raise ValueError(
             f"Requested binary rate {requested_binary_rate_hz:.1f} Hz exceeds "
             f"DLP6500 1-bit limit (~{MAX_BINARY_RATE_HZ_DLP6500} Hz)."
         )
 
-    effective_binary_rate_hz = effective_frame_hz * BITPLANES
+    effective_binary_rate_hz = effective_frame_hz * entries_count
     if effective_binary_rate_hz > MAX_BINARY_RATE_HZ_DLP6500:
         raise ValueError(
             f"Measured source binary rate {effective_binary_rate_hz:.1f} Hz exceeds "
@@ -167,30 +173,51 @@ def build_lut_entries(
 
     min_segment_us = MIN_EXPOSURE_US + INTER_PATTERN_DARK_US
     usable_frame_period_us = safe_frame_period_us * sequence_utilization
-    segment_budget_us = usable_frame_period_us / BITPLANES
-    if segment_budget_us < min_segment_us:
-        max_safe_hz = 1_000_000.0 / ((BITPLANES * min_segment_us / sequence_utilization) + SAFE_MARGIN_US)
-        raise ValueError(
-            f"Requested sequence exceeds VSYNC budget: each pattern has {segment_budget_us:.2f} us "
-            f"but needs >= {min_segment_us} us (exposure {MIN_EXPOSURE_US} us + dark {INTER_PATTERN_DARK_US} us). "
-            f"Reduce source frame rate to <= {max_safe_hz:.2f} Hz."
-        )
 
-    segment_us = int(usable_frame_period_us / BITPLANES)
-    exposure_us = segment_us - INTER_PATTERN_DARK_US
-    if exposure_us < MIN_EXPOSURE_US:
-        max_safe_hz = 1_000_000.0 / ((BITPLANES * min_segment_us / sequence_utilization) + SAFE_MARGIN_US)
-        raise ValueError(
-            f"Computed exposure {exposure_us} us is below minimum {MIN_EXPOSURE_US} us. "
-            f"Reduce source frame rate to <= {max_safe_hz:.2f} Hz."
-        )
+    if per_entry_exposure_us is not None:
+        if per_entry_exposure_us < MIN_EXPOSURE_US:
+            raise ValueError(
+                f"per_entry_exposure_us ({per_entry_exposure_us}) is below MIN_EXPOSURE_US "
+                f"({MIN_EXPOSURE_US})."
+            )
+        total_needed_us = (per_entry_exposure_us + INTER_PATTERN_DARK_US) * entries_count
+        if total_needed_us > usable_frame_period_us:
+            raise ValueError(
+                f"{entries_count} LUT entries at {per_entry_exposure_us} us exposure need "
+                f"{total_needed_us:.1f} us per VSYNC but only {usable_frame_period_us:.1f} us is "
+                f"usable (frame_period {frame_period_us:.1f} us, margin {SAFE_MARGIN_US} us, "
+                f"utilization {sequence_utilization})."
+            )
+        exposure_us = int(per_entry_exposure_us)
+    else:
+        segment_budget_us = usable_frame_period_us / entries_count
+        if segment_budget_us < min_segment_us:
+            max_safe_hz = 1_000_000.0 / (
+                (entries_count * min_segment_us / sequence_utilization) + SAFE_MARGIN_US
+            )
+            raise ValueError(
+                f"Requested sequence exceeds VSYNC budget: each pattern has {segment_budget_us:.2f} us "
+                f"but needs >= {min_segment_us} us (exposure {MIN_EXPOSURE_US} us + dark {INTER_PATTERN_DARK_US} us). "
+                f"Reduce source frame rate to <= {max_safe_hz:.2f} Hz."
+            )
 
-    total_sequence_us = (exposure_us + INTER_PATTERN_DARK_US) * BITPLANES
+        segment_us = int(usable_frame_period_us / entries_count)
+        exposure_us = segment_us - INTER_PATTERN_DARK_US
+        if exposure_us < MIN_EXPOSURE_US:
+            max_safe_hz = 1_000_000.0 / (
+                (entries_count * min_segment_us / sequence_utilization) + SAFE_MARGIN_US
+            )
+            raise ValueError(
+                f"Computed exposure {exposure_us} us is below minimum {MIN_EXPOSURE_US} us. "
+                f"Reduce source frame rate to <= {max_safe_hz:.2f} Hz."
+            )
+
+    total_sequence_us = (exposure_us + INTER_PATTERN_DARK_US) * entries_count
     idle_headroom_us = frame_period_us - total_sequence_us
 
     entries = []
-    for bit_pos in range(BITPLANES):
-        clear_flag = bit_pos == (BITPLANES - 1)
+    for bit_pos in range(entries_count):
+        clear_flag = bit_pos == (entries_count - 1)
         trig2_disable = (bit_pos != 0) if trig2_frame_zero else False
         entries.append(
             (
@@ -221,6 +248,7 @@ def build_lut_entries(
         "dark_us": INTER_PATTERN_DARK_US,
         "total_sequence_us": total_sequence_us,
         "idle_headroom_us": idle_headroom_us,
+        "entries_count": entries_count,
     }
     return entries, timing
 
@@ -318,9 +346,13 @@ def configure_dlpc900_for_video_pattern(
     trig2_frame_zero=False,
     pre_arm_callback=None,
     frame_pump=None,
+    entries_count=None,
+    per_entry_exposure_us=None,
 ):
+    actual_entries = entries_count if entries_count is not None else BITPLANES
     logger.info(
-        f"[+] Configuring DLPC900 for 1920x1080 @ {target_hz}Hz Video Pattern Mode ({BITPLANES} bit-planes)..."
+        f"[+] Configuring DLPC900 for 1920x1080 @ {target_hz}Hz Video Pattern Mode "
+        f"({actual_entries} LUT entr{'y' if actual_entries == 1 else 'ies'} per VSYNC)..."
     )
     logger.debug("Following TI documentation sequence (DLPU018J Section 5.1)...")
 
@@ -407,6 +439,8 @@ def configure_dlpc900_for_video_pattern(
         target_hz,
         sequence_utilization=sequence_utilization,
         trig2_frame_zero=trig2_frame_zero,
+        entries_count=entries_count,
+        per_entry_exposure_us=per_entry_exposure_us,
     )
     logger.info(
         f"[TIMING] LUT timing source: {timing['timing_source']} (effective VSYNC {timing['effective_frame_hz']:.3f} Hz)."
@@ -417,7 +451,7 @@ def configure_dlpc900_for_video_pattern(
             f"Sequencer timing follows source VSYNC ({timing['effective_frame_hz']:.3f} Hz)."
         )
     logger.info(
-        f"[+] LUT: {BITPLANES} entries, exposure={timing['exposure_us']}us, "
+        f"[+] LUT: {timing['entries_count']} entries, exposure={timing['exposure_us']}us, "
         f"dark={timing['dark_us']}us, sequence={timing['total_sequence_us']:.1f}/{timing['usable_frame_period_us']:.1f}us "
         f"(utilization {timing['sequence_utilization']:.2f}, reserved margin {timing['safe_margin_us']:.1f}us, "
         f"idle headroom {timing['idle_headroom_us']:.1f}us from {timing['frame_period_us']:.1f}us VSYNC), "

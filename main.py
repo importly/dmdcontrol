@@ -6,7 +6,7 @@ try:
 except ImportError:
     cv2 = None
 
-from config import DEFAULT_SEQUENCE_UTILIZATION
+from config import BITPLANES, DEFAULT_SEQUENCE_UTILIZATION, SAFE_MARGIN_US
 from dlpc900_hid import DLPC900
 from dlpc_lifecycle import (
     configure_dlpc900_for_video_pattern,
@@ -40,6 +40,19 @@ def _build_parser():
     parser.add_argument("--no-auto-recover-abort", action="store_true",
                         help="Disable automatic sequencer re-arm attempts when abort bit is detected during runtime.")
     parser.add_argument("--capture", type=str, help="Save the generated packed frames to an mp4 video (e.g. test.mp4)")
+    parser.add_argument("--kernel-px", type=int, default=30,
+                        help="Total kernel side length in pixels for --test kernel (must be a multiple of 3). "
+                             "Default 30 (3x3 cells of 10px). Use 999 for naked-eye visibility (3x3 cells of 333px).")
+    parser.add_argument("--kernel-single-shot", action="store_true",
+                        help="Play the 22-frame kernel cycle once then hold black. Default: loop continuously.")
+    parser.add_argument("--kernel-blank-end-frame", action="store_true",
+                        help="Append one all-black VSYNC frame (24 black bitplanes) at the end of each kernel cycle "
+                             "as a sync marker for downstream DAQ.")
+    parser.add_argument("--kernel-exposure-us", type=int, default=None,
+                        help="Per-kernel exposure time in microseconds (kernel mode only). "
+                             "Default: use full 24-entry LUT (~694 us/kernel at 60 Hz, 1440 Hz binary). "
+                             "Larger values reduce kernels per VSYNC and lengthen the 512-kernel cycle. "
+                             "Ceiling = one VSYNC period (~16670 us at 60 Hz).")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose diagnostic logging")
     return parser
 
@@ -53,7 +66,7 @@ def _open_video_writer(path, target_hz):
     return cv2.VideoWriter(path, fourcc, target_hz, (1920, 1080), isColor=True)
 
 
-def _make_frame_provider(engine, initial_frame, dynamic_kind):
+def _make_frame_provider(engine, initial_frame, dynamic_kind, args=None, kernel_frames=None):
     """Returns callable() -> frame. Hides per-mode frame regeneration from loop."""
     if dynamic_kind == "snake":
         return engine.generate_snake_frame
@@ -68,6 +81,24 @@ def _make_frame_provider(engine, initial_frame, dynamic_kind):
         def _provider():
             return frames[int(time.time() * 2) % 3]
         return _provider
+    if dynamic_kind == "kernel":
+        frames = kernel_frames
+        n = len(frames)
+        black = engine.pack_patterns(engine.generate_solid(0))
+        state = {"i": 0}
+        if args is not None and args.kernel_single_shot:
+            def _provider_once():
+                i = state["i"]
+                if i < n:
+                    state["i"] = i + 1
+                    return frames[i]
+                return black
+            return _provider_once
+        def _provider_loop():
+            f = frames[state["i"] % n]
+            state["i"] += 1
+            return f
+        return _provider_loop
     return lambda: initial_frame
 
 
@@ -108,6 +139,20 @@ def main():
             for _ in range(3):
                 engine.display_frame(black_frame)
 
+        lut_entries_count = None
+        lut_per_entry_exposure_us = None
+        if args.test == "kernel" and args.kernel_exposure_us is not None:
+            frame_period_us = 1_000_000.0 / target_hz
+            usable_us = (frame_period_us - SAFE_MARGIN_US) * args.seq_utilization
+            n = int(usable_us // args.kernel_exposure_us)
+            n = max(1, min(BITPLANES, n))
+            lut_entries_count = n
+            lut_per_entry_exposure_us = args.kernel_exposure_us
+            logger.info(
+                f"[+] Kernel exposure override: {args.kernel_exposure_us} us per kernel -> "
+                f"{n} LUT entries per VSYNC (binary rate {n * target_hz} Hz)."
+            )
+
         sequence_state = configure_dlpc900_for_video_pattern(
             dlpc, target_hz,
             dual_pixel=args.dual_pixel,
@@ -115,6 +160,8 @@ def main():
             trig2_frame_zero=args.trig2_frame_zero,
             pre_arm_callback=_prime_video_buffer,
             frame_pump=_frame_pump,
+            entries_count=lut_entries_count,
+            per_entry_exposure_us=lut_per_entry_exposure_us,
         )
 
         log_board_snapshot(dlpc, "POST-CONFIG")
@@ -122,6 +169,30 @@ def main():
 
         label, patterns, dynamic_kind = build_patterns(engine, args.test)
         logger.info(f"[+] Starting Diagnostic Mode: {label}...")
+
+        kernel_frames = None
+        if dynamic_kind == "kernel":
+            slots = sequence_state["timing"]["entries_count"]
+            logger.info(
+                f"[+] Building 512 kernel masks (kernel_px={args.kernel_px}, "
+                f"slots_per_vsync={slots}, blank_end_frame={args.kernel_blank_end_frame})..."
+            )
+            kernel_masks = engine.generate_kernel_masks(args.kernel_px)
+            kernel_frames = engine.pack_kernel_frames(
+                kernel_masks,
+                slots_per_frame=slots,
+                blank_end_frame=args.kernel_blank_end_frame,
+            )
+            cycle_vsyncs = len(kernel_frames)
+            blank_slot_count = (slots - (512 % slots)) % slots
+            cycle_kernels = 512 + blank_slot_count + (slots if args.kernel_blank_end_frame else 0)
+            logger.info(
+                f"[+] {cycle_vsyncs} VSYNC frames per cycle covering {cycle_kernels} bitplane fires "
+                f"(512 real kernels + {blank_slot_count} pad"
+                f"{' + ' + str(slots) + ' end-marker blanks' if args.kernel_blank_end_frame else ''}); "
+                f"cycle period ~{cycle_vsyncs * 1000.0 / target_hz:.1f} ms; "
+                f"per-kernel exposure ~{sequence_state['timing']['exposure_us']} us."
+            )
 
         if args.trigger:
             logger.info("[+] Software Trigger Mode (Approach A) Active.")
@@ -139,6 +210,8 @@ def main():
             frame = engine.generate_snake_frame()
         elif dynamic_kind == "clock":
             frame = engine.generate_clock_frame()
+        elif dynamic_kind == "kernel":
+            frame = kernel_frames[0]
         else:
             raise RuntimeError("No initial frame generated for the selected mode.")
 
@@ -151,7 +224,9 @@ def main():
                 "Triggers are likely unavailable because mode 2/sequencer/lock is not valid."
             )
 
-        frame_provider = _make_frame_provider(engine, frame, dynamic_kind)
+        frame_provider = _make_frame_provider(
+            engine, frame, dynamic_kind, args=args, kernel_frames=kernel_frames
+        )
         video_writer = _open_video_writer(args.capture, target_hz) if args.capture else None
         try:
             run_render_loop(
