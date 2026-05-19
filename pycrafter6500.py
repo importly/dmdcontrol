@@ -1,4 +1,6 @@
 import sys
+from typing import Iterator, cast
+
 import usb.core
 import PIL.Image
 import numpy as np
@@ -34,12 +36,11 @@ def bitstobytes(a):
 #---------Modified part--------------
 def init_alternative(dev_address):
     #This function replaces the __init__ function inside the dmd class
-    devices = usb.core.find(find_all=True)
+    devices = cast(Iterator[usb.core.Device], usb.core.find(find_all=True))
     for device in devices:
         if device.idVendor == 0x0451 and device.idProduct == 0xc900 and device.address == dev_address:
             return device
-    else:
-        return None
+    return None
 
 
 
@@ -50,9 +51,13 @@ def init_alternative(dev_address):
 class dmd():
     def __init__(self, address_select=False, address=1):
         if address_select==False:
-            self.dev=usb.core.find(idVendor=0x0451 ,idProduct=0xc900 )
+            found = usb.core.find(idVendor=0x0451 ,idProduct=0xc900 )
         else:
-            self.dev = init_alternative(dev_address=address)   #modified code
+            found = init_alternative(dev_address=address)   #modified code
+
+        if found is None:
+            sys.exit("DMD device not found on USB bus")
+        self.dev = cast(usb.core.Device, found)
 
         # Source - https://stackoverflow.com/a/67459378
         # Posted by Eno Gerguri
@@ -77,7 +82,7 @@ class dmd():
 
 ## standard usb command function
 
-    def command(self,mode,sequencebyte,com1,com2,data=None):
+    def command(self,mode,sequencebyte,com1,com2,data=()):
         buffer = []
 
         flagstring=''

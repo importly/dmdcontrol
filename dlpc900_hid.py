@@ -17,6 +17,7 @@ Packet layout (DLPU018J §1.2):
 
 import struct
 import time
+from typing import cast
 
 import usb.core
 import usb.util
@@ -30,14 +31,16 @@ class DLPC900:
 
     def __init__(self):
         try:
-            self.dev = usb.core.find(idVendor=self.VID, idProduct=self.PID)
+            found = usb.core.find(idVendor=self.VID, idProduct=self.PID)
         except Exception as e:
             logger.critical(f"[DLPC900] USB backend error: {e}")
             raise RuntimeError(f"USB backend error: {e}")
 
-        if self.dev is None:
+        if found is None:
             logger.critical("[DLPC900] Device not found on USB bus.")
             raise ValueError("DLPC900 not found on USB bus")
+
+        self.dev = cast(usb.core.Device, found)
 
         for intf in (0, 1):
             try:
@@ -96,7 +99,7 @@ class DLPC900:
                 self.dev.write(0x01, chunk, timeout=2000)
             except usb.core.USBError:
                 time.sleep(0.1)
-                self.dev.write(0x01, chunk, timeout=2000)
+                self.dev.write(0x01, chunk)
 
         # Drain the firmware response (ACK for writes, payload for reads).
         # Poll up to 6 packets; match on sequence byte.

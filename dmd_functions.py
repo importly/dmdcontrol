@@ -1,8 +1,13 @@
+from pathlib import Path
+from typing import Iterator, cast
+
 import usb.core
 import numpy as np
 import PIL.Image
 from PIL import ImageOps
 import pycrafter6500
+
+WORKSPACE = Path(__file__).parent
 
 def dmd_define():
     ## This function returns the dmd object with addresses
@@ -58,7 +63,7 @@ def dmd_define():
 
 
 def find_addresses():           #Since addresses don't stay constant, we need to provide addresses of each DMD every time we run them
-    devices = usb.core.find(find_all=True)
+    devices = cast(Iterator[usb.core.Device], usb.core.find(find_all=True))
     address_list=[]
     for device in devices:
         if device.idVendor == 0x0451 and device.idProduct == 0xc900:    #Add to list of addresses if the device is a DMD controller
@@ -98,7 +103,7 @@ def dmd_pattern_load(dlp, pattern_file_list, exposure_val = 1e6, dark_time_val =
 
 
 class DMD_Image:
-    def __init__(self, image:np.array) -> None:
+    def __init__(self, image: np.ndarray) -> None:
         self.crop_pixels = 20
         self.full_img = image
         self.positive_img = self.pos_img_no_inv(self.full_img)
