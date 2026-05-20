@@ -44,7 +44,7 @@ class PatternEngine:
         glfw.window_hint(glfw.DECORATED, glfw.FALSE)
         glfw.window_hint(glfw.RESIZABLE, glfw.FALSE)
         glfw.window_hint(glfw.AUTO_ICONIFY, glfw.FALSE)
-        glfw.window_hint(glfw.REFRESH_RATE, self.fps)  # Request dynamic refresh rate
+        glfw.window_hint(glfw.REFRESH_RATE, glfw.DONT_CARE)
 
         self.window = glfw.create_window(
             width, height, "DLPC900 Pattern Engine", monitor, None
