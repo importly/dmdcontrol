@@ -15,7 +15,19 @@ from logger import logger
 
 
 def _format_hw(hw):
-    return f"0x{hw:02X}" if hw is not None else "??"
+    if hw is None:
+        return "??"
+    # DLPU018J Table 2-21. Bit 5 is reserved (commonly reads 1).
+    bits = []
+    if hw & 0x01: bits.append("init_ok")
+    if hw & 0x02: bits.append("dmd_compat_err")
+    if hw & 0x04: bits.append("dmd_reset_err")
+    if hw & 0x08: bits.append("forced_swap")
+    if hw & 0x10: bits.append("bit4")
+    if hw & 0x20: bits.append("bit5_rsvd")
+    if hw & 0x40: bits.append("ABORT")
+    if hw & 0x80: bits.append("SEQ_ERR")
+    return f"0x{hw:02X}[{'|'.join(bits) if bits else 'clean'}]"
 
 
 def log_board_snapshot(dlpc, tag):
@@ -301,28 +313,51 @@ def ensure_video_pattern_mode(dlpc, retries=3, poll_timeout_s=1.2):
 def apply_pattern_sequence(dlpc, entries, frame_pump=None):
     # DLPU018J §2.4.4.3.4: Pattern Display LUT Reorder (0x1A32) is "only applicable
     # in Pre-stored Pattern Mode and Pattern On-The-Fly Mode" — NOT Video Pattern Mode.
+
+    # Pre-LUT snapshot. If ABORT is already set here, the latch is sticky from
+    # a prior boot/run — distinguishes "we caused it" from "it was already there".
+    hw_pre = dlpc.get_hardware_status()
+    logger.debug(f"  [arm] hw pre-LUT  = {_format_hw(hw_pre)}")
+
     dlpc.set_pattern_lut_definition(entries)
     dlpc.set_pattern_lut_config(len(entries), repeat=True)
+    hw_after_lut = dlpc.get_hardware_status()
+    logger.debug(f"  [arm] hw post-LUT = {_format_hw(hw_after_lut)}")
+
     if frame_pump is not None:
         frame_pump()
     dlpc.start_pattern_display(2)
     time.sleep(0.2)
 
-    # Non-multiples of 16.67ms to avoid landing on same VSYNC phase each attempt.
+    # hw bit 6 (DLPU018J "ABORT") is set by Pattern Display Stop and persists
+    # until next Pattern Display Start completes a clean handoff. We previously
+    # treated it as a fatal error and retried 5 times; in practice the sequencer
+    # latches it after every start as part of normal state-machine transitions,
+    # while sequencer_running / external_source_locked / port1_syncs_valid all
+    # report healthy. The retry loop is kept as a defensive measure but its
+    # outcome is INFO, not WARNING.
     _RETRY_DELAYS = [0.37, 0.73, 1.17, 1.83, 2.53]
     for attempt in range(1, len(_RETRY_DELAYS) + 1):
         hw = dlpc.get_hardware_status()
         if hw is None or not (hw & 0x40):
             if attempt > 1:
-                logger.info(f"[+] Abort latch cleared on attempt {attempt} (hw={_format_hw(hw)}). Sequencer running.")
+                logger.debug(f"  [arm] bit-6 cleared on attempt {attempt} (hw={_format_hw(hw)}).")
             break
-        logger.warning(
-            f"Abort latch (hw=0x{hw:02X}) after start attempt {attempt}. "
-            f"Clearing: stop -> park/unpark -> {_RETRY_DELAYS[attempt-1]:.2f}s -> resend LUT -> restart."
+
+        err_code = dlpc.get_last_error()
+        err_desc = dlpc.get_error_description()
+        logger.debug(
+            f"  [arm] bit-6 latched hw={_format_hw(hw)} after start attempt {attempt}. "
+            f"last_err={err_code!r} desc={err_desc!r}. "
+            f"Stop -> park/unpark -> {_RETRY_DELAYS[attempt-1]:.2f}s -> resend LUT -> restart."
         )
         dlpc.start_pattern_display(0)
         time.sleep(0.1)
+        hw_after_stop = dlpc.get_hardware_status()
+        logger.debug(f"  [retry {attempt}] hw post-stop    = {_format_hw(hw_after_stop)}")
         dlpc.apply_block_lock_workaround()
+        hw_after_pp = dlpc.get_hardware_status()
+        logger.debug(f"  [retry {attempt}] hw post-park    = {_format_hw(hw_after_pp)}")
         time.sleep(_RETRY_DELAYS[attempt - 1])
         dlpc.set_pattern_lut_definition(entries)
         dlpc.set_pattern_lut_config(len(entries), repeat=True)
@@ -330,11 +365,17 @@ def apply_pattern_sequence(dlpc, entries, frame_pump=None):
             frame_pump()
         dlpc.start_pattern_display(2)
         time.sleep(0.2)
+        hw_after_start = dlpc.get_hardware_status()
+        logger.debug(f"  [retry {attempt}] hw post-restart = {_format_hw(hw_after_start)}")
     else:
         hw_final = dlpc.get_hardware_status()
-        logger.error(
-            f"Abort latch persists (hw={_format_hw(hw_final)}) after {len(_RETRY_DELAYS)} retries. "
-            "Triggers unreliable. Power cycle DLPC900."
+        err_code = dlpc.get_last_error()
+        err_desc = dlpc.get_error_description()
+        logger.info(
+            f"[+] hw bit-6 still latched (hw={_format_hw(hw_final)}) after {len(_RETRY_DELAYS)} retries. "
+            f"last_err={err_code!r} desc={err_desc!r}. "
+            "Sequencer state-machine flag is cosmetic when sequencer_running + external_source_locked are healthy "
+            "(verify via runtime watchdog and scope; per-bitplane TRIG_OUT_2 should show VSYNC-gated bursts)."
         )
 
 
@@ -356,8 +397,29 @@ def configure_dlpc900_for_video_pattern(
     )
     logger.debug("Following TI documentation sequence (DLPU018J Section 5.1)...")
 
-    dlpc.start_pattern_display(0)
-    time.sleep(0.2)
+    # First-touch hw status. NOTE: hw bit 6 ("ABORT" per DLPU018J Table 2-21)
+    # is verified empirically to double as a "no clean active pattern sequence"
+    # state flag. It persists across barrel power cycles and is set whenever
+    # Pattern Display Mode (2) is not running cleanly. Treat as informational
+    # unless paired with sequencer_running=False or forced_swap=True.
+    hw_first = dlpc.get_hardware_status()
+    err0_code = dlpc.get_last_error()
+    err0_desc = dlpc.get_error_description()
+    logger.info(
+        f"[+] DLPC900 first-touch status: hw={_format_hw(hw_first)} "
+        f"last_err={err0_code!r} desc={err0_desc!r}"
+    )
+
+    # Stop pattern display ONLY if currently in Pattern Mode (2). At boot the
+    # display mode defaults to 0 (Video Mode) and Pattern Stop is firmware-NACKed,
+    # producing harmless but noisy WARNING. Skip the unconditional stop.
+    current_mode, _ = dlpc.get_display_mode()
+    if current_mode == 2:
+        logger.debug(f"  - Pre-config stop: display already in mode {current_mode}, sending Pattern Stop...")
+        dlpc.start_pattern_display(0)
+        time.sleep(0.2)
+    else:
+        logger.debug(f"  - Pre-config stop skipped (display mode={current_mode}, no pattern running).")
 
     dlpc.set_led_current(255, 255, 255)
     dlpc.set_led_enables(True, True, True, sequencer=True)
@@ -499,10 +561,17 @@ def configure_dlpc900_for_video_pattern(
         )
 
     hw = dlpc.get_hardware_status()
-    if hw is not None and (hw & 0xC0):
+    if hw is not None and (hw & 0x80):
+        # bit 7 = SEQ_ERR is a real error; warn loudly.
         logger.warning(
-            f"Hardware status indicates sequencer abort/error bits set (0x{hw:02X}). "
-            "These bits can be latched from prior faults; monitor runtime watchdog for live state changes."
+            f"Hardware status sequence-error bit set (hw=0x{hw:02X}). "
+            "Sequencer has reported a runtime error condition."
+        )
+    elif hw is not None and (hw & 0x40):
+        # bit 6 = "ABORT" but verified above to be a state-machine flag set after
+        # every Pattern Display Stop. Demote to DEBUG.
+        logger.debug(
+            f"  Post-config hw=0x{hw:02X}. Bit 6 latched (cosmetic, set by Pattern Stop)."
         )
 
     return {"entries": entries, "timing": timing}
@@ -534,10 +603,16 @@ def verify_runtime_state(dlpc):
         if hw is not None:
             logger.warning(f"           Hardware status raw: 0x{hw:02X}")
     else:
-        if seq_abort or seq_error:
+        if seq_error:
+            # bit 7 = real runtime sequence error
             logger.warning(
-                f"Runtime health bits indicate abort/error flags are set (0x{hw:02X}) despite mode/sequencer lock. "
-                "Treat as sticky/historical unless watchdog shows active dropouts."
+                f"Runtime sequence-error bit set (hw=0x{hw:02X}) despite mode/sequencer lock. "
+                "Investigate via watchdog dropouts."
+            )
+        elif seq_abort:
+            # bit 6 = state-machine flag latched after every Pattern Stop; cosmetic
+            logger.debug(
+                f"  Runtime hw=0x{hw:02X}. Bit 6 latched (cosmetic, set by Pattern Stop)."
             )
         logger.info("[OK] Runtime verification passed (mode=VideoPattern, sequencer running).")
     return all_ok

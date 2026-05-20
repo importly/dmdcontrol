@@ -1,5 +1,8 @@
 import argparse
+import threading
 import time
+
+import glfw
 
 try:
     import cv2
@@ -130,14 +133,50 @@ def main():
 
         black_frame = engine.pack_patterns(engine.generate_solid(0))
 
+        # Continuous background GL frame pump.
+        # Why: a one-shot prime ("render N black frames, then call start_pattern_display")
+        # races against USB latency. By the time the DLPC900 actually receives the start
+        # command (~15-30 ms after the pump loop ends), the DP buffer is stale -> forced-swap
+        # error (hw 0x08) -> abort latch (hw 0x40). A background thread that keeps pushing
+        # frames continuously means the buffer is fresh at the exact microsecond the
+        # sequencer arms.
+        #
+        # OpenGL contexts are thread-local. The main thread currently owns the GLFW context
+        # (made current in PatternEngine.__init__). We hand it over to the pump thread for
+        # the duration of DLPC configuration, then take it back before the render loop runs.
+        pump_event = threading.Event()
+        pump_thread_ready = threading.Event()
+
+        def _continuous_pump():
+            glfw.make_context_current(engine.window)
+            pump_thread_ready.set()
+            try:
+                while pump_event.is_set():
+                    engine.display_frame(black_frame)
+            finally:
+                glfw.make_context_current(None)
+
+        pump_thread = {"t": None}
+
         def _prime_video_buffer():
-            logger.info("[+] Priming DLPC900 video buffer with live GL frames before sequencer arm...")
-            for _ in range(12):
-                engine.display_frame(black_frame)
+            logger.info("[+] Starting continuous background GL frame pump before sequencer arm...")
+            # Release GL context from main thread so the pump thread can claim it.
+            glfw.make_context_current(None)
+            pump_event.set()
+            pump_thread_ready.clear()
+            t = threading.Thread(target=_continuous_pump, daemon=True)
+            t.start()
+            pump_thread["t"] = t
+            # Wait for the pump thread to actually own the context and start pushing frames.
+            pump_thread_ready.wait(timeout=1.0)
+            # Give the pump a few VSYNCs of head-start so the DP buffer is fully primed
+            # before the USB control thread starts issuing LUT writes + start command.
+            time.sleep(0.1)
 
         def _frame_pump():
-            for _ in range(3):
-                engine.display_frame(black_frame)
+            # No-op: the background pump is already pushing frames continuously,
+            # no synchronous pump is needed at this point.
+            pass
 
         lut_entries_count = None
         lut_per_entry_exposure_us = None
@@ -153,16 +192,25 @@ def main():
                 f"{n} LUT entries per VSYNC (binary rate {n * target_hz} Hz)."
             )
 
-        sequence_state = configure_dlpc900_for_video_pattern(
-            dlpc, target_hz,
-            dual_pixel=args.dual_pixel,
-            sequence_utilization=args.seq_utilization,
-            trig2_frame_zero=args.trig2_frame_zero,
-            pre_arm_callback=_prime_video_buffer,
-            frame_pump=_frame_pump,
-            entries_count=lut_entries_count,
-            per_entry_exposure_us=lut_per_entry_exposure_us,
-        )
+        try:
+            sequence_state = configure_dlpc900_for_video_pattern(
+                dlpc, target_hz,
+                dual_pixel=args.dual_pixel,
+                sequence_utilization=args.seq_utilization,
+                trig2_frame_zero=args.trig2_frame_zero,
+                pre_arm_callback=_prime_video_buffer,
+                frame_pump=_frame_pump,
+                entries_count=lut_entries_count,
+                per_entry_exposure_us=lut_per_entry_exposure_us,
+            )
+        finally:
+            # Stop the background pump and reclaim the GL context for the main thread.
+            if pump_event.is_set():
+                logger.info("[+] Stopping continuous background GL frame pump.")
+                pump_event.clear()
+                if pump_thread["t"] is not None:
+                    pump_thread["t"].join(timeout=1.0)
+                glfw.make_context_current(engine.window)
 
         log_board_snapshot(dlpc, "POST-CONFIG")
         logger.info(f"[+] Holding output for {args.runtime_seconds} seconds...")

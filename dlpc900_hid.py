@@ -182,6 +182,18 @@ class DLPC900:
         p = self._payload(resp)
         return p[0] if p else None
 
+    def get_error_description(self):
+        # DLPU018J Table 2-17: 0x0101 returns ASCII null-terminated error string
+        # from the firmware's last failed command. Empty when last error is 0.
+        resp = self._read(0x0101)
+        p = self._payload(resp)
+        if not p:
+            return None
+        try:
+            return bytes(p).split(b"\x00", 1)[0].decode("ascii", errors="replace")
+        except Exception:
+            return repr(bytes(p))
+
     def get_main_status(self):
         resp = self._read(0x1A0C)
         p = self._payload(resp)
