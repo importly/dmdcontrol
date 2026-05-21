@@ -64,7 +64,7 @@ python main.py --dry-run-timing --test kernel --kernel-exposure-us 3000
 |------|---------------|---------|---------|
 | `--hz` | `60`, `120` | `60` | Target VSYNC frame rate. 120 Hz is experimental and requires the source to actually deliver 120 Hz. |
 | `--monitor` | int | `0` | GLFW monitor index for the fullscreen window. |
-| `--test` | `checkerboard`, `ordering`, `numbered`, `single-pixel`, `2x2`, `lines`, `colors`, `snake`, `clock`, `gradient` | `checkerboard` | Diagnostic pattern. See table below. |
+| `--test` | `checkerboard`, `ordering`, `numbered`, `single-pixel`, `2x2`, `lines`, `colors`, `numbers`, `calibr-square`, `snake`, `clock`, `gradient`, `kernel` | `checkerboard` | Diagnostic pattern. See table below. |
 | `--trigger` | flag | off | Software trigger mode. Renders black until you press space; one press shows the pattern frame. ESC exits. |
 | `--runtime-seconds` | int | `60` | Total wall-clock runtime for the render loop. |
 | `--wake-dp` | flag | off | Send the DP-receiver wakeup packet from inside `main.py` (in addition to `wake_dp.py`). |
@@ -80,6 +80,7 @@ python main.py --dry-run-timing --test kernel --kernel-exposure-us 3000
 | `--kernel-blank-end-frame` / `--no-kernel-blank-end-frame` | flag | on | Append one all-black 24-bitplane VSYNC frame at the end of each kernel cycle, or disable it explicitly. |
 | `--kernel-leader-frames` | int | `3` | Prepend all-black VSYNC frames to each kernel cycle. DAQ should ignore these leader trigger pulses before kernel index 0. |
 | `--kernel-exposure-us` | int µs | auto | Uniform exposure for every kernel. Reduces entries-per-VSYNC and slows the cycle. Cap is one VSYNC (~14773 µs at 90% utilization). |
+| `--numbers-exposure-us` | int µs | `500000` | Wall-clock display time for each digit in `--test numbers`. |
 | `--dry-run-timing` | flag | off | Print LUT timing, cycle length, and trigger-to-kernel mapping without opening OpenGL or USB hardware. |
 | `-v`, `--verbose` | repeatable | basic | Logging level: basic = INFO, `-v` = DEBUG + 2s watchdog, `-vv` = DEBUG with source paths + 1s watchdog + full board snapshots. |
 
@@ -94,14 +95,20 @@ python main.py --dry-run-timing --test kernel --kernel-exposure-us 3000
 | `2x2` | 2x2 checkerboard. Use this to disambiguate 1:1 mapping from diffraction. |
 | `lines` | Alternating 1-pixel lines. |
 | `colors` | Cycles pure R / G / B every 0.5 s. |
+| `numbers` | Full-frame digits 1 through 9 in sequence. Configurable via `--numbers-exposure-us`. |
+| `calibr-square` | Interactive calibration square. Use `./run_calibr_square.sh` for terminal controls: W/A/S/D move, Q/E rotate, R/F resize. |
 | `snake` | High-speed randomly moving snake. Tests dynamic refresh + trigger stability. |
 | `clock` | Massive microsecond clock. Visual stutter / latency check. |
 | `gradient` | Temporal duty-cycle gradient. |
 | `kernel` | 3x3 convolution kernel rotation — cycles through 512 kernel masks. Configurable via `--kernel-px`, `--kernel-exposure-us`, `--kernel-single-shot`, `--kernel-blank-end-frame`, `--invert-dmd`. |
 
-`--trigger` only supports patterns with a static frame (anything except `snake` / `clock` / `kernel`). Dynamic modes fall back to `checkerboard` when used with `--trigger`.
+`--trigger` only supports patterns with a static frame (anything except `numbers` / `calibr-square` / `snake` / `clock` / `kernel`). Dynamic modes fall back to `checkerboard` when used with `--trigger`.
 
 `--kernel-exposure-us` is a uniform exposure for the kernel sequence. The fast Video Pattern Mode path uses a static LUT that repeats every VSYNC, so arbitrary exposure values per individual kernel index would require a different playback strategy.
+
+`--test numbers` is a dynamic DisplayPort-frame mode, not a custom LUT sequence. Each digit is a full packed frame held for `--numbers-exposure-us`; `TRIG_OUT_2` remains the real acquisition/index signal from the Video Pattern Mode LUT and may pulse multiple times per displayed digit. `TRIG_OUT_1` is advisory only.
+
+`--test calibr-square` is also a dynamic DisplayPort-frame mode. Use `./run_calibr_square.sh` instead of the normal `run_dmd.sh` path when you want terminal keyboard control; it keeps a separate control file open while X is running and prints center, pixel bounds, size, and angle after edits. Use W/A/S/D to move the square across the DMD surface, Q/E to rotate it, R/F to resize it, and ESC or X to exit. `TRIG_OUT_2` remains the real acquisition/index signal from the Video Pattern Mode LUT and does not mark keyboard edits or square edges.
 
 `--invert-dmd` is for optical setups where the effective bright/dark polarity is reversed. It is applied after frame packing, so it flips the entire DMD output for every displayed bitplane. In inverted mode, the normal black leader, pad, blank-end, and trigger-idle frames output as full-white frames.
 

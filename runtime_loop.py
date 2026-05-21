@@ -103,7 +103,7 @@ def run_render_loop(dlpc, engine, frame_provider, args, sequence_state, video_wr
     video_writer: optional cv2.VideoWriter (RGB->BGR conversion handled here).
     cv2_module: cv2 module reference (only needed if video_writer is not None).
     """
-    end_t = time.time() + args.runtime_seconds
+    end_t = None if args.runtime_seconds <= 0 else time.time() + args.runtime_seconds
     if args.verbose >= 2:
         watchdog_interval_s = 1.0
     elif args.verbose >= 1:
@@ -113,7 +113,7 @@ def run_render_loop(dlpc, engine, frame_provider, args, sequence_state, video_wr
     watchdog_last = time.monotonic()
     last_abort_recover_at = 0.0
 
-    while time.time() < end_t and not engine.should_close():
+    while (end_t is None or time.time() < end_t) and not engine.should_close():
         frame = frame_provider()
         engine.display_frame(frame)
 
