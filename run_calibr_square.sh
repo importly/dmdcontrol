@@ -54,7 +54,7 @@ start_control_reader() {
     CONTROL_PID=$!
 }
 
-/usr/bin/python3 "$SCRIPT_DIR/wake_dp.py"
+/usr/bin/python3 "$SCRIPT_DIR/wake_dp.py" "$@"
 if [ $? -ne 0 ]; then
     echo "Error: wake_dp.py failed to run. Check USB connection to DLPC900."
     exit 1
@@ -79,4 +79,3 @@ sudo -S xinit "$SCRIPT_DIR/xinitrc_dmd.sh" \
     --runtime-seconds 0 \
     "$@" \
     -- :0 vt1 < "$PASS_FILE"
-

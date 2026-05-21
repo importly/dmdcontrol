@@ -29,9 +29,21 @@ class DLPC900:
     VID = 0x0451
     PID = 0xC900
 
-    def __init__(self):
+    def __init__(self, usb_id_path=None, usb_devpath_contains=None):
         try:
-            found = usb.core.find(idVendor=self.VID, idProduct=self.PID)
+            if usb_id_path:
+                from dmd_usb import select_pyusb_device_for_mapping
+
+                found = select_pyusb_device_for_mapping(
+                    usb_id_path,
+                    usb_devpath_contains=usb_devpath_contains,
+                )
+                logger.info(
+                    f"[DLPC900] Selected USB mapping id_path={usb_id_path} "
+                    f"devpath_contains={usb_devpath_contains or '<not required>'}"
+                )
+            else:
+                found = usb.core.find(idVendor=self.VID, idProduct=self.PID)
         except Exception as e:
             logger.critical(f"[DLPC900] USB backend error: {e}")
             raise RuntimeError(f"USB backend error: {e}")

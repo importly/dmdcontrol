@@ -15,6 +15,7 @@ from dlpc_lifecycle import (
     log_board_snapshot,
     verify_runtime_state,
 )
+from dmd_config import resolve_dmd_mapping
 from logger import logger, setup_logger
 from pattern_modes import (
     DEFAULT_NUMBERS_EXPOSURE_US,
@@ -34,7 +35,11 @@ from runtime_loop import run_render_loop, run_trigger_loop
 def _build_parser():
     parser = argparse.ArgumentParser(description="DLPC900 1080p Video Pattern Runtime")
     parser.add_argument("--hz", type=int, default=60, help="Target Hz (60 or 120, experimental)")
-    parser.add_argument("--monitor", type=int, default=0, help="GLFW monitor index")
+    parser.add_argument("--monitor", type=int, default=None, help="GLFW monitor index")
+    parser.add_argument("--dmd", default=None,
+                        help="Configured DMD name from dmd_devices.json, for example A or B.")
+    parser.add_argument("--dmd-config", default=None,
+                        help="Path to DMD mapping config. Defaults to dmd_devices.json next to main.py.")
     parser.add_argument("--test", choices=PATTERN_NAMES, default="checkerboard",
                         help=f"Diagnostic pattern mode. Choices: {', '.join(PATTERN_NAMES)}.")
     parser.add_argument("--trigger", action="store_true", help="Software Trigger Mode (Approach A)")
@@ -496,16 +501,41 @@ def main():
         return
 
     target_hz = args.hz
+    dmd_mapping = resolve_dmd_mapping(args.dmd, args.dmd_config) if args.dmd else None
+    monitor_index = (
+        args.monitor
+        if args.monitor is not None
+        else (
+            dmd_mapping.glfw_monitor_index
+            if dmd_mapping and dmd_mapping.glfw_monitor_index is not None
+            else 0
+        )
+    )
+    if dmd_mapping:
+        if not dmd_mapping.xrandr_output:
+            raise SystemExit(
+                f"DMD {dmd_mapping.name} has no xrandr_output configured in dmd_devices.json. "
+                "Refusing explicit --dmd hardware run until USB and DisplayPort mapping are both set."
+            )
+        logger.info(
+            f"[+] DMD {dmd_mapping.name}: USB id_path={dmd_mapping.usb_id_path}, "
+            f"expected devpath fragment={dmd_mapping.usb_devpath_contains or '<not required>'}, "
+            f"xrandr_output={dmd_mapping.xrandr_output or '<not configured>'}, "
+            f"GLFW monitor={monitor_index}"
+        )
     dlpc = None
     engine = None
     try:
         import glfw
         from dlpc900_hid import DLPC900
         from pattern_engine import PatternEngine
-        engine = PatternEngine(monitor_index=args.monitor, fps=target_hz)
+        engine = PatternEngine(monitor_index=monitor_index, fps=target_hz)
 
         logger.info("[+] Initializing DLPC900...")
-        dlpc = DLPC900()
+        dlpc = DLPC900(
+            usb_id_path=dmd_mapping.usb_id_path if dmd_mapping else None,
+            usb_devpath_contains=dmd_mapping.usb_devpath_contains if dmd_mapping else None,
+        )
 
         if args.wake_dp:
             logger.info("[+] Waking up DisplayPort receiver...")

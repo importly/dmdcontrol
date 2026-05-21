@@ -7,7 +7,7 @@ set -e
 echo "=== DLPC900 Initialization & DP Wake ==="
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-/usr/bin/python3 "$SCRIPT_DIR/wake_dp.py"
+/usr/bin/python3 "$SCRIPT_DIR/wake_dp.py" "$@"
 if [ $? -ne 0 ]; then
     echo "Error: wake_dp.py failed to run. Check USB connection to DLPC900."
     exit 1

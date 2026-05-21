@@ -36,6 +36,30 @@ Direct (skip the X11 wrapper, useful for debugging on dev host):
 python main.py [flags]
 ```
 
+Dual-DMD USB discovery:
+
+```bash
+./discover_dmd_usb.sh
+```
+
+Explicit dual-DMD runs use `dmd_devices.json`:
+
+```bash
+./run_dmd.sh --dmd A [flags]
+./run_dmd.sh --dmd B [flags]
+```
+
+`--dmd` selects the configured udev `ID_PATH` and expected `DEVPATH` fragment before USB is opened. The X11 wrapper also requires that DMD's configured `xrandr_output` to be connected; leave it blank only when you want explicit dual-DMD launches to fail closed until the DisplayPort mapping is filled in.
+
+Current validated dual-DMD mapping:
+
+| DMD | USB identity | Physical USB path | DisplayPort output | GLFW monitor |
+|-----|--------------|-------------------|--------------------|--------------|
+| A | `pci-0000:03:00.0-usb-0:1:1.0` | `usb1/1-1` | `DP-2` | `1` |
+| B | `pci-0000:03:00.0-usb-0:8:1.0` | `usb1/1-8` | `DP-0` | `0` |
+
+This mapping is by labeled USB and DisplayPort ports, not by board serial number. Both DLPC900 boards report serial `C900`. The mapping has been verified after reboot; keep the hardware plugged into the same labeled ports.
+
 
 ## Common examples
 
@@ -64,6 +88,8 @@ python main.py --dry-run-timing --test kernel --kernel-exposure-us 3000
 |------|---------------|---------|---------|
 | `--hz` | `60`, `120` | `60` | Target VSYNC frame rate. 120 Hz is experimental and requires the source to actually deliver 120 Hz. |
 | `--monitor` | int | `0` | GLFW monitor index for the fullscreen window. |
+| `--dmd` | configured name | none | Select a DMD from `dmd_devices.json` and require its USB physical-path mapping before opening the controller. |
+| `--dmd-config` | path | `dmd_devices.json` | Alternate mapping file for `--dmd`. |
 | `--test` | `checkerboard`, `ordering`, `numbered`, `single-pixel`, `2x2`, `lines`, `colors`, `numbers`, `calibr-square`, `snake`, `clock`, `gradient`, `kernel` | `checkerboard` | Diagnostic pattern. See table below. |
 | `--trigger` | flag | off | Software trigger mode. Renders black until you press space; one press shows the pattern frame. ESC exits. |
 | `--runtime-seconds` | int | `60` | Total wall-clock runtime for the render loop. |

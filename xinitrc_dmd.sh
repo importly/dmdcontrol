@@ -7,11 +7,60 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 echo "=== xinitrc_dmd: Configuring display for NVIDIA ==="
 sleep 1
 
-# Auto-detect the connected DisplayPort output name
-DP_OUTPUT=$(xrandr 2>/dev/null | grep ' connected' | grep -oE '^[A-Za-z0-9\-]+' | head -n1)
-if [ -z "$DP_OUTPUT" ]; then
-    echo "[ERROR] No connected display output found via xrandr!"
-    exit 1
+ARGS=("$@")
+DMD_NAME=""
+DMD_CONFIG=""
+for ((i=0; i<${#ARGS[@]}; i++)); do
+    case "${ARGS[i]}" in
+        --dmd)
+            if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
+                DMD_NAME="${ARGS[i+1]}"
+            fi
+            ;;
+        --dmd=*)
+            DMD_NAME="${ARGS[i]#--dmd=}"
+            ;;
+        --dmd-config)
+            if [[ $((i+1)) -lt ${#ARGS[@]} ]]; then
+                DMD_CONFIG="${ARGS[i+1]}"
+            fi
+            ;;
+        --dmd-config=*)
+            DMD_CONFIG="${ARGS[i]#--dmd-config=}"
+            ;;
+    esac
+done
+
+CONFIG_ARGS=()
+if [ -n "$DMD_CONFIG" ]; then
+    CONFIG_ARGS=(--config "$DMD_CONFIG")
+fi
+
+MONITOR_INDEX=0
+if [ -n "$DMD_NAME" ]; then
+    DP_OUTPUT="$(/usr/bin/python3 "$SCRIPT_DIR/dmd_config.py" --dmd "$DMD_NAME" "${CONFIG_ARGS[@]}" --field xrandr_output)"
+    MONITOR_FROM_CONFIG="$(/usr/bin/python3 "$SCRIPT_DIR/dmd_config.py" --dmd "$DMD_NAME" "${CONFIG_ARGS[@]}" --field glfw_monitor_index)"
+    if [ -n "$MONITOR_FROM_CONFIG" ]; then
+        MONITOR_INDEX="$MONITOR_FROM_CONFIG"
+    fi
+    if [ -z "$DP_OUTPUT" ]; then
+        echo "[ERROR] DMD $DMD_NAME has no xrandr_output configured."
+        echo "[ERROR] Set xrandr_output in dmd_devices.json before using --dmd so USB and DisplayPort mapping is explicit."
+        exit 1
+    fi
+    if ! xrandr --query 2>/dev/null | grep -q "^$DP_OUTPUT connected"; then
+        echo "[ERROR] Configured xrandr_output '$DP_OUTPUT' for DMD $DMD_NAME is not connected."
+        echo "[ERROR] Connected outputs:"
+        xrandr --query 2>/dev/null | grep ' connected' || true
+        exit 1
+    fi
+else
+    # Single-DMD compatibility path: auto-detect the first connected DisplayPort output.
+    DP_OUTPUT=$(xrandr 2>/dev/null | grep ' connected' | grep -oE '^[A-Za-z0-9\-]+' | head -n1)
+    if [ -z "$DP_OUTPUT" ]; then
+        echo "[ERROR] No connected display output found via xrandr!"
+        exit 1
+    fi
 fi
 echo "Detected display output: $DP_OUTPUT"
 
@@ -40,7 +89,6 @@ xrandr --addmode "$DP_OUTPUT" "$MODE_120" || echo "[WARN] --addmode $MODE_120 on
 
 # Pick the right mode based on --hz argument (defaults to 60).
 HZ=60
-ARGS=("$@")
 for ((i=0; i<${#ARGS[@]}; i++)); do
     if [[ "${ARGS[i]}" == "--hz" && $((i+1)) -lt ${#ARGS[@]} ]]; then
         HZ="${ARGS[i+1]}"
@@ -96,4 +144,4 @@ xrandr --query 2>/dev/null | grep -A 1 "^$DP_OUTPUT" | head -3
 
 echo "=== Launching main.py ==="
 exec env PYTHONPATH=/home/main/.local/lib/python3.14/site-packages \
-    /usr/bin/python3 "$SCRIPT_DIR/main.py" --monitor 0 "$@"
+    /usr/bin/python3 "$SCRIPT_DIR/main.py" --monitor "$MONITOR_INDEX" "$@"
