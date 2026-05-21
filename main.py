@@ -141,7 +141,7 @@ def _log_kernel_timing_summary(args, timing, prefix="[TIMING]"):
         marker_level = "white" if args.invert_dmd else "black"
         logger.info(
             f"{prefix} Trigger map is relative to kernel-cycle start; "
-            f"{marker_level} marker pulses emitted during DLPC arm are outside this map."
+            f"startup pulses emitted during DLPC arm or post-arm video-prime are outside this map."
         )
         logger.info(
             f"{prefix} DAQ: ignore first {leader_fires} TRIG_OUT_2 pulses "
@@ -196,6 +196,14 @@ def _maybe_invert_frame(frame, invert_dmd):
     if not invert_dmd:
         return frame
     return frame ^ 0xFF
+
+
+def _select_post_arm_prime_frame(initial_frame, dynamic_kind, kernel_frames, kernel_leader_frames):
+    """Choose a frame that proves the post-arm DP video path is changing."""
+    if dynamic_kind == "kernel" and kernel_frames is not None and len(kernel_frames) > 0:
+        payload_index = min(max(0, kernel_leader_frames), len(kernel_frames) - 1)
+        return kernel_frames[payload_index]
+    return initial_frame
 
 
 def _make_frame_provider(engine, initial_frame, dynamic_kind, args=None, kernel_frames=None, invert_dmd=False):
@@ -416,13 +424,6 @@ def main():
                 entries_count=lut_entries_count,
                 per_entry_exposure_us=lut_per_entry_exposure_us,
             )
-            if args.verbose >= 2:
-                log_board_snapshot(dlpc, "POST-CONFIG")
-            if not verify_runtime_state(dlpc):
-                raise RuntimeError(
-                    "Runtime state check failed after sequencer arm. "
-                    "Triggers are likely unavailable because mode 2/sequencer/lock is not valid."
-                )
         finally:
             # Stop the background pump and reclaim the GL context for the main thread.
             if pump_event.is_set():
@@ -431,6 +432,40 @@ def main():
                 if pump_thread["t"] is not None:
                     pump_thread["t"].join(timeout=1.0)
                 glfw.make_context_current(engine.window)
+
+        if args.trigger:
+            post_arm_prime_frame = black_frame
+            prime_label = "trigger-idle black frame"
+        else:
+            post_arm_prime_frame = _select_post_arm_prime_frame(
+                frame,
+                dynamic_kind,
+                kernel_frames,
+                args.kernel_leader_frames,
+            )
+            prime_label = (
+                "first kernel payload frame"
+                if dynamic_kind == "kernel" and post_arm_prime_frame is not frame
+                else "initial pattern frame"
+            )
+        logger.info(f"[+] Priming DP output after sequencer arm with {prime_label}...")
+        engine.display_frame(_maybe_invert_frame(post_arm_prime_frame, args.invert_dmd))
+        if (
+            dynamic_kind == "kernel"
+            and kernel_frames is not None
+            and len(kernel_frames) > 0
+            and post_arm_prime_frame is not kernel_frames[0]
+        ):
+            logger.info("[+] Returning DP output to kernel leader frame before runtime cycle...")
+            engine.display_frame(_maybe_invert_frame(kernel_frames[0], args.invert_dmd))
+
+        if args.verbose >= 2:
+            log_board_snapshot(dlpc, "POST-ARM-PRIME")
+        if not verify_runtime_state(dlpc):
+            raise RuntimeError(
+                "Runtime state check failed after post-arm DP prime. "
+                "Triggers are likely unavailable because mode 2/sequencer/lock is not valid."
+            )
 
         logger.info(f"[+] Holding output for {args.runtime_seconds} seconds...")
         logger.info(f"[+] Starting Diagnostic Mode: {label}...")

@@ -21,6 +21,7 @@ def _numbered(engine):
 
 
 PATTERN_MODES = {
+    #                 label                                   pattern generator          dynamic or not
     "checkerboard":  ("Static Checkerboard",       lambda e: (e.generate_checkerboard(), None)),
     "ordering":      ("Bit Ordering Sweep",        lambda e: (e.generate_ordering_diagnostic_patterns(1920, 1080), None)),
     "numbered":      ("Numbered Regions (6x4 grid)", _numbered),

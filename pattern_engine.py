@@ -44,7 +44,7 @@ class PatternEngine:
         glfw.window_hint(glfw.DECORATED, glfw.FALSE)
         glfw.window_hint(glfw.RESIZABLE, glfw.FALSE)
         glfw.window_hint(glfw.AUTO_ICONIFY, glfw.FALSE)
-        glfw.window_hint(glfw.REFRESH_RATE, glfw.DONT_CARE)
+        glfw.window_hint(glfw.REFRESH_RATE, self.fps)
 
         self.window = glfw.create_window(
             width, height, "DLPC900 Pattern Engine", monitor, None
@@ -56,6 +56,13 @@ class PatternEngine:
 
         glfw.make_context_current(self.window)
         glfw.swap_interval(1)  # Sync to VSync
+
+        mode = glfw.get_video_mode(monitor)
+        if mode is not None:
+            logger.info(
+                f"[+] GLFW video mode: {mode.size.width}x{mode.size.height} @ {mode.refresh_rate}Hz "
+                f"(requested {width}x{height} @ {self.fps}Hz)"
+            )
 
         # Verify 1:1 Framebuffer scaling
         fb_w, fb_h = glfw.get_framebuffer_size(self.window)

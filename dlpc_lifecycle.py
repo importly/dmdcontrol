@@ -603,35 +603,46 @@ def verify_runtime_state(dlpc):
 
     seq_abort = bool(hw & 0x40) if hw is not None else False
     seq_error = bool(hw & 0x80) if hw is not None else False
+    forced_swap = bool(hw & 0x08) if hw is not None else False
 
-    checks = {
+    hard_checks = {
         "display_mode_is_video_pattern": mode == 2,
         "sequencer_running": bool(ms.get("sequencer_running", False)),
+        "forced_swap_clear": not forced_swap,
+        "seq_error_clear": not seq_error,
+    }
+    advisory_checks = {
         "external_source_locked": bool(ms.get("external_source_locked", False)),
+        "port1_syncs_valid": bool(ms.get("port1_syncs_valid", False)),
     }
 
     logger.debug("Verification:")
-    for name, ok in checks.items():
+    for name, ok in hard_checks.items():
         logger.debug(f"  {name:30} {'PASS' if ok else 'FAIL'}")
+    for name, ok in advisory_checks.items():
+        logger.debug(f"  {name:30} {'PASS' if ok else 'WARN'}")
 
-    all_ok = all(checks.values())
-    if not all_ok:
-        logger.warning("Runtime verification checks failed!")
-        logger.warning("           Video Pattern Mode (2), source lock, or sequencer health check failed.")
-        logger.warning("           Check DisplayPort sync lock and mode transition timing.")
+    hard_ok = all(hard_checks.values())
+    advisory_ok = all(advisory_checks.values())
+    if not hard_ok:
+        logger.warning("Runtime verification hard checks failed!")
+        logger.warning("           Video Pattern Mode (2), sequencer running, forced-swap clear, or SEQ_ERR clear failed.")
         if hw is not None:
             logger.warning(f"           Hardware status raw: 0x{hw:02X}")
     else:
-        if seq_error:
-            # bit 7 = real runtime sequence error
+        if not advisory_ok:
             logger.warning(
-                f"Runtime sequence-error bit set (hw=0x{hw:02X}) despite mode/sequencer lock. "
-                "Investigate via watchdog dropouts."
+                "Runtime verification advisory checks did not all pass; continuing because "
+                "mode/sequencer/hardware error bits are healthy. Confirm TRIG_OUT_2 on scope."
             )
-        elif seq_abort:
+            logger.warning(
+                f"           external_source_locked={advisory_checks['external_source_locked']} "
+                f"port1_syncs_valid={advisory_checks['port1_syncs_valid']}"
+            )
+        if seq_abort:
             # bit 6 = state-machine flag latched after every Pattern Stop; cosmetic
             logger.debug(
                 f"  Runtime hw=0x{hw:02X}. Bit 6 latched (cosmetic, set by Pattern Stop)."
             )
         logger.info("[OK] Runtime verification passed (mode=VideoPattern, sequencer running).")
-    return all_ok
+    return hard_ok

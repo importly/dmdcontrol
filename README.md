@@ -137,7 +137,7 @@ documentation/      DLPC900 / DLPT028 / DLPU018J PDFs + extracted text
 
 DLPC900 in Video Pattern Mode drives two GPIO trigger outputs. Their on-scope behavior surprises people, so:
 
-- **TRIG_OUT_1 is a frame-active GATE, not a momentary pulse.** It asserts at the start of the first bitplane of a frame and deasserts after the last bitplane ends. With `dark=0` (the default) and high utilization (e.g. 24 entries × 615 µs = 14760 µs active out of 16667 µs VSYNC), TRIG_OUT_1 is HIGH ~88% of the time. `rising_delay_us` / `falling_delay_us` only configure leading/trailing edge skew relative to frame boundaries — not pulse width.
+- **TRIG_OUT_1 is advisory in our current hardware path.** TI documents it as the pattern-exposure gate, and without programmed dark time it may remain high for a whole pattern sequence. Empirically on the current setup it has also been observed staying low for the whole run. Do not use TRIG_OUT_1 for kernel indexing or acquisition truth; use `TRIG_OUT_2`.
 - **TRIG_OUT_2 fires per bitplane** (or once per frame on bitplane 0 with `--trig2-frame-zero`). Default pulse width = 20 µs. With 24 entries × 615 µs and dark=0, you get 24 pulses spaced 615 µs apart, then a ~1907 µs idle gap, then the next burst. **Scope auto-Hz reads ~1.63 kHz** because it windows over the dense burst region (1/615 µs ≈ 1626 Hz). **Pulses per second over a 1.000 s counter gate = 1440** (24 × 60 frames). Both numbers are correct; they describe different things.
 - For uniform 1440 Hz output (every pulse exactly 694 µs apart), you would need `dark=79` µs to push the per-entry period from 615 to 694, eliminating the VSYNC idle gap. The current `INTER_PATTERN_DARK_US = 0` in `config.py` is intentional — it maximizes integration time per bitplane.
 

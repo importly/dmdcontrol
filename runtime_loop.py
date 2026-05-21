@@ -6,8 +6,71 @@ from dlpc_lifecycle import apply_pattern_sequence, ensure_video_pattern_mode
 from logger import logger
 
 
-def _format_hw(hw):
-    return f"0x{hw:02X}" if hw is not None else "None"
+def _mode_description(mode):
+    descriptions = {
+        0: "Video Mode",
+        1: "Pre-stored Pattern Mode",
+        2: "Video Pattern Mode",
+    }
+    return descriptions.get(mode, "unknown")
+
+
+def _format_bool_state(value, ok_when_true=True):
+    state = bool(value)
+    ok = state if ok_when_true else not state
+    return f"{state}({'OK' if ok else 'WARN'})"
+
+
+def _format_hw_details(hw, sequencer_running):
+    if hw is None:
+        return "hw=None(register read failed)"
+
+    forced_swap = bool(hw & 0x08)
+    seq_abort = bool(hw & 0x40)
+    seq_error = bool(hw & 0x80)
+    hard_fault = forced_swap or seq_error
+
+    bits = []
+    if hw & 0x01:
+        bits.append("bit0 init_ok")
+    if hw & 0x02:
+        bits.append("bit1 dmd_compat_err")
+    if hw & 0x04:
+        bits.append("bit2 dmd_reset_err")
+    if forced_swap:
+        bits.append("bit3 forced_swap HARD_FAULT")
+    if hw & 0x10:
+        bits.append("bit4 set")
+    if hw & 0x20:
+        bits.append("bit5 reserved/common")
+    if seq_abort:
+        abort_meaning = "cosmetic while sequencer_running" if sequencer_running else "attention if sequencer stopped"
+        bits.append(f"bit6 ABORT_latched {abort_meaning}")
+    if seq_error:
+        bits.append("bit7 SEQ_ERR HARD_FAULT")
+
+    bit_text = "; ".join(bits) if bits else "no bits set"
+    return f"hw=0x{hw:02X} hard_fault={hard_fault} bits=[{bit_text}]"
+
+
+def _format_watchdog_status(mode, ms, hw):
+    sequencer_running = bool(ms.get("sequencer_running", False))
+    external_locked = bool(ms.get("external_source_locked", False))
+    port1_sync_valid = bool(ms.get("port1_syncs_valid", False))
+    video_frozen = bool(ms.get("video_frozen", False))
+    dmd_parked = bool(ms.get("dmd_parked", False))
+    mode_ok = mode == 2
+
+    return (
+        f"[WATCHDOG] mode={mode}({_mode_description(mode)}, {'OK' if mode_ok else 'WARN: expected Video Pattern Mode=2'}); "
+        f"sequencer_running={_format_bool_state(sequencer_running)} required for triggers; "
+        f"external_source_locked={_format_bool_state(external_locked)} advisory DP sync bit; "
+        f"port1_syncs_valid={_format_bool_state(port1_sync_valid)} advisory P1 sync bit; "
+        f"video_frozen={_format_bool_state(video_frozen, ok_when_true=False)}; "
+        f"dmd_parked={_format_bool_state(dmd_parked, ok_when_true=False)}; "
+        f"{_format_hw_details(hw, sequencer_running)}; "
+        "hard-stop bits are forced_swap or SEQ_ERR, while ABORT/0x40 is cosmetic if the sequencer is still running."
+    )
 
 
 def _maybe_recover_abort(dlpc, sequence_state, args, now_monotonic, last_abort_recover_at, hw, ms):
@@ -60,10 +123,7 @@ def run_render_loop(dlpc, engine, frame_provider, args, sequence_state, video_wr
                 ms = dlpc.get_main_status() or {}
                 mode, _ = dlpc.get_display_mode()
                 hw = dlpc.get_hardware_status()
-                logger.debug(
-                    f"[WATCHDOG] mode={mode} seq={bool(ms.get('sequencer_running', False))} "
-                    f"lock={bool(ms.get('external_source_locked', False))} hw={_format_hw(hw)}"
-                )
+                logger.debug(_format_watchdog_status(mode, ms, hw))
                 last_abort_recover_at = _maybe_recover_abort(
                     dlpc, sequence_state, args, now_monotonic, last_abort_recover_at, hw, ms
                 )
