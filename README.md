@@ -53,6 +53,9 @@ python main.py [flags]
 
 # Same, fast (full 1440 Hz binary rate, 24 bitplanes per VSYNC)
 ./run_dmd.sh --test kernel --kernel-px 900 --runtime-seconds 60
+
+# Plan kernel timing and DAQ trigger mapping without opening hardware
+python main.py --dry-run-timing --test kernel --kernel-exposure-us 3000
 ```
 
 ## Flags
@@ -72,10 +75,13 @@ python main.py [flags]
 | `--no-auto-recover-abort` | flag | off | Disable automatic re-arm. Watchdog will log the abort but not act. |
 | `--capture` | path to `.mp4` | none | Save the packed frames being sent to the DP output (requires `opencv-python`). |
 | `--kernel-px` | int (multiple of 3) | `30` | Total kernel side length in pixels for `--test kernel`. Single-cell size = `kernel-px / 3`. |
+| `--invert-dmd` | flag | off | Invert the final packed DMD output: every pixel in every displayed bitplane, including leader, pad, blank-end, and trigger black frames. |
 | `--kernel-single-shot` | flag | off | Display each kernel for exactly one bitplane fire then advance. Implies dynamic frame buffer cycling. |
-| `--kernel-blank-end-frame` | flag | off | Force the last bitplane of each VSYNC to be blank (debug aid for trigger alignment). |
-| `--kernel-exposure-us` | int µs | auto | Override per-kernel exposure. Reduces entries-per-VSYNC and slows the cycle. Cap is one VSYNC (~14773 µs at 90% utilization). |
-| `-v`, `--verbose` | flag | off | Verbose logging + 2-second watchdog poll of mode/sequencer/lock/hw status. |
+| `--kernel-blank-end-frame` / `--no-kernel-blank-end-frame` | flag | on | Append one all-black 24-bitplane VSYNC frame at the end of each kernel cycle, or disable it explicitly. |
+| `--kernel-leader-frames` | int | `3` | Prepend all-black VSYNC frames to each kernel cycle. DAQ should ignore these leader trigger pulses before kernel index 0. |
+| `--kernel-exposure-us` | int µs | auto | Uniform exposure for every kernel. Reduces entries-per-VSYNC and slows the cycle. Cap is one VSYNC (~14773 µs at 90% utilization). |
+| `--dry-run-timing` | flag | off | Print LUT timing, cycle length, and trigger-to-kernel mapping without opening OpenGL or USB hardware. |
+| `-v`, `--verbose` | repeatable | basic | Logging level: basic = INFO, `-v` = DEBUG + 2s watchdog, `-vv` = DEBUG with source paths + 1s watchdog + full board snapshots. |
 
 ## Test modes
 
@@ -91,9 +97,15 @@ python main.py [flags]
 | `snake` | High-speed randomly moving snake. Tests dynamic refresh + trigger stability. |
 | `clock` | Massive microsecond clock. Visual stutter / latency check. |
 | `gradient` | Temporal duty-cycle gradient. |
-| `kernel` | 3x3 convolution kernel rotation — cycles through 512 kernel masks. Configurable via `--kernel-px`, `--kernel-exposure-us`, `--kernel-single-shot`, `--kernel-blank-end-frame`. |
+| `kernel` | 3x3 convolution kernel rotation — cycles through 512 kernel masks. Configurable via `--kernel-px`, `--kernel-exposure-us`, `--kernel-single-shot`, `--kernel-blank-end-frame`, `--invert-dmd`. |
 
 `--trigger` only supports patterns with a static frame (anything except `snake` / `clock` / `kernel`). Dynamic modes fall back to `checkerboard` when used with `--trigger`.
+
+`--kernel-exposure-us` is a uniform exposure for the kernel sequence. The fast Video Pattern Mode path uses a static LUT that repeats every VSYNC, so arbitrary exposure values per individual kernel index would require a different playback strategy.
+
+`--invert-dmd` is for optical setups where the effective bright/dark polarity is reversed. It is applied after frame packing, so it flips the entire DMD output for every displayed bitplane. In inverted mode, the normal black leader, pad, blank-end, and trigger-idle frames output as full-white frames.
+
+Kernel mode prepends `--kernel-leader-frames` all-black VSYNC frames to every cycle. With default fast timing, `3` leader frames × `24` LUT entries means the first `72` `TRIG_OUT_2` pulses after kernel-cycle start are leader pulses; kernel index 0 starts after that. These leader pulses are black normally and white with `--invert-dmd`. Use `--dry-run-timing` to print the exact mapping for any exposure. If DAQ starts before or during DLPC arming, extra marker pulses can occur before this cycle map begins.
 
 ## Standalone tools
 
@@ -133,7 +145,7 @@ DLPC900 in Video Pattern Mode drives two GPIO trigger outputs. Their on-scope be
 
 The DLPC900 hardware status register (read via cmd 0x1A0A) exposes status flags. Two are easy to misread:
 
-- **Bit 6 ("Sequence Abort Status Flag" per DLPU018J Table 2-21)** behaves in our setup as a state-machine flag rather than a fault indicator. It is set after every `start_pattern_display(0)` (Pattern Stop) and persists until the next `start_pattern_display(2)` completes a clean handoff. It is also set at boot and persists across barrel power cycles. Treat as cosmetic when `sequencer_running`, `external_source_locked`, and `port1_syncs_valid` are all true and forced-swap (bit 3) and sequence-error (bit 7) are clear. The retry loop in `dlpc_lifecycle.apply_pattern_sequence` will log a few `[arm] bit-6 latched` lines at DEBUG and then proceed.
+- **Bit 6 ("Sequence Abort Status Flag" per DLPU018J Table 2-21)** behaves in our setup as a state-machine flag rather than a fault indicator. It is set after every `start_pattern_display(0)` (Pattern Stop) and persists until the next `start_pattern_display(2)` completes a clean handoff. It is also set at boot and persists across barrel power cycles. Treat as cosmetic when `sequencer_running`, `external_source_locked`, and `port1_syncs_valid` are all true and forced-swap (bit 3) and sequence-error (bit 7) are clear. `dlpc_lifecycle.apply_pattern_sequence` skips retry churn in that healthy state and retries only when bit 6 is paired with a real unhealthy signal.
 - **Bit 7 ("Sequence Error Flag")** is the real runtime-error signal. If you see this set, investigate.
 
 The runtime watchdog logs `hw=0x61` continuously when bit 0 (init_ok), bit 5 (reserved, commonly reads 1), and bit 6 (cosmetic ABORT) are set. That is the healthy steady-state pattern.

@@ -285,6 +285,22 @@ def wait_for_sequencer_running(dlpc, timeout_s=1.5):
     return False
 
 
+def _bit6_is_cosmetic(dlpc, hw):
+    """Return True when bit 6 is latched but all real health signals are good."""
+    if hw is None or not (hw & 0x40):
+        return False
+    if hw & 0x88:  # forced_swap or SEQ_ERR are real fault paths.
+        return False
+    ms = dlpc.get_main_status() or {}
+    mode, _ = dlpc.get_display_mode()
+    return bool(
+        mode == 2
+        and ms.get("sequencer_running")
+        and ms.get("external_source_locked")
+        and ms.get("port1_syncs_valid")
+    )
+
+
 def ensure_video_pattern_mode(dlpc, retries=3, poll_timeout_s=1.2):
     mode, _ = dlpc.get_display_mode()
     if mode == 2:
@@ -329,19 +345,22 @@ def apply_pattern_sequence(dlpc, entries, frame_pump=None):
     dlpc.start_pattern_display(2)
     time.sleep(0.2)
 
-    # hw bit 6 (DLPU018J "ABORT") is set by Pattern Display Stop and persists
-    # until next Pattern Display Start completes a clean handoff. We previously
-    # treated it as a fatal error and retried 5 times; in practice the sequencer
-    # latches it after every start as part of normal state-machine transitions,
-    # while sequencer_running / external_source_locked / port1_syncs_valid all
-    # report healthy. The retry loop is kept as a defensive measure but its
-    # outcome is INFO, not WARNING.
+    # hw bit 6 (DLPU018J "ABORT") is set by Pattern Display Stop and can persist
+    # after a healthy restart. Only retry when bit 6 is paired with real unhealthy
+    # state: forced_swap, SEQ_ERR, mode drop, stopped sequencer, or lost sync.
     _RETRY_DELAYS = [0.37, 0.73, 1.17, 1.83, 2.53]
     for attempt in range(1, len(_RETRY_DELAYS) + 1):
         hw = dlpc.get_hardware_status()
         if hw is None or not (hw & 0x40):
             if attempt > 1:
                 logger.debug(f"  [arm] bit-6 cleared on attempt {attempt} (hw={_format_hw(hw)}).")
+            break
+
+        if _bit6_is_cosmetic(dlpc, hw):
+            logger.debug(
+                f"  [arm] bit-6 latched but health checks are good "
+                f"(hw={_format_hw(hw)}); skipping retry churn."
+            )
             break
 
         err_code = dlpc.get_last_error()
@@ -371,11 +390,11 @@ def apply_pattern_sequence(dlpc, entries, frame_pump=None):
         hw_final = dlpc.get_hardware_status()
         err_code = dlpc.get_last_error()
         err_desc = dlpc.get_error_description()
-        logger.info(
-            f"[+] hw bit-6 still latched (hw={_format_hw(hw_final)}) after {len(_RETRY_DELAYS)} retries. "
+        logger.warning(
+            f"[+] Unhealthy bit-6 state still latched (hw={_format_hw(hw_final)}) "
+            f"after {len(_RETRY_DELAYS)} retries. "
             f"last_err={err_code!r} desc={err_desc!r}. "
-            "Sequencer state-machine flag is cosmetic when sequencer_running + external_source_locked are healthy "
-            "(verify via runtime watchdog and scope; per-bitplane TRIG_OUT_2 should show VSYNC-gated bursts)."
+            "Check sequencer_running, external_source_locked, port1_syncs_valid, forced_swap, and SEQ_ERR."
         )
 
 
@@ -539,7 +558,7 @@ def configure_dlpc900_for_video_pattern(
     if pre_arm_callback is not None:
         pre_arm_callback()
 
-    logger.info(f"[+] Applying LUT reorder with {len(entries)} entries...")
+    logger.info(f"[+] Applying pattern LUT with {len(entries)} entries...")
     apply_pattern_sequence(dlpc, entries, frame_pump=frame_pump)
 
     logger.info("[+] Pattern sequencer start command issued.")

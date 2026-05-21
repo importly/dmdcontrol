@@ -1,5 +1,4 @@
 import logging
-import sys
 from rich.logging import RichHandler
 from rich.console import Console
 
@@ -7,14 +6,18 @@ from rich.console import Console
 console = Console()
 
 
-def setup_logger(verbose=False):
+def setup_logger(verbosity=0, verbose=None):
     """
     Configure the root logger with rich formatting.
 
     Args:
-        verbose (bool): If True, sets level to DEBUG. Otherwise INFO.
+        verbosity: 0 = basic INFO, 1 = DEBUG, 2+ = DEBUG with source paths.
     """
-    level = logging.DEBUG if verbose else logging.INFO
+    if verbose is not None:
+        verbosity = verbose
+    if isinstance(verbosity, bool):
+        verbosity = 1 if verbosity else 0
+    level = logging.DEBUG if verbosity >= 1 else logging.INFO
 
     # Configure logging
     logging.basicConfig(
@@ -22,8 +25,9 @@ def setup_logger(verbose=False):
         format="%(message)s",
         datefmt="[%X]",
         handlers=[
-            RichHandler(rich_tracebacks=True, show_path=verbose, console=console)
+            RichHandler(rich_tracebacks=True, show_path=verbosity >= 2, console=console)
         ],
+        force=True,
     )
 
     logger = logging.getLogger("dmdcontrol")

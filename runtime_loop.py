@@ -41,7 +41,12 @@ def run_render_loop(dlpc, engine, frame_provider, args, sequence_state, video_wr
     cv2_module: cv2 module reference (only needed if video_writer is not None).
     """
     end_t = time.time() + args.runtime_seconds
-    watchdog_interval_s = 2.0 if args.verbose else 0.0
+    if args.verbose >= 2:
+        watchdog_interval_s = 1.0
+    elif args.verbose >= 1:
+        watchdog_interval_s = 2.0
+    else:
+        watchdog_interval_s = 0.0
     watchdog_last = time.monotonic()
     last_abort_recover_at = 0.0
 
