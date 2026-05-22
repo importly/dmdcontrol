@@ -1,8 +1,10 @@
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+import main_pair
 from main_pair import resolve_pair_config
 
 
@@ -61,6 +63,115 @@ class MainPairConfigTests(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 resolve_pair_config(config_path)
+
+    def test_dry_run_accepts_calibration_dot_recipe_without_hardware_imports(self):
+        for module_name in ("glfw", "OpenGL.GL", "dlpc900_hid"):
+            sys.modules.pop(module_name, None)
+
+        rc = main_pair.main(
+            [
+                "--dry-run-timing",
+                "--test",
+                "a-calibr-square-b-dot",
+                "--b-dot-x",
+                "960",
+                "--b-dot-y",
+                "540",
+                "--b-dot-radius",
+                "40",
+            ]
+        )
+
+        self.assertEqual(rc, 0)
+        self.assertFalse({"glfw", "OpenGL.GL", "dlpc900_hid"} & set(sys.modules))
+
+    def test_calibration_dot_recipe_rejects_static_pair_overrides(self):
+        with self.assertRaises(SystemExit):
+            main_pair.main(
+                [
+                    "--dry-run-timing",
+                    "--test",
+                    "a-calibr-square-b-dot",
+                    "--test-a",
+                    "lines",
+                    "--b-dot-x",
+                    "960",
+                    "--b-dot-y",
+                    "540",
+                    "--b-dot-radius",
+                    "40",
+                ]
+            )
+
+    def test_dry_run_accepts_kernel_static_recipe_without_hardware_imports(self):
+        for module_name in ("glfw", "OpenGL.GL", "dlpc900_hid"):
+            sys.modules.pop(module_name, None)
+
+        rc = main_pair.main(
+            [
+                "--dry-run-timing",
+                "--test",
+                "a-kernel-b-static",
+                "--test-b",
+                "lines",
+                "--kernel-px",
+                "30",
+                "--kernel-exposure-us",
+                "3000",
+                "--kernel-leader-frames",
+                "0",
+                "--no-kernel-blank-end-frame",
+            ]
+        )
+
+        self.assertEqual(rc, 0)
+        self.assertFalse({"glfw", "OpenGL.GL", "dlpc900_hid"} & set(sys.modules))
+
+    def test_dry_run_accepts_kernel_static_recipe_with_b_dot(self):
+        rc = main_pair.main(
+            [
+                "--dry-run-timing",
+                "--test",
+                "a-kernel-b-static",
+                "--test-b",
+                "dot",
+                "--b-dot-x",
+                "960",
+                "--b-dot-y",
+                "540",
+                "--b-dot-radius",
+                "40",
+                "--kernel-px",
+                "900",
+                "--kernel-exposure-us",
+                "3000",
+            ]
+        )
+
+        self.assertEqual(rc, 0)
+
+    def test_kernel_static_recipe_rejects_test_a_override(self):
+        with self.assertRaises(SystemExit):
+            main_pair.main(
+                [
+                    "--dry-run-timing",
+                    "--test",
+                    "a-kernel-b-static",
+                    "--test-a",
+                    "lines",
+                ]
+            )
+
+    def test_dry_run_accepts_human_visible_pair_modes_without_hardware_imports(self):
+        for module_name in ("glfw", "OpenGL.GL", "dlpc900_hid"):
+            sys.modules.pop(module_name, None)
+
+        for mode in ("coarse-grid", "coarse-lines"):
+            with self.subTest(mode=mode):
+                rc = main_pair.main(["--dry-run-timing", "--test", mode])
+
+                self.assertEqual(rc, 0)
+                self.assertFalse({"glfw", "OpenGL.GL", "dlpc900_hid"} & set(sys.modules))
 
 
 if __name__ == "__main__":

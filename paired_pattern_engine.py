@@ -9,6 +9,14 @@ from dataclasses import dataclass
 import numpy as np
 
 from logger import logger
+from visual_patterns import (
+    DEFAULT_COARSE_GRID_SPACING,
+    DEFAULT_COARSE_LINE_SPACING,
+    DEFAULT_ROUTE_BORDER_THICKNESS,
+    DEFAULT_ROUTE_MARKER_SIZE,
+    generate_coarse_grid_rgb,
+    generate_coarse_lines_rgb,
+)
 
 DMD_WIDTH = 1920
 DMD_HEIGHT = 1080
@@ -17,9 +25,14 @@ PAIR_HEIGHT = DMD_HEIGHT
 OFFSET_B = (0, 0)
 OFFSET_A = (DMD_WIDTH, 0)
 
-STATIC_PAIR_TESTS = ("checkerboard", "lines", "colors")
+HUMAN_VISIBLE_PAIR_TESTS = ("coarse-grid", "grid", "coarse-lines", "bands")
+STATIC_PAIR_TESTS = ("checkerboard", "lines", "colors", "dot") + HUMAN_VISIBLE_PAIR_TESTS
 DYNAMIC_PAIR_TESTS = ("gradient", "snake")
-PAIR_TESTS = STATIC_PAIR_TESTS + DYNAMIC_PAIR_TESTS
+CALIBRATION_DOT_PAIR_TEST = "a-calibr-square-b-dot"
+KERNEL_STATIC_PAIR_TEST = "a-kernel-b-static"
+RECIPE_PAIR_TESTS = (CALIBRATION_DOT_PAIR_TEST, KERNEL_STATIC_PAIR_TEST)
+PAIR_TESTS = STATIC_PAIR_TESTS + DYNAMIC_PAIR_TESTS + RECIPE_PAIR_TESTS
+VISUAL_BORDER_THICKNESS = DEFAULT_ROUTE_BORDER_THICKNESS
 
 
 def _validate_rgb_frame(frame, label):
@@ -66,47 +79,160 @@ def _colors(width, height, channel=0):
     return img
 
 
+def _fill_rect_rgb(frame, x0, y0, x1, y1, value=255):
+    height, width = frame.shape[:2]
+    x0 = max(0, min(width, int(x0)))
+    x1 = max(0, min(width, int(x1)))
+    y0 = max(0, min(height, int(y0)))
+    y1 = max(0, min(height, int(y1)))
+    if x1 > x0 and y1 > y0:
+        frame[y0:y1, x0:x1, :] = value
+
+
+def _overlay_border_thickness(width, height):
+    return min(VISUAL_BORDER_THICKNESS, max(1, min(width, height) // 4))
+
+
+def _draw_block_letter(frame, label, x0, y0, cell):
+    if label == "A":
+        rects = (
+            (0, 1, 1, 7),
+            (4, 1, 5, 7),
+            (1, 0, 4, 1),
+            (1, 3, 4, 4),
+        )
+    else:
+        rects = (
+            (0, 0, 1, 7),
+            (1, 0, 4, 1),
+            (1, 3, 4, 4),
+            (1, 6, 4, 7),
+            (4, 1, 5, 3),
+            (4, 4, 5, 6),
+        )
+    for rx0, ry0, rx1, ry1 in rects:
+        _fill_rect_rgb(
+            frame,
+            x0 + rx0 * cell,
+            y0 + ry0 * cell,
+            x0 + rx1 * cell,
+            y0 + ry1 * cell,
+        )
+
+
+def generate_dot_frame(
+    width=DMD_WIDTH,
+    height=DMD_HEIGHT,
+    x=None,
+    y=None,
+    radius=40,
+    shape="circle",
+    invert=False,
+):
+    """Generate a static RGB dot mask/aperture frame."""
+    if width <= 0 or height <= 0:
+        raise ValueError("width and height must be positive")
+    if radius <= 0:
+        raise ValueError("radius must be positive")
+    if shape not in ("circle", "square"):
+        raise ValueError("shape must be 'circle' or 'square'")
+    if x is None:
+        x = width / 2.0
+    if y is None:
+        y = height / 2.0
+
+    yy, xx = np.ogrid[:height, :width]
+    if shape == "circle":
+        mask = (xx - x) ** 2 + (yy - y) ** 2 <= radius ** 2
+    else:
+        mask = (np.abs(xx - x) <= radius) & (np.abs(yy - y) <= radius)
+
+    frame = np.full((height, width, 3), 255 if invert else 0, dtype=np.uint8)
+    frame[mask, :] = 0 if invert else 255
+    return np.ascontiguousarray(frame)
+
+
 def _route_mark(frame, label):
     marked = frame.copy()
     height, width = marked.shape[:2]
-    band_h = 1 if height < 32 else max(4, height // 80)
-    marked[:band_h, :, :] = 0
+    border = _overlay_border_thickness(width, height)
+    marked[:border, :, :] = 255
+    marked[-border:, :, :] = 255
+    marked[:, :border, :] = 255
+    marked[:, -border:, :] = 255
+    if min(width, height) < 32:
+        return marked
+
+    max_cell_w = max(1, (width - 2 * border) // 7)
+    max_cell_h = max(1, (height - 2 * border) // 7)
+    cell = max(1, min(DEFAULT_ROUTE_MARKER_SIZE // 7, max_cell_w, max_cell_h))
+    letter_w = 5 * cell
+    letter_h = 7 * cell
+    margin = max(border, cell)
+    x0 = min(max(border, border + margin), max(border, width - border - letter_w))
     if label == "A":
-        marked[:band_h, :, 0] = 255
-        x0 = max(1, width // 32)
-        y0 = max(1, height // 32)
-        w = 1 if min(width, height) < 32 else max(4, width // 32)
-        h = 1 if height < 32 else max(4, height // 8)
-        h = min(h, max(1, height - y0))
-        marked[y0 : y0 + h, x0 : x0 + w, 0] = 255
-        marked[y0 : y0 + h, x0 + 2 * w : x0 + 3 * w, 0] = 255
-        marked[y0 : y0 + w, x0 : x0 + 3 * w, 0] = 255
-        marked[y0 + h // 2 : y0 + h // 2 + w, x0 : x0 + 3 * w, 0] = 255
+        y0 = min(max(border, border + margin), max(border, height - border - letter_h))
     else:
-        marked[:band_h, :, 1] = 255
-        x0 = max(1, width // 32)
-        y0 = max(1, height // 32)
-        w = 1 if min(width, height) < 32 else max(4, width // 32)
-        h = 1 if height < 32 else max(4, height // 8)
-        h = min(h, max(1, height - y0))
-        marked[y0 : y0 + h, x0 : x0 + w, 1] = 255
-        marked[y0 : y0 + h, x0 + 2 * w : x0 + 3 * w, 1] = 255
-        marked[y0 : y0 + w, x0 : x0 + 3 * w, 1] = 255
-        marked[y0 + h // 2 : y0 + h // 2 + w, x0 : x0 + 3 * w, 1] = 255
-        marked[y0 + h - w : y0 + h, x0 : x0 + 3 * w, 1] = 255
+        y0 = max(border, height - border - margin - letter_h)
+
+    pad = max(1, cell // 2)
+    _fill_rect_rgb(marked, x0 - pad, y0 - pad, x0 + letter_w + pad, y0 + letter_h + pad, value=0)
+    _draw_block_letter(marked, label, x0, y0, cell)
     return marked
 
 
-def _static_frame(mode, width, height, route_label):
+def generate_static_frame(
+    mode,
+    width=DMD_WIDTH,
+    height=DMD_HEIGHT,
+    route_label="A",
+    dot_x=None,
+    dot_y=None,
+    dot_radius=40,
+    dot_shape="circle",
+    dot_invert=False,
+):
     if mode == "checkerboard":
         frame = _checkerboard(width, height)
     elif mode == "lines":
         frame = _lines(width, height)
     elif mode == "colors":
         frame = _colors(width, height, channel=0 if route_label == "A" else 1)
+    elif mode == "dot":
+        return generate_dot_frame(
+            width=width,
+            height=height,
+            x=dot_x,
+            y=dot_y,
+            radius=dot_radius,
+            shape=dot_shape,
+            invert=dot_invert,
+        )
+    elif mode in ("coarse-grid", "grid"):
+        offset = 0 if route_label == "A" else DEFAULT_COARSE_GRID_SPACING // 2
+        frame = generate_coarse_grid_rgb(
+            width=width,
+            height=height,
+            offset_x=offset,
+            offset_y=offset,
+        )
+    elif mode in ("coarse-lines", "bands"):
+        if route_label == "A":
+            frame = generate_coarse_lines_rgb(width=width, height=height, orientation="vertical")
+        else:
+            frame = generate_coarse_lines_rgb(
+                width=width,
+                height=height,
+                orientation="horizontal",
+                offset=DEFAULT_COARSE_LINE_SPACING // 2,
+            )
     else:
         raise ValueError(f"Unsupported static pair mode: {mode}")
     return _route_mark(frame, route_label)
+
+
+def _static_frame(mode, width, height, route_label):
+    return generate_static_frame(mode, width, height, route_label)
 
 
 class PairFrameProvider:
@@ -115,6 +241,25 @@ class PairFrameProvider:
 
     def next_pair(self):
         raise NotImplementedError
+
+
+class SingleDmdFrameAdapter:
+    """Small adapter exposing PatternEngine packing for one half of a paired window."""
+
+    def __init__(self, width=DMD_WIDTH, height=DMD_HEIGHT, window=None):
+        self.width = width
+        self.height = height
+        self.window = window
+
+    def pack_patterns(self, binary_images):
+        r = np.zeros((self.height, self.width), dtype=np.uint8)
+        g = np.zeros((self.height, self.width), dtype=np.uint8)
+        b = np.zeros((self.height, self.width), dtype=np.uint8)
+        for i in range(8):
+            g |= binary_images[i] << i
+            r |= binary_images[i + 8] << i
+            b |= binary_images[i + 16] << i
+        return np.ascontiguousarray(np.stack([r, g, b], axis=-1))
 
 
 @dataclass
@@ -133,6 +278,41 @@ class StaticPairFrameProvider(PairFrameProvider):
 
     def next_pair(self):
         return self._frame_a, self._frame_b
+
+
+class DynamicAStaticBPairFrameProvider(PairFrameProvider):
+    def __init__(self, frame_provider_a, frame_b, initial_frame_a=None):
+        _validate_rgb_frame(frame_b, "frame_b")
+        if initial_frame_a is not None:
+            _validate_rgb_frame(initial_frame_a, "initial_frame_a")
+            if initial_frame_a.shape != frame_b.shape:
+                raise ValueError(
+                    f"initial_frame_a and frame_b must have the same shape, got {initial_frame_a.shape} and {frame_b.shape}"
+                )
+        self._frame_provider_a = frame_provider_a
+        self._frame_b = frame_b
+        self._initial_frame_a = initial_frame_a
+
+    def _next_a(self):
+        frame_a = self._frame_provider_a()
+        _validate_rgb_frame(frame_a, "frame_a")
+        if frame_a.shape != self._frame_b.shape:
+            raise ValueError(
+                f"frame_a and frame_b must have the same shape, got {frame_a.shape} and {self._frame_b.shape}"
+            )
+        return frame_a
+
+    def initial_pair(self):
+        if self._initial_frame_a is not None:
+            return self._initial_frame_a, self._frame_b
+        return self._next_a(), self._frame_b
+
+    def next_pair(self):
+        return self._next_a(), self._frame_b
+
+
+class CalibrationSquareDotPairFrameProvider(DynamicAStaticBPairFrameProvider):
+    pass
 
 
 class DynamicGradientPairFrameProvider(PairFrameProvider):

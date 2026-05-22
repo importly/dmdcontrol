@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 
-from main import _read_calibration_square_control_file
+from calibration_square_runtime import read_calibration_square_control_file
 
 
 class CalibrationSquareControlFileTests(unittest.TestCase):
@@ -12,14 +12,32 @@ class CalibrationSquareControlFileTests(unittest.TestCase):
             f.write("wzx\n")
 
         try:
-            commands, offset = _read_calibration_square_control_file(path, 0)
+            commands, offset = read_calibration_square_control_file(path, 0)
             self.assertEqual(commands, "wx")
 
             with open(path, "a", encoding="ascii") as f:
                 f.write("A!f")
 
-            commands, offset = _read_calibration_square_control_file(path, offset)
+            commands, offset = read_calibration_square_control_file(path, offset)
             self.assertEqual(commands, "af")
+        finally:
+            os.unlink(path)
+
+    def test_truncated_file_resets_offset(self):
+        with tempfile.NamedTemporaryFile("w+", delete=False) as f:
+            path = f.name
+            f.write("wasd")
+
+        try:
+            commands, offset = read_calibration_square_control_file(path, 0)
+            self.assertEqual(commands, "wasd")
+            self.assertGreater(offset, 0)
+
+            with open(path, "w", encoding="ascii") as f:
+                f.write("qe")
+
+            commands, offset = read_calibration_square_control_file(path, offset)
+            self.assertEqual(commands, "qe")
         finally:
             os.unlink(path)
 

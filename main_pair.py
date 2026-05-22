@@ -7,7 +7,7 @@ import threading
 import time
 from dataclasses import dataclass
 
-from config import DEFAULT_SEQUENCE_UTILIZATION
+from config import BITPLANES, DEFAULT_SEQUENCE_UTILIZATION
 from dlpc_lifecycle import (
     build_lut_entries,
     load_pattern_sequence,
@@ -16,15 +16,32 @@ from dlpc_lifecycle import (
 )
 from dmd_config import DmdMapping, resolve_dmd_mapping
 from logger import logger, setup_logger
+from calibration_square_runtime import (
+    build_calibration_square_frame,
+    make_calibration_square_frame_provider,
+)
+from kernel_runtime import (
+    KernelFrameProvider,
+    build_kernel_frames,
+    compute_kernel_lut_override,
+)
+from pattern_modes import default_calibration_square_state
 from paired_pattern_engine import (
+    CALIBRATION_DOT_PAIR_TEST,
+    CalibrationSquareDotPairFrameProvider,
     DMD_HEIGHT,
     DMD_WIDTH,
+    DynamicAStaticBPairFrameProvider,
+    KERNEL_STATIC_PAIR_TEST,
     OFFSET_A,
     OFFSET_B,
     PAIR_HEIGHT,
     PAIR_TESTS,
     PAIR_WIDTH,
     STATIC_PAIR_TESTS,
+    SingleDmdFrameAdapter,
+    generate_dot_frame,
+    generate_static_frame,
     make_pair_frame_provider,
 )
 
@@ -43,6 +60,20 @@ class PairConfig:
 class _DryRunDLPC:
     def get_display_dimensions(self):
         return None
+
+
+def _positive_int(value):
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be positive")
+    return parsed
+
+
+def _nonnegative_int(value):
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be non-negative")
+    return parsed
 
 
 def resolve_pair_config(config_path=None, target_hz=None):
@@ -89,6 +120,56 @@ def _build_parser():
         help="Static pattern for DMD B when --test is a static paired mode",
     )
     parser.add_argument("--runtime-seconds", type=int, default=60)
+    parser.add_argument(
+        "--a-calibr-square-control-file",
+        default=None,
+        help="Control-file path for DMD A calibration-square edits in paired calibration-dot mode",
+    )
+    parser.add_argument("--b-dot-x", type=int, default=DMD_WIDTH // 2)
+    parser.add_argument("--b-dot-y", type=int, default=DMD_HEIGHT // 2)
+    parser.add_argument("--b-dot-radius", type=_positive_int, default=40)
+    parser.add_argument(
+        "--b-dot-shape",
+        choices=("circle", "square"),
+        default="circle",
+    )
+    parser.add_argument("--b-dot-invert", action="store_true")
+    parser.add_argument(
+        "--kernel-px",
+        type=_positive_int,
+        default=30,
+        help="A-kernel paired recipe: total 3x3 kernel side length in pixels",
+    )
+    parser.add_argument(
+        "--kernel-exposure-us",
+        type=_positive_int,
+        default=None,
+        help="A-kernel paired recipe: uniform exposure per kernel bitplane",
+    )
+    parser.add_argument(
+        "--kernel-single-shot",
+        action="store_true",
+        help="A-kernel paired recipe: play one kernel cycle then hold black on A",
+    )
+    parser.add_argument(
+        "--kernel-blank-end-frame",
+        dest="kernel_blank_end_frame",
+        action="store_true",
+        default=True,
+        help="A-kernel paired recipe: append one all-black VSYNC frame to each cycle",
+    )
+    parser.add_argument(
+        "--no-kernel-blank-end-frame",
+        dest="kernel_blank_end_frame",
+        action="store_false",
+        help="A-kernel paired recipe: omit the all-black end marker frame",
+    )
+    parser.add_argument(
+        "--kernel-leader-frames",
+        type=_nonnegative_int,
+        default=3,
+        help="A-kernel paired recipe: all-black VSYNC frames prepended to each cycle",
+    )
     parser.add_argument("--wake-dp", action="store_true", help="Wake both DP receivers in main_pair.py")
     parser.add_argument(
         "--dual-pixel",
@@ -115,12 +196,112 @@ def _build_parser():
     return parser
 
 
+def _validate_pair_args(args):
+    if args.test == KERNEL_STATIC_PAIR_TEST:
+        if args.test_a:
+            raise SystemExit("--test-a is not valid for a-kernel-b-static; A is the kernel stream")
+        return
+    if args.test not in STATIC_PAIR_TESTS and (args.test_a or args.test_b):
+        raise SystemExit("--test-a/--test-b are only valid for static paired tests")
+
+
+def _kernel_lut_override(args, target_hz):
+    return compute_kernel_lut_override(
+        enabled=args.test == KERNEL_STATIC_PAIR_TEST,
+        kernel_exposure_us=args.kernel_exposure_us,
+        target_hz=target_hz,
+        sequence_utilization=args.seq_utilization,
+    )
+
+
+def _make_runtime_pair_frame_provider(args, engine, target_hz):
+    if args.test == CALIBRATION_DOT_PAIR_TEST:
+        single_a = SingleDmdFrameAdapter(
+            width=DMD_WIDTH,
+            height=DMD_HEIGHT,
+            window=engine.window,
+        )
+        initial_state = default_calibration_square_state(DMD_WIDTH, DMD_HEIGHT)
+        initial_frame = build_calibration_square_frame(single_a, initial_state)
+        frame_provider_a = make_calibration_square_frame_provider(
+            single_a,
+            initial_frame,
+            control_file=args.a_calibr_square_control_file,
+            initial_state=initial_state,
+        )
+        frame_b = generate_dot_frame(
+            width=DMD_WIDTH,
+            height=DMD_HEIGHT,
+            x=args.b_dot_x,
+            y=args.b_dot_y,
+            radius=args.b_dot_radius,
+            shape=args.b_dot_shape,
+            invert=args.b_dot_invert,
+        )
+        return CalibrationSquareDotPairFrameProvider(frame_provider_a, frame_b)
+
+    if args.test == KERNEL_STATIC_PAIR_TEST:
+        single_a = SingleDmdFrameAdapter(
+            width=DMD_WIDTH,
+            height=DMD_HEIGHT,
+            window=engine.window,
+        )
+        entries_count, _ = _kernel_lut_override(args, target_hz)
+        slots = entries_count or BITPLANES
+        kernel_frames, metadata = build_kernel_frames(
+            single_a,
+            kernel_px=args.kernel_px,
+            slots_per_frame=slots,
+            leader_frames=args.kernel_leader_frames,
+            blank_end_frame=args.kernel_blank_end_frame,
+        )
+        logger.info(
+            f"[+] A-kernel frames ready: {metadata['cycle_vsyncs']} VSYNC frames per cycle "
+            f"({metadata['leader_frames']} leader + {metadata['payload_vsyncs']} payload/end-marker), "
+            f"{metadata['cycle_fires']} bitplane fires."
+        )
+        frame_provider_a = KernelFrameProvider(
+            kernel_frames,
+            black_frame=metadata["black_frame"],
+            single_shot=args.kernel_single_shot,
+        )
+        frame_b = generate_static_frame(
+            args.test_b or "checkerboard",
+            width=DMD_WIDTH,
+            height=DMD_HEIGHT,
+            route_label="B",
+            dot_x=args.b_dot_x,
+            dot_y=args.b_dot_y,
+            dot_radius=args.b_dot_radius,
+            dot_shape=args.b_dot_shape,
+            dot_invert=args.b_dot_invert,
+        )
+        return DynamicAStaticBPairFrameProvider(
+            frame_provider_a,
+            frame_b,
+            initial_frame_a=kernel_frames[0],
+        )
+
+    if args.test in STATIC_PAIR_TESTS:
+        return make_pair_frame_provider(
+            args.test,
+            test_a=args.test_a,
+            test_b=args.test_b,
+            width=DMD_WIDTH,
+            height=DMD_HEIGHT,
+        )
+    return make_pair_frame_provider(args.test, width=DMD_WIDTH, height=DMD_HEIGHT)
+
+
 def _dry_run_timing(args, pair_config):
+    entries_count, exposure_us = _kernel_lut_override(args, pair_config.target_hz)
     entries, timing = build_lut_entries(
         _DryRunDLPC(),
         pair_config.target_hz,
         sequence_utilization=args.seq_utilization,
         trig2_frame_zero=args.trig2_frame_zero,
+        entries_count=entries_count,
+        per_entry_exposure_us=exposure_us,
     )
     logger.info("[DRY RUN] Hardware was not opened. OpenGL and USB modules were not imported.")
     logger.info(
@@ -132,7 +313,30 @@ def _dry_run_timing(args, pair_config):
         f"[DRY RUN] USB: A id_path={pair_config.dmd_a.usb_id_path}, "
         f"B id_path={pair_config.dmd_b.usb_id_path}."
     )
-    if args.test in STATIC_PAIR_TESTS:
+    if args.test == CALIBRATION_DOT_PAIR_TEST:
+        logger.info(
+            f"[DRY RUN] Pair content: A=calibr-square control_file="
+            f"{args.a_calibr_square_control_file or '(none)'}, "
+            f"B=dot x={args.b_dot_x}, y={args.b_dot_y}, radius={args.b_dot_radius}, "
+            f"shape={args.b_dot_shape}, invert={args.b_dot_invert}."
+        )
+    elif args.test == KERNEL_STATIC_PAIR_TEST:
+        slots = timing["entries_count"]
+        pad = (slots - (512 % slots)) % slots
+        payload_vsyncs = (512 + pad) // slots
+        end_marker_vsyncs = 1 if args.kernel_blank_end_frame else 0
+        cycle_vsyncs = args.kernel_leader_frames + payload_vsyncs + end_marker_vsyncs
+        logger.info(
+            f"[DRY RUN] Pair content: A=kernel kernel_px={args.kernel_px}, "
+            f"leader_frames={args.kernel_leader_frames}, blank_end_frame={args.kernel_blank_end_frame}, "
+            f"single_shot={args.kernel_single_shot}; B={args.test_b or 'checkerboard'} static."
+        )
+        logger.info(
+            f"[DRY RUN] A-kernel cycle: {cycle_vsyncs} VSYNC frames, "
+            f"{args.kernel_leader_frames * slots} leader fires, 512 kernels, {pad} pad fires"
+            f"{', ' + str(slots) + ' end-marker fires' if args.kernel_blank_end_frame else ''}."
+        )
+    elif args.test in STATIC_PAIR_TESTS:
         logger.info(
             f"[DRY RUN] Pair content: test={args.test}, test_a={args.test_a or args.test}, "
             f"test_b={args.test_b or args.test}."
@@ -195,19 +399,11 @@ def main(argv=None):
     args = _build_parser().parse_args(argv)
     setup_logger(verbosity=args.verbose)
     pair_config = resolve_pair_config(args.dmd_config, target_hz=args.hz)
-
-    if args.test in STATIC_PAIR_TESTS:
-        provider = make_pair_frame_provider(
-            args.test,
-            test_a=args.test_a,
-            test_b=args.test_b,
-            width=DMD_WIDTH,
-            height=DMD_HEIGHT,
-        )
-    else:
-        if args.test_a or args.test_b:
-            raise SystemExit("--test-a/--test-b are only valid for static paired tests")
-        provider = make_pair_frame_provider(args.test, width=DMD_WIDTH, height=DMD_HEIGHT)
+    _validate_pair_args(args)
+    lut_entries_count, lut_per_entry_exposure_us = _kernel_lut_override(
+        args,
+        pair_config.target_hz,
+    )
 
     if args.dry_run_timing:
         _dry_run_timing(args, pair_config)
@@ -227,6 +423,7 @@ def main(argv=None):
     pump_thread = None
     try:
         engine = PairedPatternEngine(fps=pair_config.target_hz)
+        provider = _make_runtime_pair_frame_provider(args, engine, pair_config.target_hz)
         dlpc_a = DLPC900(
             usb_id_path=pair_config.dmd_a.usb_id_path,
             usb_devpath_contains=pair_config.dmd_a.usb_devpath_contains,
@@ -252,6 +449,8 @@ def main(argv=None):
             dual_pixel=args.dual_pixel,
             sequence_utilization=args.seq_utilization,
             trig2_frame_zero=args.trig2_frame_zero,
+            entries_count=lut_entries_count,
+            per_entry_exposure_us=lut_per_entry_exposure_us,
         )
         logger.info("[+] Preparing DMD B controller without starting sequencer...")
         state_b = prepare_dlpc900_for_video_pattern(
@@ -260,6 +459,8 @@ def main(argv=None):
             dual_pixel=args.dual_pixel,
             sequence_utilization=args.seq_utilization,
             trig2_frame_zero=args.trig2_frame_zero,
+            entries_count=lut_entries_count,
+            per_entry_exposure_us=lut_per_entry_exposure_us,
         )
 
         logger.info("[+] Loading paired pattern LUTs without starting sequencers...")

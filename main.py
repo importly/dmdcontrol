@@ -1,5 +1,4 @@
 import argparse
-import os
 import threading
 import time
 
@@ -9,6 +8,11 @@ except ImportError:
     cv2 = None
 
 from config import BITPLANES, DEFAULT_SEQUENCE_UTILIZATION, SAFE_MARGIN_US
+from calibration_square_runtime import (
+    build_calibration_square_frame,
+    format_calibration_square_state,
+    make_calibration_square_frame_provider,
+)
 from dlpc_lifecycle import (
     build_lut_entries,
     configure_dlpc900_for_video_pattern,
@@ -21,11 +25,8 @@ from pattern_modes import (
     DEFAULT_NUMBERS_EXPOSURE_US,
     NUMBER_SEQUENCE,
     PATTERN_NAMES,
-    apply_calibration_square_commands,
     build_patterns,
-    calibration_square_bounds,
     default_calibration_square_state,
-    generate_calibration_square_mask,
     generate_number_rgb,
     number_index_for_elapsed,
 )
@@ -310,46 +311,6 @@ def _build_numbers_frames(engine):
     )
 
 
-def _build_calibration_square_frame(engine, state):
-    mask = generate_calibration_square_mask(
-        width=engine.width,
-        height=engine.height,
-        center_x=state.x,
-        center_y=state.y,
-        size_px=state.size,
-        angle_deg=state.angle_deg,
-    )
-    return engine.pack_patterns([mask] * BITPLANES)
-
-
-def _format_calibration_square_state(state, width, height):
-    left, top, right, bottom = calibration_square_bounds(state, width, height)
-    return (
-        f"center=({state.x:.0f},{state.y:.0f}) px, "
-        f"bounds=({left},{top})..({right},{bottom}) px, "
-        f"size={state.size:.0f}px, angle={state.angle_deg:.1f}deg"
-    )
-
-
-def _read_calibration_square_control_file(path, offset):
-    if not path:
-        return "", offset
-    try:
-        size = os.path.getsize(path)
-        if size < offset:
-            offset = 0
-        with open(path, "r", encoding="ascii", errors="ignore") as f:
-            f.seek(offset)
-            data = f.read()
-            offset = f.tell()
-    except OSError as exc:
-        logger.warning(f"[CALIBRATION] Cannot read control file {path}: {exc}")
-        return "", offset
-    valid = {"w", "a", "s", "d", "q", "e", "r", "f", "x"}
-    commands = "".join(ch.lower() for ch in data if ch.lower() in valid)
-    return commands, offset
-
-
 def _make_frame_provider(
     engine,
     initial_frame,
@@ -400,61 +361,17 @@ def _make_frame_provider(
             return frames[index]
         return _wrap(_provider_numbers)
     if dynamic_kind == "calibr-square":
-        import glfw
-
-        key_commands = (
-            (glfw.KEY_W, "w"),
-            (glfw.KEY_A, "a"),
-            (glfw.KEY_S, "s"),
-            (glfw.KEY_D, "d"),
-            (glfw.KEY_Q, "q"),
-            (glfw.KEY_E, "e"),
-            (glfw.KEY_R, "r"),
-            (glfw.KEY_F, "f"),
-        )
-        state = {
-            "square": calibration_square_state
-            or default_calibration_square_state(engine.width, engine.height),
-            "frame": initial_frame,
-            "control_offset": 0,
-            "last_log": 0.0,
-        }
-
         # Calibration square is an interactive dynamic display-frame mode. The
         # square is re-packed only after keyboard edits; the DLPC900 LUT and
         # kernel timing paths are intentionally left unchanged.
-        def _provider_calibration_square():
-            file_commands, state["control_offset"] = _read_calibration_square_control_file(
-                getattr(args, "calibr_square_control_file", None),
-                state["control_offset"],
+        return _wrap(
+            make_calibration_square_frame_provider(
+                engine,
+                initial_frame,
+                control_file=getattr(args, "calibr_square_control_file", None),
+                initial_state=calibration_square_state,
             )
-            keyboard_commands = "".join(
-                command
-                for key, command in key_commands
-                if glfw.get_key(engine.window, key) == glfw.PRESS
-            )
-            commands = file_commands + keyboard_commands
-            if "x" in commands:
-                logger.info("[CALIBRATION] Exit requested from calibration control input.")
-                glfw.set_window_should_close(engine.window, True)
-                commands = commands.replace("x", "")
-            if commands:
-                state["square"] = apply_calibration_square_commands(
-                    state["square"],
-                    commands,
-                    width=engine.width,
-                    height=engine.height,
-                )
-                state["frame"] = _build_calibration_square_frame(engine, state["square"])
-                now = time.monotonic()
-                if file_commands or now - state["last_log"] >= 0.25:
-                    logger.info(
-                        "[CALIBRATION] square "
-                        f"{_format_calibration_square_state(state['square'], engine.width, engine.height)}"
-                    )
-                    state["last_log"] = now
-            return state["frame"]
-        return _wrap(_provider_calibration_square)
+        )
     if dynamic_kind == "kernel":
         frames = kernel_frames
         n = len(frames)
@@ -615,7 +532,7 @@ def main():
             calibration_square_state = default_calibration_square_state(engine.width, engine.height)
             logger.info(
                 "[+] Preparing calibration square: "
-                f"{_format_calibration_square_state(calibration_square_state, engine.width, engine.height)}."
+                f"{format_calibration_square_state(calibration_square_state, engine.width, engine.height)}."
             )
             logger.info("[+] Controls: W/A/S/D move, Q/E rotate, R/F resize, ESC exits.")
             if args.calibr_square_control_file:
@@ -632,7 +549,7 @@ def main():
         elif dynamic_kind == "numbers" and numbers_frames is not None:
             frame = numbers_frames[0]
         elif dynamic_kind == "calibr-square" and calibration_square_state is not None:
-            frame = _build_calibration_square_frame(engine, calibration_square_state)
+            frame = build_calibration_square_frame(engine, calibration_square_state)
         else:
             raise RuntimeError("No initial frame generated for the selected mode.")
 

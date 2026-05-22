@@ -26,7 +26,12 @@ class PairWrapperTests(unittest.TestCase):
         self.assertIn('DMD A and B target_hz values differ', script)
 
     def test_runners_source_common_shell_helpers(self):
-        for name in ("run_dmd.sh", "run_calibr_square.sh", "run_dmd_pair.sh"):
+        for name in (
+            "run_dmd.sh",
+            "run_calibr_square.sh",
+            "run_dmd_pair.sh",
+            "run_dmd_pair_calibr_square.sh",
+        ):
             script = (ROOT / name).read_text(encoding="utf-8")
             self.assertIn('source "$SCRIPT_DIR/dmd_shell_common.sh"', script)
 
@@ -41,12 +46,25 @@ class PairWrapperTests(unittest.TestCase):
         self.assertIn("dmd_start_calibr_square_control_reader", script)
         self.assertNotIn("stty -echo -icanon", script)
 
+    def test_pair_calibration_runner_wires_recipe_and_control_file(self):
+        script = (ROOT / "run_dmd_pair_calibr_square.sh").read_text(encoding="utf-8")
+
+        self.assertIn("dmd_start_calibr_square_control_reader", script)
+        self.assertIn('dmd_wake_configured_dmd "$SCRIPT_DIR" A', script)
+        self.assertIn('dmd_wake_configured_dmd "$SCRIPT_DIR" B', script)
+        self.assertIn('dmd_run_xinit "$SCRIPT_DIR" "$SCRIPT_DIR/xinitrc_dmd_pair.sh"', script)
+        self.assertIn("--test a-calibr-square-b-dot", script)
+        self.assertIn('--a-calibr-square-control-file "$CONTROL_FILE"', script)
+        self.assertIn("--runtime-seconds 0", script)
+
     def test_common_x11_helper_owns_raw_modelines(self):
         helper = (ROOT / "dmd_x11_common.sh").read_text(encoding="utf-8")
 
         self.assertIn("dmd_x11_define_raw_modes", helper)
         self.assertIn("dmd_x11_require_connected", helper)
         self.assertIn("dmd_x11_verify_pair_layout", helper)
+        self.assertIn('grep -q "current 3840 x 1080"', helper)
+        self.assertNotIn('grep -q "Screen 0: current 3840 x 1080"', helper)
         self.assertIn("138.6528 1920 1968 2000 2080 1080 1083 1088 1111", helper)
         self.assertIn("311.50 1920 1968 2000 2080 1080 1083 1088 1248", helper)
 

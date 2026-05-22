@@ -9,6 +9,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from visual_patterns import generate_coarse_grid_rgb, generate_coarse_lines_rgb
+
 
 NUMBER_SEQUENCE = tuple(range(1, 10))
 DEFAULT_NUMBERS_EXPOSURE_US = 500_000
@@ -227,6 +229,16 @@ def _numbered(engine):
     return engine.rgb_to_binary_patterns(rgb), None
 
 
+def _coarse_grid(engine):
+    rgb = generate_coarse_grid_rgb(width=engine.width, height=engine.height)
+    return engine.rgb_to_binary_patterns(rgb), None
+
+
+def _coarse_lines(engine):
+    rgb = generate_coarse_lines_rgb(width=engine.width, height=engine.height)
+    return engine.rgb_to_binary_patterns(rgb), None
+
+
 PATTERN_MODES = {
     #                 label                                   pattern generator          dynamic or not
     "checkerboard":  ("Static Checkerboard",       lambda e: (e.generate_checkerboard(), None)),
@@ -236,6 +248,10 @@ PATTERN_MODES = {
     "2x2":           ("2x2 Checkerboard",          lambda e: (e.generate_checkerboard(block_size=2), None)),
     "lines":         ("1-pixel Lines",             lambda e: (e.generate_lines(), None)),
     "colors":        ("Color Channels (R/G/B)",    lambda e: (e.rgb_to_binary_patterns(_solid_color(0)), "colors")),
+    "coarse-grid":   ("Human-Visible Coarse Grid", _coarse_grid),
+    "grid":          ("Human-Visible Coarse Grid", _coarse_grid),
+    "coarse-lines":  ("Human-Visible Coarse Lines", _coarse_lines),
+    "bands":         ("Human-Visible Coarse Lines", _coarse_lines),
     "numbers":       ("Sequential Numbers (1-9)",  lambda e: (None, "numbers")),
     "calibr-square": ("Interactive Calibration Square", lambda e: (None, "calibr-square")),
     "snake":         ("60FPS Snake",               lambda e: (None, "snake")),

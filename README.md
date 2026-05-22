@@ -60,6 +60,26 @@ Current validated dual-DMD mapping:
 
 This mapping is by labeled USB and DisplayPort ports, not by board serial number. Both DLPC900 boards report serial `C900`. The mapping has been verified after reboot; keep the hardware plugged into the same labeled ports.
 
+## Paired Dual-DMD Runner
+
+Paired mode is intentionally separate from the single-DMD flow:
+
+```bash
+python main_pair.py --dry-run-timing --test snake
+./run_dmd_pair.sh --test coarse-grid --runtime-seconds 300
+./run_dmd_pair.sh --test coarse-lines --runtime-seconds 300
+./run_dmd_pair.sh --test checkerboard --test-a checkerboard --test-b lines
+./run_dmd_pair.sh --test gradient --runtime-seconds 300
+./run_dmd_pair.sh --test a-kernel-b-static --test-b lines --kernel-px 900 --kernel-exposure-us 14000 --runtime-seconds 999
+./run_dmd_pair.sh --test a-kernel-b-static --test-b dot --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --kernel-px 900 --kernel-exposure-us 3000 --runtime-seconds 999
+```
+
+`run_dmd_pair.sh` wakes both mapped controllers, starts `xinitrc_dmd_pair.sh`, and launches `main_pair.py`. The paired X layout is one X screen at `3840x1080`: B/`DP-0` is the left half at `+0+0`, and A/`DP-2` is the right half at `+1920+0`. `main_pair.py` opens one undecorated GLFW window at `(0, 0)`, renders B into `x=0..1919`, renders A into `x=1920..3839`, and performs one buffer swap per paired frame.
+
+For visual inspection through the tiny optical images, use `coarse-grid` or `coarse-lines`. They draw thick geometry, large A/B block markers, and borders that are visible by eye. `lines` and `colors` remain technical bitplane diagnostics; `lines` is one-pixel/fine-textured and `colors` maps RGB channels to DLPC900 bitplanes, so either can look blank through the optics.
+
+Both DLPC900 controllers are prepared and have matching LUTs loaded before the final sequencer start. The final `start_pattern_display(2)` commands are issued from a tight software barrier while the paired DP stream is actively pumping. This improves software alignment, but it is not a hard genlock guarantee on consumer GPU outputs. Measure A `TRIG_OUT_2` and B `TRIG_OUT_2` on a scope to decide whether initial skew and long-run drift are acceptable for the laser path.
+
 
 ## Common examples
 
@@ -90,7 +110,7 @@ python main.py --dry-run-timing --test kernel --kernel-exposure-us 3000
 | `--monitor` | int | `0` | GLFW monitor index for the fullscreen window. |
 | `--dmd` | configured name | none | Select a DMD from `dmd_devices.json` and require its USB physical-path mapping before opening the controller. |
 | `--dmd-config` | path | `dmd_devices.json` | Alternate mapping file for `--dmd`. |
-| `--test` | `checkerboard`, `ordering`, `numbered`, `single-pixel`, `2x2`, `lines`, `colors`, `numbers`, `calibr-square`, `snake`, `clock`, `gradient`, `kernel` | `checkerboard` | Diagnostic pattern. See table below. |
+| `--test` | `checkerboard`, `ordering`, `numbered`, `single-pixel`, `2x2`, `lines`, `colors`, `coarse-grid`, `grid`, `coarse-lines`, `bands`, `numbers`, `calibr-square`, `snake`, `clock`, `gradient`, `kernel` | `checkerboard` | Diagnostic pattern. See table below. |
 | `--trigger` | flag | off | Software trigger mode. Renders black until you press space; one press shows the pattern frame. ESC exits. |
 | `--runtime-seconds` | int | `60` | Total wall-clock runtime for the render loop. |
 | `--wake-dp` | flag | off | Send the DP-receiver wakeup packet from inside `main.py` (in addition to `wake_dp.py`). |
@@ -119,8 +139,10 @@ python main.py --dry-run-timing --test kernel --kernel-exposure-us 3000
 | `numbered` | 6x4 grid of numbered tiles for spatial orientation. |
 | `single-pixel` | 1x1 checkerboard (creates optical diffraction with lasers). |
 | `2x2` | 2x2 checkerboard. Use this to disambiguate 1:1 mapping from diffraction. |
-| `lines` | Alternating 1-pixel lines. |
-| `colors` | Cycles pure R / G / B every 0.5 s. |
+| `lines` | Alternating 1-pixel lines. Technical/fine-texture diagnostic; often not useful by eye on tiny optical images. |
+| `colors` | Cycles pure R / G / B every 0.5 s. Technical RGB/bitplane diagnostic; may look blank by eye. |
+| `coarse-grid` / `grid` | Human-visible grid with about 75 px spacing and thick strokes. Recommended for paired optical alignment checks. |
+| `coarse-lines` / `bands` | Human-visible thick vertical/horizontal bands. Recommended when one-pixel `lines` appears blank. |
 | `numbers` | Full-frame digits 1 through 9 in sequence. Configurable via `--numbers-exposure-us`. |
 | `calibr-square` | Interactive calibration square. Use `./run_calibr_square.sh` for terminal controls: W/A/S/D move, Q/E rotate, R/F resize. |
 | `snake` | High-speed randomly moving snake. Tests dynamic refresh + trigger stability. |
