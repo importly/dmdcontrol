@@ -1,5 +1,6 @@
 """DLPC900 setup, status, LUT, and verification helpers."""
 
+import threading
 import time
 
 from config import (
@@ -326,7 +327,7 @@ def ensure_video_pattern_mode(dlpc, retries=3, poll_timeout_s=1.2):
     return False
 
 
-def apply_pattern_sequence(dlpc, entries, frame_pump=None):
+def load_pattern_sequence(dlpc, entries):
     # DLPU018J §2.4.4.3.4: Pattern Display LUT Reorder (0x1A32) is "only applicable
     # in Pre-stored Pattern Mode and Pattern On-The-Fly Mode" — NOT Video Pattern Mode.
 
@@ -340,10 +341,89 @@ def apply_pattern_sequence(dlpc, entries, frame_pump=None):
     hw_after_lut = dlpc.get_hardware_status()
     logger.debug(f"  [arm] hw post-LUT = {_format_hw(hw_after_lut)}")
 
+
+def start_loaded_pattern_sequence(dlpc, post_start_delay_s=0.2):
+    dlpc.start_pattern_display(2)
+    if post_start_delay_s > 0:
+        time.sleep(post_start_delay_s)
+
+
+def start_loaded_pattern_sequences(
+    dlpc_a,
+    dlpc_b,
+    post_start_delay_s=0.2,
+    verify=False,
+):
+    barrier = threading.Barrier(3)
+    errors = []
+
+    def _start_one(label, dlpc):
+        try:
+            barrier.wait()
+            dlpc.start_pattern_display(2)
+        except Exception as exc:
+            errors.append((label, exc))
+
+    threads = [
+        threading.Thread(target=_start_one, args=("A", dlpc_a), daemon=True),
+        threading.Thread(target=_start_one, args=("B", dlpc_b), daemon=True),
+    ]
+    for thread in threads:
+        thread.start()
+
+    barrier.wait()
+    for thread in threads:
+        thread.join()
+
+    if errors:
+        detail = "; ".join(f"{label}: {exc}" for label, exc in errors)
+        raise RuntimeError(f"Paired sequencer start failed: {detail}")
+
+    if post_start_delay_s > 0:
+        time.sleep(post_start_delay_s)
+
+    if verify:
+        verify_started_pattern_sequence(dlpc_a, label="A")
+        verify_started_pattern_sequence(dlpc_b, label="B")
+
+
+def verify_started_pattern_sequence(dlpc, label="DLPC900"):
+    if not ensure_video_pattern_mode(dlpc, retries=2, poll_timeout_s=1.0):
+        mode, _ = dlpc.get_display_mode()
+        ms = dlpc.get_main_status() or {}
+        raise RuntimeError(
+            f"{label} dropped out of Video Pattern Mode after sequencer start. "
+            f"Mode readback: {mode}, main status: {ms}."
+        )
+
+    if not wait_for_sequencer_running(dlpc, timeout_s=1.5):
+        ms = dlpc.get_main_status() or {}
+        hw = dlpc.get_hardware_status()
+        raise RuntimeError(
+            f"{label} pattern sequencer did not report running after start command. "
+            f"Main status: {ms}, hardware status: {hw}."
+        )
+
+    hw = dlpc.get_hardware_status()
+    if hw is not None and (hw & 0x80):
+        logger.warning(
+            f"{label} hardware status sequence-error bit set (hw=0x{hw:02X}). "
+            "Sequencer has reported a runtime error condition."
+        )
+    elif hw is not None and (hw & 0x40):
+        logger.debug(
+            f"  {label} post-config hw=0x{hw:02X}. "
+            "Bit 6 latched (cosmetic, set by Pattern Stop)."
+        )
+    return hw
+
+
+def apply_pattern_sequence(dlpc, entries, frame_pump=None):
+    load_pattern_sequence(dlpc, entries)
+
     if frame_pump is not None:
         frame_pump()
-    dlpc.start_pattern_display(2)
-    time.sleep(0.2)
+    start_loaded_pattern_sequence(dlpc)
 
     # hw bit 6 (DLPU018J "ABORT") is set by Pattern Display Stop and can persist
     # after a healthy restart. Only retry when bit 6 is paired with real unhealthy
@@ -398,14 +478,12 @@ def apply_pattern_sequence(dlpc, entries, frame_pump=None):
         )
 
 
-def configure_dlpc900_for_video_pattern(
+def prepare_dlpc900_for_video_pattern(
     dlpc,
     target_hz=60,
     dual_pixel=False,
     sequence_utilization=DEFAULT_SEQUENCE_UTILIZATION,
     trig2_frame_zero=False,
-    pre_arm_callback=None,
-    frame_pump=None,
     entries_count=None,
     per_entry_exposure_us=None,
 ):
@@ -554,46 +632,41 @@ def configure_dlpc900_for_video_pattern(
     logger.debug("  - Final VSYNC settling wait (1s)...")
     time.sleep(1.0)
 
+    return {"entries": entries, "timing": timing}
+
+
+def configure_dlpc900_for_video_pattern(
+    dlpc,
+    target_hz=60,
+    dual_pixel=False,
+    sequence_utilization=DEFAULT_SEQUENCE_UTILIZATION,
+    trig2_frame_zero=False,
+    pre_arm_callback=None,
+    frame_pump=None,
+    entries_count=None,
+    per_entry_exposure_us=None,
+):
+    sequence_state = prepare_dlpc900_for_video_pattern(
+        dlpc,
+        target_hz=target_hz,
+        dual_pixel=dual_pixel,
+        sequence_utilization=sequence_utilization,
+        trig2_frame_zero=trig2_frame_zero,
+        entries_count=entries_count,
+        per_entry_exposure_us=per_entry_exposure_us,
+    )
+
     # GL must be rendering when start_pattern_display(2) fires — stale DP frame -> forced-swap.
     if pre_arm_callback is not None:
         pre_arm_callback()
 
+    entries = sequence_state["entries"]
     logger.info(f"[+] Applying pattern LUT with {len(entries)} entries...")
     apply_pattern_sequence(dlpc, entries, frame_pump=frame_pump)
 
     logger.info("[+] Pattern sequencer start command issued.")
-
-    if not ensure_video_pattern_mode(dlpc, retries=2, poll_timeout_s=1.0):
-        mode, _ = dlpc.get_display_mode()
-        ms = dlpc.get_main_status() or {}
-        raise RuntimeError(
-            "Mode dropped out of Video Pattern Mode after sequencer start. "
-            f"Mode readback: {mode}, main status: {ms}."
-        )
-
-    if not wait_for_sequencer_running(dlpc, timeout_s=1.5):
-        ms = dlpc.get_main_status() or {}
-        hw = dlpc.get_hardware_status()
-        raise RuntimeError(
-            "Pattern sequencer did not report running after start command. "
-            f"Main status: {ms}, hardware status: {hw}."
-        )
-
-    hw = dlpc.get_hardware_status()
-    if hw is not None and (hw & 0x80):
-        # bit 7 = SEQ_ERR is a real error; warn loudly.
-        logger.warning(
-            f"Hardware status sequence-error bit set (hw=0x{hw:02X}). "
-            "Sequencer has reported a runtime error condition."
-        )
-    elif hw is not None and (hw & 0x40):
-        # bit 6 = "ABORT" but verified above to be a state-machine flag set after
-        # every Pattern Display Stop. Demote to DEBUG.
-        logger.debug(
-            f"  Post-config hw=0x{hw:02X}. Bit 6 latched (cosmetic, set by Pattern Stop)."
-        )
-
-    return {"entries": entries, "timing": timing}
+    verify_started_pattern_sequence(dlpc)
+    return sequence_state
 
 
 def verify_runtime_state(dlpc):
