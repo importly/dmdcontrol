@@ -2,13 +2,15 @@ import unittest
 
 import numpy as np
 
+from visual_patterns import DEFAULT_COARSE_GRID_SPACING, generate_coarse_grid_rgb
+
 from paired_pattern_engine import (
     CalibrationSquareDotPairFrameProvider,
     DynamicAStaticBPairFrameProvider,
     DynamicGradientPairFrameProvider,
+    DynamicSnakePairFrameProvider,
     PAIR_TESTS,
     STATIC_PAIR_TESTS,
-    VISUAL_BORDER_THICKNESS,
     StaticPairFrameProvider,
     compose_pair_frame,
     generate_dot_frame,
@@ -55,7 +57,45 @@ class PairedPatternEngineTests(unittest.TestCase):
         self.assertEqual(provider.frame_index, 1)
         self.assertFalse(np.array_equal(initial_a, next_a))
         self.assertFalse(np.array_equal(initial_b, next_b))
-        self.assertEqual(next_a[0, 0, 0], next_b[0, 0, 1])
+        self.assertFalse(np.array_equal(next_a, next_b))
+        np.testing.assert_array_equal(next_a[:, :, 0], next_a[:, :, 1])
+        np.testing.assert_array_equal(next_a[:, :, 1], next_a[:, :, 2])
+        np.testing.assert_array_equal(next_b[:, :, 0], next_b[:, :, 1])
+        np.testing.assert_array_equal(next_b[:, :, 1], next_b[:, :, 2])
+
+    def test_dynamic_snake_provider_uses_grayscale_on_both_routes(self):
+        provider = DynamicSnakePairFrameProvider(width=320, height=240)
+
+        frame_a, frame_b = provider._frame_for_index(47)
+
+        for frame in (frame_a, frame_b):
+            self.assertGreater(np.count_nonzero(frame[:, :, 0]), 0)
+            self.assertGreater(np.count_nonzero(frame[:, :, 1]), 0)
+            self.assertGreater(np.count_nonzero(frame[:, :, 2]), 0)
+            np.testing.assert_array_equal(frame[:, :, 0], frame[:, :, 1])
+            np.testing.assert_array_equal(frame[:, :, 1], frame[:, :, 2])
+
+    def test_only_colors_pair_mode_uses_route_specific_rgb_channels(self):
+        for mode in STATIC_PAIR_TESTS:
+            if mode == "colors":
+                continue
+            with self.subTest(mode=mode):
+                for route in ("A", "B"):
+                    frame = generate_static_frame(mode, width=320, height=240, route_label=route)
+                    np.testing.assert_array_equal(frame[:, :, 0], frame[:, :, 1])
+                    np.testing.assert_array_equal(frame[:, :, 1], frame[:, :, 2])
+
+        for provider_cls in (DynamicGradientPairFrameProvider, DynamicSnakePairFrameProvider):
+            with self.subTest(provider=provider_cls.__name__):
+                frame_a, frame_b = provider_cls(width=320, height=240)._frame_for_index(47)
+                for frame in (frame_a, frame_b):
+                    np.testing.assert_array_equal(frame[:, :, 0], frame[:, :, 1])
+                    np.testing.assert_array_equal(frame[:, :, 1], frame[:, :, 2])
+
+        color_a = generate_static_frame("colors", width=320, height=240, route_label="A")
+        color_b = generate_static_frame("colors", width=320, height=240, route_label="B")
+        self.assertFalse(np.array_equal(color_a[:, :, 0], color_a[:, :, 1]))
+        self.assertFalse(np.array_equal(color_b[:, :, 0], color_b[:, :, 1]))
 
     def test_generate_dot_frame_draws_circle_mask(self):
         frame = generate_dot_frame(width=7, height=7, x=3, y=3, radius=1)
@@ -190,17 +230,21 @@ class PairedPatternEngineTests(unittest.TestCase):
         self.assertFalse(np.array_equal(frame_a, frame_b))
         self.assertGreater(np.count_nonzero(frame_a != frame_b), 320 * 240 * 3 * 0.12)
 
-    def test_route_borders_are_large_enough_for_small_optical_images(self):
-        frame = generate_static_frame("coarse-grid", width=1920, height=1080, route_label="A")
-        t = VISUAL_BORDER_THICKNESS
+    def test_route_markers_do_not_add_artificial_outer_border(self):
+        frame = generate_static_frame("coarse-grid", width=1920, height=1080, route_label="B")
+        expected_grid = generate_coarse_grid_rgb(
+            width=1920,
+            height=1080,
+            offset_x=DEFAULT_COARSE_GRID_SPACING // 2,
+            offset_y=DEFAULT_COARSE_GRID_SPACING // 2,
+        )
 
-        self.assertGreaterEqual(t, 12)
-        self.assertLessEqual(t, 20)
-        self.assertTrue(np.all(frame[:t, :, :] == 255))
-        self.assertTrue(np.all(frame[-t:, :, :] == 255))
-        self.assertTrue(np.all(frame[:, :t, :] == 255))
-        self.assertTrue(np.all(frame[:, -t:, :] == 255))
-        marker_area = frame[t : t + 220, t : t + 220, :]
+        np.testing.assert_array_equal(frame[0, :, :], expected_grid[0, :, :])
+        np.testing.assert_array_equal(frame[-1, :, :], expected_grid[-1, :, :])
+        np.testing.assert_array_equal(frame[:, 0, :], expected_grid[:, 0, :])
+        np.testing.assert_array_equal(frame[:, -1, :], expected_grid[:, -1, :])
+
+        marker_area = frame[-240:, :240, :]
         self.assertGreater(np.count_nonzero(marker_area), 100 * 100 * 3)
 
 

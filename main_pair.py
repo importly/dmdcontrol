@@ -26,6 +26,7 @@ from kernel_runtime import (
     compute_kernel_lut_override,
 )
 from pattern_modes import default_calibration_square_state
+from dmd_preview_render import LivePreviewPoster, build_lut_preview_metadata
 from paired_pattern_engine import (
     CALIBRATION_DOT_PAIR_TEST,
     CalibrationSquareDotPairFrameProvider,
@@ -192,11 +193,24 @@ def _build_parser():
         action="store_true",
         help="Print paired mapping and LUT timing without importing OpenGL or USB hardware",
     )
+    parser.add_argument(
+        "--preview-url",
+        default=None,
+        help="Optional live-preview POST endpoint, for example http://127.0.0.1:8080/api/live-frame",
+    )
+    parser.add_argument(
+        "--preview-fps",
+        type=float,
+        default=1.0,
+        help="Maximum live-preview POST rate when --preview-url is set",
+    )
     parser.add_argument("-v", "--verbose", action="count", default=0)
     return parser
 
 
 def _validate_pair_args(args):
+    if args.preview_fps <= 0:
+        raise SystemExit("--preview-fps must be positive")
     if args.test == KERNEL_STATIC_PAIR_TEST:
         if args.test_a:
             raise SystemExit("--test-a is not valid for a-kernel-b-static; A is the kernel stream")
@@ -357,11 +371,60 @@ def _dry_run_timing(args, pair_config):
     )
 
 
-def _run_pair_render_loop(dlpc_a, dlpc_b, engine, provider, args):
+def _live_preview_metadata_for_frame(base_metadata, provider):
+    metadata = dict(base_metadata or {})
+    frame_index = getattr(provider, "frame_index", None)
+    if frame_index is not None:
+        metadata["source_frame_index"] = int(frame_index)
+    return metadata
+
+
+def _build_live_preview_metadata(args, pair_config, state_a, state_b):
+    lut_state = state_a or state_b
+    metadata = {
+        "layout": "pair",
+        "test": args.test,
+        "test_a": args.test_a,
+        "test_b": args.test_b,
+        "routes": {
+            "B": {
+                "position": "left",
+                "xrandr_output": pair_config.dmd_b.xrandr_output,
+                "offset": list(pair_config.offset_b),
+            },
+            "A": {
+                "position": "right",
+                "xrandr_output": pair_config.dmd_a.xrandr_output,
+                "offset": list(pair_config.offset_a),
+            },
+        },
+        "target_hz": pair_config.target_hz,
+    }
+    if lut_state:
+        metadata["lut"] = build_lut_preview_metadata(lut_state["entries"], lut_state["timing"])
+        metadata["lut_applies_to"] = ["A", "B"]
+    return metadata
+
+
+def _run_pair_render_loop(
+    dlpc_a,
+    dlpc_b,
+    engine,
+    provider,
+    args,
+    preview_poster=None,
+    preview_metadata=None,
+):
     end_t = None if args.runtime_seconds <= 0 else time.time() + args.runtime_seconds
     while (end_t is None or time.time() < end_t) and not engine.should_close():
         frame_a, frame_b = provider.next_pair()
         engine.display_pair(frame_a, frame_b)
+        if preview_poster is not None:
+            preview_poster.maybe_post_pair(
+                frame_a,
+                frame_b,
+                metadata=_live_preview_metadata_for_frame(preview_metadata, provider),
+            )
 
 
 def _start_pair_pump(engine, provider):
@@ -421,9 +484,12 @@ def main(argv=None):
     dlpc_b = None
     pump_event = None
     pump_thread = None
+    preview_poster = None
     try:
         engine = PairedPatternEngine(fps=pair_config.target_hz)
         provider = _make_runtime_pair_frame_provider(args, engine, pair_config.target_hz)
+        if args.preview_url:
+            preview_poster = LivePreviewPoster(args.preview_url, fps=args.preview_fps)
         dlpc_a = DLPC900(
             usb_id_path=pair_config.dmd_a.usb_id_path,
             usb_devpath_contains=pair_config.dmd_a.usb_devpath_contains,
@@ -466,6 +532,7 @@ def main(argv=None):
         logger.info("[+] Loading paired pattern LUTs without starting sequencers...")
         load_pattern_sequence(dlpc_a, state_a["entries"])
         load_pattern_sequence(dlpc_b, state_b["entries"])
+        live_preview_metadata = _build_live_preview_metadata(args, pair_config, state_a, state_b)
 
         logger.info("[+] Starting both DLPC900 sequencers from paired software barrier...")
         start_loaded_pattern_sequences(dlpc_a, dlpc_b, verify=True)
@@ -477,9 +544,26 @@ def main(argv=None):
 
         first_a, first_b = provider.initial_pair()
         engine.display_pair(first_a, first_b)
-        _run_pair_render_loop(dlpc_a, dlpc_b, engine, provider, args)
+        if preview_poster is not None:
+            preview_poster.maybe_post_pair(
+                first_a,
+                first_b,
+                metadata=_live_preview_metadata_for_frame(live_preview_metadata, provider),
+                force=True,
+            )
+        _run_pair_render_loop(
+            dlpc_a,
+            dlpc_b,
+            engine,
+            provider,
+            args,
+            preview_poster=preview_poster,
+            preview_metadata=live_preview_metadata,
+        )
         return 0
     finally:
+        if preview_poster is not None:
+            preview_poster.close()
         if engine is not None and pump_event is not None:
             _stop_pair_pump(engine, pump_event, pump_thread)
         for label, dlpc in (("A", dlpc_a), ("B", dlpc_b)):

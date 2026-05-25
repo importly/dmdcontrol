@@ -12,7 +12,6 @@ from logger import logger
 from visual_patterns import (
     DEFAULT_COARSE_GRID_SPACING,
     DEFAULT_COARSE_LINE_SPACING,
-    DEFAULT_ROUTE_BORDER_THICKNESS,
     DEFAULT_ROUTE_MARKER_SIZE,
     generate_coarse_grid_rgb,
     generate_coarse_lines_rgb,
@@ -32,7 +31,6 @@ CALIBRATION_DOT_PAIR_TEST = "a-calibr-square-b-dot"
 KERNEL_STATIC_PAIR_TEST = "a-kernel-b-static"
 RECIPE_PAIR_TESTS = (CALIBRATION_DOT_PAIR_TEST, KERNEL_STATIC_PAIR_TEST)
 PAIR_TESTS = STATIC_PAIR_TESTS + DYNAMIC_PAIR_TESTS + RECIPE_PAIR_TESTS
-VISUAL_BORDER_THICKNESS = DEFAULT_ROUTE_BORDER_THICKNESS
 
 
 def _validate_rgb_frame(frame, label):
@@ -87,10 +85,6 @@ def _fill_rect_rgb(frame, x0, y0, x1, y1, value=255):
     y1 = max(0, min(height, int(y1)))
     if x1 > x0 and y1 > y0:
         frame[y0:y1, x0:x1, :] = value
-
-
-def _overlay_border_thickness(width, height):
-    return min(VISUAL_BORDER_THICKNESS, max(1, min(width, height) // 4))
 
 
 def _draw_block_letter(frame, label, x0, y0, cell):
@@ -155,25 +149,20 @@ def generate_dot_frame(
 def _route_mark(frame, label):
     marked = frame.copy()
     height, width = marked.shape[:2]
-    border = _overlay_border_thickness(width, height)
-    marked[:border, :, :] = 255
-    marked[-border:, :, :] = 255
-    marked[:, :border, :] = 255
-    marked[:, -border:, :] = 255
     if min(width, height) < 32:
         return marked
 
-    max_cell_w = max(1, (width - 2 * border) // 7)
-    max_cell_h = max(1, (height - 2 * border) // 7)
+    max_cell_w = max(1, width // 7)
+    max_cell_h = max(1, height // 7)
     cell = max(1, min(DEFAULT_ROUTE_MARKER_SIZE // 7, max_cell_w, max_cell_h))
     letter_w = 5 * cell
     letter_h = 7 * cell
-    margin = max(border, cell)
-    x0 = min(max(border, border + margin), max(border, width - border - letter_w))
+    margin = cell
+    x0 = min(margin, max(0, width - margin - letter_w))
     if label == "A":
-        y0 = min(max(border, border + margin), max(border, height - border - letter_h))
+        y0 = min(margin, max(0, height - margin - letter_h))
     else:
-        y0 = max(border, height - border - margin - letter_h)
+        y0 = max(0, height - margin - letter_h)
 
     pad = max(1, cell // 2)
     _fill_rect_rgb(marked, x0 - pad, y0 - pad, x0 + letter_w + pad, y0 + letter_h + pad, value=0)
@@ -325,14 +314,12 @@ class DynamicGradientPairFrameProvider(PairFrameProvider):
         x = np.arange(self.width, dtype=np.uint16)[None, :]
         y = np.arange(self.height, dtype=np.uint16)[:, None]
         base = ((x + index * 7) % 256).astype(np.uint8)
-        vertical = ((y * 255) // max(1, self.height - 1)).astype(np.uint8)
+        vertical = (((y * 255) // max(1, self.height - 1) + index * 11) % 256).astype(np.uint8)
 
-        frame_a = np.zeros((self.height, self.width, 3), dtype=np.uint8)
-        frame_b = np.zeros((self.height, self.width, 3), dtype=np.uint8)
-        frame_a[:, :, 0] = base
-        frame_a[:, :, 2] = vertical
-        frame_b[:, :, 1] = base
-        frame_b[:, :, 2] = 255 - vertical
+        frame_a_gray = np.broadcast_to(base, (self.height, self.width))
+        frame_b_gray = np.broadcast_to(vertical, (self.height, self.width))
+        frame_a = np.repeat(frame_a_gray[:, :, None], 3, axis=2)
+        frame_b = np.repeat(frame_b_gray[:, :, None], 3, axis=2)
         return _route_mark(frame_a, "A"), _route_mark(frame_b, "B")
 
     def initial_pair(self):
@@ -358,7 +345,7 @@ class DynamicSnakePairFrameProvider(PairFrameProvider):
         cell_h = max(1, self.height // self.cells_y)
         path_len = self.cells_x * self.cells_y
         head = index % path_len
-        for route, frame, channel in (("A", frame_a, 0), ("B", frame_b, 1)):
+        for route, frame in (("A", frame_a), ("B", frame_b)):
             offset = 0 if route == "A" else self.cells_x // 2
             for segment in range(6):
                 pos = (head - segment + offset) % path_len
@@ -367,7 +354,7 @@ class DynamicSnakePairFrameProvider(PairFrameProvider):
                 x0 = col * cell_w
                 y0 = row * cell_h
                 level = max(64, 255 - segment * 32)
-                frame[y0 : y0 + cell_h, x0 : x0 + cell_w, channel] = level
+                frame[y0 : y0 + cell_h, x0 : x0 + cell_w, :] = level
         return _route_mark(frame_a, "A"), _route_mark(frame_b, "B")
 
     def initial_pair(self):

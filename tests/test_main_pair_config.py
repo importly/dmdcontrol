@@ -173,6 +173,47 @@ class MainPairConfigTests(unittest.TestCase):
                 self.assertEqual(rc, 0)
                 self.assertFalse({"glfw", "OpenGL.GL", "dlpc900_hid"} & set(sys.modules))
 
+    def test_dry_run_accepts_preview_args_without_hardware_imports(self):
+        for module_name in ("glfw", "OpenGL.GL", "dlpc900_hid"):
+            sys.modules.pop(module_name, None)
+
+        rc = main_pair.main(
+            [
+                "--dry-run-timing",
+                "--test",
+                "coarse-grid",
+                "--preview-url",
+                "http://127.0.0.1:8080/api/live-frame",
+                "--preview-fps",
+                "1",
+            ]
+        )
+
+        self.assertEqual(rc, 0)
+        self.assertFalse({"glfw", "OpenGL.GL", "dlpc900_hid"} & set(sys.modules))
+
+    def test_live_preview_metadata_includes_lut_timing(self):
+        args = main_pair._build_parser().parse_args(["--test", "snake"])
+        pair_config = main_pair.PairConfig(
+            dmd_a=main_pair.DmdMapping(name="A", usb_id_path="pci-a", xrandr_output="DP-2"),
+            dmd_b=main_pair.DmdMapping(name="B", usb_id_path="pci-b", xrandr_output="DP-0"),
+            target_hz=60,
+        )
+        state = {
+            "entries": [(0, 600, False, 1, 7, 0, False, 0), (8, 600, True, 1, 7, 0, False, 8)],
+            "timing": {"entries_count": 2, "effective_frame_hz": 60.0, "exposure_us": 600},
+        }
+
+        metadata = main_pair._build_live_preview_metadata(args, pair_config, state, state)
+
+        self.assertEqual(metadata["layout"], "pair")
+        self.assertEqual(metadata["test"], "snake")
+        self.assertEqual(metadata["routes"]["B"]["position"], "left")
+        self.assertEqual(metadata["routes"]["A"]["position"], "right")
+        self.assertEqual(metadata["lut"]["entries"][0]["plane_label"], "G0")
+        self.assertEqual(metadata["lut"]["entries"][1]["plane_label"], "R0")
+        self.assertEqual(metadata["lut"]["timing"]["effective_frame_hz"], 60.0)
+
 
 if __name__ == "__main__":
     unittest.main()

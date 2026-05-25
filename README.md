@@ -76,7 +76,19 @@ python main_pair.py --dry-run-timing --test snake
 
 `run_dmd_pair.sh` wakes both mapped controllers, starts `xinitrc_dmd_pair.sh`, and launches `main_pair.py`. The paired X layout is one X screen at `3840x1080`: B/`DP-0` is the left half at `+0+0`, and A/`DP-2` is the right half at `+1920+0`. `main_pair.py` opens one undecorated GLFW window at `(0, 0)`, renders B into `x=0..1919`, renders A into `x=1920..3839`, and performs one buffer swap per paired frame.
 
-For visual inspection through the tiny optical images, use `coarse-grid` or `coarse-lines`. They draw thick geometry, large A/B block markers, and borders that are visible by eye. `lines` and `colors` remain technical bitplane diagnostics; `lines` is one-pixel/fine-textured and `colors` maps RGB channels to DLPC900 bitplanes, so either can look blank through the optics.
+For visual inspection through the tiny optical images, use `coarse-grid` or `coarse-lines`. They draw thick geometry and large A/B block markers without adding an artificial outer border to the 1920x1080 DMD image. `lines` and `colors` remain technical bitplane diagnostics; `lines` is one-pixel/fine-textured and `colors` maps RGB channels to DLPC900 bitplanes, so either can look blank through the optics.
+
+Preview packed frames and individual DLPC900 bitplanes in a browser:
+
+```bash
+python dmd_preview_server.py --host 0.0.0.0 --port 8080
+# open http://127.0.0.1:8080/
+./run_dmd_pair.sh --test coarse-grid --runtime-seconds 300 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
+```
+
+The preview server is offline by default and does not open GLFW, OpenGL, USB, or DMD hardware. `--preview-url` is opt-in live mirroring from `main_pair.py`. Live posts include the configured DLPC900 LUT order and timing, so the browser can show which packed bitplanes are being displayed during each VSYNC. The order is `G0..G7`, then `R0..R7`, then `B0..B7`.
+
+Dynamic paired `snake` is rendered as grayscale on both routes for bitplane inspection. If a snake segment is present, it should be visible in the corresponding G/R/B bitplanes according to its intensity bits, not only on one color channel for one DMD.
 
 Both DLPC900 controllers are prepared and have matching LUTs loaded before the final sequencer start. The final `start_pattern_display(2)` commands are issued from a tight software barrier while the paired DP stream is actively pumping. This improves software alignment, but it is not a hard genlock guarantee on consumer GPU outputs. Measure A `TRIG_OUT_2` and B `TRIG_OUT_2` on a scope to decide whether initial skew and long-run drift are acceptable for the laser path.
 
