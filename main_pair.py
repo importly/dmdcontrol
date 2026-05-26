@@ -252,7 +252,12 @@ def _make_runtime_pair_frame_provider(args, engine, target_hz):
             shape=args.b_dot_shape,
             invert=args.b_dot_invert,
         )
-        return CalibrationSquareDotPairFrameProvider(frame_provider_a, frame_b)
+        return CalibrationSquareDotPairFrameProvider(
+            frame_provider_a,
+            frame_b,
+            initial_frame_a=initial_frame,
+            flicker_a=True,
+        )
 
     if args.test == KERNEL_STATIC_PAIR_TEST:
         single_a = SingleDmdFrameAdapter(
@@ -331,6 +336,7 @@ def _dry_run_timing(args, pair_config):
         logger.info(
             f"[DRY RUN] Pair content: A=calibr-square control_file="
             f"{args.a_calibr_square_control_file or '(none)'}, "
+            f"flicker=every-other-frame, "
             f"B=dot x={args.b_dot_x}, y={args.b_dot_y}, radius={args.b_dot_radius}, "
             f"shape={args.b_dot_shape}, invert={args.b_dot_invert}."
         )

@@ -301,7 +301,30 @@ class DynamicAStaticBPairFrameProvider(PairFrameProvider):
 
 
 class CalibrationSquareDotPairFrameProvider(DynamicAStaticBPairFrameProvider):
-    pass
+    def __init__(self, frame_provider_a, frame_b, initial_frame_a=None, flicker_a=False):
+        super().__init__(frame_provider_a, frame_b, initial_frame_a=initial_frame_a)
+        self.flicker_a = flicker_a
+        self.frame_index = 0
+        self._black_frame_a = (
+            np.zeros_like(initial_frame_a) if initial_frame_a is not None else None
+        )
+
+    def _remember_black_frame(self, frame_a):
+        if self._black_frame_a is None:
+            self._black_frame_a = np.zeros_like(frame_a)
+
+    def initial_pair(self):
+        frame_a, frame_b = super().initial_pair()
+        self._remember_black_frame(frame_a)
+        return frame_a, frame_b
+
+    def next_pair(self):
+        self.frame_index += 1
+        frame_a = self._next_a()
+        self._remember_black_frame(frame_a)
+        if self.flicker_a and self.frame_index % 2 == 1:
+            return self._black_frame_a, self._frame_b
+        return frame_a, self._frame_b
 
 
 class DynamicGradientPairFrameProvider(PairFrameProvider):

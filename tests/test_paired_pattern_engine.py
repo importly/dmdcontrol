@@ -149,6 +149,40 @@ class PairedPatternEngineTests(unittest.TestCase):
         self.assertIs(initial_b, frame_b)
         self.assertIs(next_frame_b, frame_b)
 
+    def test_calibration_dot_provider_can_flicker_a_every_other_frame(self):
+        frames_a = [
+            np.full((3, 4, 3), 11, dtype=np.uint8),
+            np.full((3, 4, 3), 33, dtype=np.uint8),
+            np.full((3, 4, 3), 55, dtype=np.uint8),
+        ]
+        calls = {"count": 0}
+
+        def next_a():
+            frame = frames_a[calls["count"]]
+            calls["count"] += 1
+            return frame
+
+        initial_a = np.full((3, 4, 3), 99, dtype=np.uint8)
+        frame_b = generate_dot_frame(width=4, height=3, x=1, y=1, radius=1)
+        provider = CalibrationSquareDotPairFrameProvider(
+            next_a,
+            frame_b,
+            initial_frame_a=initial_a,
+            flicker_a=True,
+        )
+
+        first_a, first_b = provider.initial_pair()
+        off_a, off_b = provider.next_pair()
+        on_a, on_b = provider.next_pair()
+
+        np.testing.assert_array_equal(first_a, initial_a)
+        np.testing.assert_array_equal(off_a, np.zeros_like(initial_a))
+        np.testing.assert_array_equal(on_a, frames_a[1])
+        self.assertEqual(calls["count"], 2)
+        self.assertIs(first_b, frame_b)
+        self.assertIs(off_b, frame_b)
+        self.assertIs(on_b, frame_b)
+
     def test_dynamic_a_static_b_provider_does_not_consume_a_for_initial_pair(self):
         initial_a = np.full((3, 4, 3), 7, dtype=np.uint8)
         frames_a = [

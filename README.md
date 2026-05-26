@@ -72,11 +72,14 @@ python main_pair.py --dry-run-timing --test snake
 ./run_dmd_pair.sh --test gradient --runtime-seconds 300
 ./run_dmd_pair.sh --test a-kernel-b-static --test-b lines --kernel-px 900 --kernel-exposure-us 14000 --runtime-seconds 999
 ./run_dmd_pair.sh --test a-kernel-b-static --test-b dot --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --kernel-px 900 --kernel-exposure-us 3000 --runtime-seconds 999
+./run_dmd_pair_calibr_square.sh --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 5
 ```
 
 `run_dmd_pair.sh` wakes both mapped controllers, starts `xinitrc_dmd_pair.sh`, and launches `main_pair.py`. The paired X layout is one X screen at `3840x1080`: B/`DP-0` is the left half at `+0+0`, and A/`DP-2` is the right half at `+1920+0`. `main_pair.py` opens one undecorated GLFW window at `(0, 0)`, renders B into `x=0..1919`, renders A into `x=1920..3839`, and performs one buffer swap per paired frame.
 
 For visual inspection through the tiny optical images, use `coarse-grid` or `coarse-lines`. They draw thick geometry and large A/B block markers without adding an artificial outer border to the 1920x1080 DMD image. `lines` and `colors` remain technical bitplane diagnostics; `lines` is one-pixel/fine-textured and `colors` maps RGB channels to DLPC900 bitplanes, so either can look blank through the optics.
+
+`run_dmd_pair_calibr_square.sh` runs the paired calibration recipe with DMD A on the right showing the interactive calibration square and DMD B on the left showing the static dot. The A square flickers every other displayed frame; the B dot does not flicker.
 
 Preview packed frames and individual DLPC900 bitplanes in a browser:
 
