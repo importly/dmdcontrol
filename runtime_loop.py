@@ -25,6 +25,7 @@ def _format_hw_details(hw, sequencer_running):
     if hw is None:
         return "hw=None(register read failed)"
 
+
     forced_swap = bool(hw & 0x08)
     seq_abort = bool(hw & 0x40)
     seq_error = bool(hw & 0x80)

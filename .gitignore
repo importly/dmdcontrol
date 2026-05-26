@@ -5,3 +5,5 @@ __pycache__
 .env_pass
 server_backup/
 documentation/
+.ruff_cache
+

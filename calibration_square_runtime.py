@@ -78,8 +78,7 @@ def make_calibration_square_frame_provider(
     engine,
     initial_frame,
     control_file=None,
-    initial_state=None,
-):
+    initial_state=None,):
     import glfw
 
     key_commands = calibration_square_key_commands(glfw)

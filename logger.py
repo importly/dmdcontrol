@@ -18,7 +18,6 @@ def setup_logger(verbosity=0, verbose=None):
     if isinstance(verbosity, bool):
         verbosity = 1 if verbosity else 0
     level = logging.DEBUG if verbosity >= 1 else logging.INFO
-
     # Configure logging
     logging.basicConfig(
         level=level,

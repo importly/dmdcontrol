@@ -10,7 +10,7 @@ echo "=== xinitrc_dmd: Configuring display for NVIDIA ==="
 sleep 1
 
 ARGS=("$@")
-DMD_NAME=""
+DMD_NAME="" # DMD A or B selection
 for ((i=0; i<${#ARGS[@]}; i++)); do
     case "${ARGS[i]}" in
         --dmd)

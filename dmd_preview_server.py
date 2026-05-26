@@ -26,121 +26,69 @@ INDEX_HTML = """<!doctype html>
   <style>
     :root {
       color-scheme: dark;
-      --app: #171717;
-      --app-2: #222327;
-      --panel: #f8fafc;
-      --panel-2: #ffffff;
-      --ink: #101828;
-      --muted: #667085;
-      --muted-2: #98a2b3;
-      --line: #d0d7e2;
-      --line-strong: #98a2b3;
-      --stage: #05070a;
-      --accent: #0f766e;
-      --accent-strong: #0b5f59;
-      --blue: #175cd3;
-      --amber: #b54708;
-      --green: #087443;
-      --red: #b42318;
+      --black: #050505;
+      --offwhite: #f2efe8;
+      --paper: #e9e2d6;
+      --muted: #a49f94;
+      --line: rgba(242, 239, 232, 0.18);
+      --line-strong: rgba(242, 239, 232, 0.34);
+      --panel: rgba(242, 239, 232, 0.035);
+      --panel-2: rgba(242, 239, 232, 0.065);
+      --orange: #ff4401;
+      --orange-dim: rgba(255, 68, 1, 0.12);
+      --stage: #000000;
+      --green: #61d394;
+      --blue: #7ab7ff;
+      --red: #ff7a6f;
+      --amber: #ffb84d;
+      --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", Consolas, "Liberation Mono", monospace;
+      --page-pad: clamp(8px, 1vw, 14px);
       --control-h: 36px;
-      --control-radius: 6px;
-      --control-gap: 8px;
+      --control-radius: 2px;
+      --transition-speed: 160ms ease;
     }
+
     * { box-sizing: border-box; }
     html, body { height: 100%; }
+    html {
+      background: var(--black);
+      color: var(--offwhite);
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
     body {
       margin: 0;
-      font-family: Arial, Helvetica, sans-serif;
-      color: var(--ink);
-      background: var(--app);
+      background:
+        linear-gradient(rgba(255, 68, 1, 0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 68, 1, 0.018) 1px, transparent 1px),
+        radial-gradient(circle at 78% 24%, rgba(255, 68, 1, 0.055), transparent 34vw),
+        var(--black);
+      background-size: 44px 44px, 44px 44px, auto, auto;
       overflow: hidden;
     }
     button, input, select { font: inherit; }
     button { cursor: pointer; }
-    .topbar {
-      height: 54px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      padding: 0 16px;
-      color: #f8fafc;
-      background: #202124;
-      border-bottom: 1px solid #33353b;
-    }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      min-width: 0;
-    }
-    .brand-mark {
-      width: 12px;
-      height: 28px;
-      border-radius: 999px;
-      background: var(--accent);
-      box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.18);
-    }
-    h1 {
-      margin: 0;
-      font-size: 17px;
-      font-weight: 700;
-      letter-spacing: 0;
-    }
-    .subtitle {
-      margin-top: 2px;
-      color: var(--muted-2);
-      font-size: 11px;
-    }
-    .top-badges {
-      min-width: 0;
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .badge,
-    .status-pill {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 24px;
-      padding: 3px 9px;
-      border: 1px solid rgba(255, 255, 255, 0.16);
-      border-radius: 999px;
-      color: #e4e7ec;
-      background: rgba(255, 255, 255, 0.07);
-      font-size: 12px;
-      font-weight: 700;
-      white-space: nowrap;
-    }
-    .badge.green,
-    .status-pill.green {
-      color: #d3f8df;
-      border-color: rgba(75, 222, 128, 0.28);
-      background: rgba(22, 101, 52, 0.32);
-    }
-    .badge.blue,
-    .status-pill.blue {
-      color: #d1e9ff;
-      border-color: rgba(83, 177, 253, 0.32);
-      background: rgba(24, 73, 169, 0.34);
-    }
-    .badge.amber,
-    .status-pill.amber {
-      color: #fedf89;
-      border-color: rgba(247, 144, 9, 0.35);
-      background: rgba(122, 79, 1, 0.34);
-    }
-    .app-shell {
+    button, select, input { color-scheme: dark; }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--black); }
+    ::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+    .dashboard {
+      width: 100vw;
       height: 100vh;
       min-height: 0;
       display: grid;
       grid-template-rows: minmax(0, 1fr) auto;
-      gap: 12px;
-      padding: 12px 12px 0;
+      gap: var(--page-pad);
+      padding: var(--page-pad);
     }
+
     .stage {
       min-width: 0;
       min-height: 0;
@@ -150,186 +98,118 @@ INDEX_HTML = """<!doctype html>
       min-width: 0;
       min-height: 0;
       display: grid;
-      grid-template-rows: auto minmax(0, 1fr);
       overflow: hidden;
-      border: 1px solid #33353b;
-      border-radius: 8px;
-      background: var(--panel);
-      box-shadow: 0 18px 38px rgba(0, 0, 0, 0.26);
-    }
-    .preview-titlebar {
-      min-width: 0;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--line);
-      background: #fff;
-    }
-    .preview-kicker {
-      color: var(--muted);
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-    h2 {
-      margin: 2px 0 0;
-      color: var(--ink);
-      font-size: 16px;
-      line-height: 1.15;
-      letter-spacing: 0;
-    }
-    .preview-badge-row {
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
-    .preview-badge-row .badge,
-    .preview-status-strip .status-pill,
-    .preview-status-strip .state-token,
-    .preview-status-strip .route-token {
-      color: #344054;
-      border-color: var(--line);
-      background: #f2f4f7;
-    }
-    .preview-badge-row .badge.route {
-      color: #1849a9;
-      border-color: #b2ddff;
-      background: #eff8ff;
-    }
-    .preview-status-strip {
-      min-width: 0;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 7px 12px;
-      border-bottom: 1px solid var(--line);
-      background: #eef2f6;
-      overflow: hidden;
-    }
-    .preview-status-strip .status-pill,
-    .preview-status-strip .state-token,
-    .preview-status-strip .route-token {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 24px;
-      padding: 3px 9px;
       border: 1px solid var(--line);
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 700;
-      white-space: nowrap;
-      min-width: 0;
-      max-width: 240px;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      background: rgba(0, 0, 0, 0.82);
+      box-shadow: inset 0 0 0 1px rgba(255, 68, 1, 0.035), 0 24px 60px rgba(0, 0, 0, 0.42);
     }
-    .preview-status-strip .route-start {
-      margin-left: auto;
-    }
-    .preview-status-strip .route-token {
-      color: #1849a9;
-      border-color: #b2ddff;
-      background: #eff8ff;
-    }
-    .state-token.source-live {
-      color: #1849a9;
-      border-color: #b2ddff;
-      background: #eff8ff;
-    }
-    .state-token.source-offline {
-      color: #475467;
-      border-color: var(--line);
-      background: #fff;
-    }
-    .state-token.good {
-      color: #067647;
-      border-color: #abefc6;
-      background: #ecfdf3;
-    }
-    .state-token.muted {
-      color: #475467;
-      border-color: var(--line);
-      background: #fff;
-    }
+    .state-cache { display: none; }
     .image-wrap {
+      min-width: 0;
       min-height: 0;
-      margin: 10px;
-      border: 1px solid #24272d;
-      border-radius: 6px;
+      width: 100%;
+      height: 100%;
       background: var(--stage);
+      background-size: 24px 24px, 24px 24px, auto;
       display: grid;
       place-items: center;
       overflow: auto;
     }
     img {
-      max-width: 100%;
-      max-height: 100%;
+      display: block;
       width: auto;
       height: auto;
+      max-width: 100%;
+      max-height: 100%;
       image-rendering: pixelated;
-      display: block;
     }
-    .bottom-panel {
-      margin: 0 -12px;
-      padding: 10px 12px 12px;
-      border-top: 1px solid #33353b;
-      background: #202124;
-      box-shadow: 0 -16px 34px rgba(0, 0, 0, 0.28);
-    }
-    .command-deck {
+
+    .control-panel {
+      min-width: 0;
       display: grid;
     }
+    .command-deck { min-width: 0; display: grid; }
     .control-surface {
       min-width: 0;
-      min-height: 112px;
+      min-height: 114px;
       display: grid;
-      grid-template-columns: 216px minmax(0, 1fr) 156px;
-      border: 1px solid #d0d7e2;
-      border-radius: 8px;
-      background: var(--panel-2);
-      box-shadow: 0 10px 22px rgba(0, 0, 0, 0.14);
+      grid-template-columns: 190px minmax(0, 1fr) 218px;
+      border: 1px solid var(--line);
+      background: rgba(5, 5, 5, 0.92);
       overflow: hidden;
     }
     .control-section {
       min-width: 0;
       display: grid;
       align-content: start;
-      gap: var(--control-gap);
-      padding: 12px;
+      gap: 0.7rem;
+      padding: 0.82rem;
       border-left: 1px solid var(--line);
+      background: rgba(242, 239, 232, 0.025);
     }
-    .control-section:first-child {
-      border-left: 0;
-    }
-    .source-section,
-    .refresh-section,
-    .live-section {
-      min-width: 0;
+    .control-section:first-child { border-left: 0; }
+    .source-section, .refresh-section, .live-section { min-width: 0; }
+
+    .card-title,
+    .field-label,
+    .plane-title,
+    .source-toggle .option,
+    .segmented button,
+    .auto-toggle,
+    .refresh-button,
+    .status,
+    .lut-entry,
+    .live-title,
+    .state-token,
+    .route-token {
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
     }
     .card-title,
-    .source-label,
     .field-label,
     .plane-title {
-      color: var(--muted);
-      font-size: 11px;
+      color: var(--orange);
+      font-size: 0.68rem;
       font-weight: 700;
       line-height: 1;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
     }
     .card-title {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 8px;
-      color: #344054;
+      gap: 0.5rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--line);
     }
+
+    label {
+      min-width: 0;
+      display: grid;
+      gap: 0.35rem;
+    }
+    select,
+    input[type="number"] {
+      width: 100%;
+      min-width: 0;
+      height: var(--control-h);
+      border: 1px solid var(--line);
+      border-radius: var(--control-radius);
+      background: rgba(242, 239, 232, 0.045);
+      color: var(--offwhite);
+      font-size: 0.82rem;
+      padding: 0.42rem 0.55rem;
+      outline: none;
+    }
+    select option { background: #111; color: var(--offwhite); }
+    select:focus,
+    input[type="number"]:focus,
+    button:focus-visible {
+      border-color: var(--orange);
+      box-shadow: 0 0 0 3px rgba(255, 68, 1, 0.18);
+      outline: none;
+    }
+
     .source-toggle {
       position: relative;
       display: grid;
@@ -338,9 +218,9 @@ INDEX_HTML = """<!doctype html>
       min-height: var(--control-h);
       padding: 3px;
       border: 1px solid var(--line-strong);
-      border-radius: 999px;
-      background: #eef2f6;
-      color: #475467;
+      border-radius: 2px;
+      background: rgba(242, 239, 232, 0.04);
+      color: var(--muted);
       user-select: none;
     }
     .source-toggle input {
@@ -352,85 +232,47 @@ INDEX_HTML = """<!doctype html>
       position: absolute;
       inset: 3px auto 3px 3px;
       width: calc(50% - 3px);
-      border-radius: 999px;
-      background: #fff;
-      box-shadow: 0 2px 6px rgba(16, 24, 40, 0.22);
-      transition: transform 140ms ease;
+      border-radius: 1px;
+      background: var(--orange);
+      transition: transform var(--transition-speed);
     }
-    .source-toggle input:checked + .thumb {
-      transform: translateX(100%);
-    }
+    .source-toggle input:checked + .thumb { transform: translateX(100%); }
     .source-toggle .option {
       position: relative;
       z-index: 1;
       display: grid;
       place-items: center;
       min-width: 0;
-      font-size: 13px;
+      font-size: 0.74rem;
       font-weight: 700;
     }
     .source-toggle input:not(:checked) ~ .offline-option,
     .source-toggle input:checked ~ .live-option {
-      color: var(--ink);
+      color: var(--black);
     }
-    .source-meta,
-    .live-copy,
-    .status {
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.35;
-    }
+    .source-meta { display: none; }
+
     .offline-controls {
       min-width: 0;
       display: grid;
-      grid-template-columns: minmax(360px, 1.05fr) minmax(420px, 0.95fr);
+      grid-template-columns: minmax(360px, 1.05fr) minmax(390px, 0.95fr);
       gap: 0;
     }
     .offline-controls[hidden],
     .live-section[hidden],
-    .plane-panel[hidden] {
-      display: none;
-    }
-    .offline-controls .control-section {
-      border-left: 1px solid var(--line);
-    }
-    .control-group {
-      min-width: 0;
-    }
+    .plane-panel[hidden] { display: none; }
+    .offline-controls .control-section { border-left: 1px solid var(--line); }
+    .control-group { min-width: 0; }
     .field-grid {
       display: grid;
       grid-template-columns: repeat(4, minmax(96px, 1fr));
-      gap: 8px;
+      gap: 0.55rem;
     }
     .view-grid {
       display: grid;
       grid-template-columns: minmax(160px, 0.8fr) minmax(96px, 0.5fr);
-      gap: 8px;
+      gap: 0.55rem;
       align-items: end;
-    }
-    label {
-      min-width: 0;
-      display: grid;
-      gap: 5px;
-    }
-    select,
-    input[type="number"] {
-      width: 100%;
-      min-width: 0;
-      height: var(--control-h);
-      border: 1px solid var(--line);
-      border-radius: var(--control-radius);
-      background: #fff;
-      color: var(--ink);
-      font-size: 13px;
-      padding: 6px 8px;
-      outline: none;
-    }
-    select:focus,
-    input[type="number"]:focus,
-    button:focus-visible {
-      border-color: #53b1fd;
-      box-shadow: 0 0 0 3px rgba(83, 177, 253, 0.24);
     }
     .segmented {
       display: grid;
@@ -438,33 +280,32 @@ INDEX_HTML = """<!doctype html>
       gap: 3px;
       padding: 3px;
       border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #eef2f6;
+      border-radius: 2px;
+      background: rgba(242, 239, 232, 0.04);
     }
     .segmented button {
       min-height: calc(var(--control-h) - 8px);
       border: 0;
-      border-radius: var(--control-radius);
+      border-radius: 1px;
       background: transparent;
-      color: #475467;
-      font-size: 13px;
+      color: var(--muted);
+      font-size: 0.74rem;
       font-weight: 700;
     }
     .segmented button.active {
-      background: #fff;
-      color: var(--ink);
-      box-shadow: 0 1px 4px rgba(16, 24, 40, 0.18);
+      background: var(--offwhite);
+      color: var(--black);
     }
     .plane-panel {
       min-width: 0;
-      padding: 8px;
+      padding: 0.5rem;
       border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #f8fafc;
+      border-radius: 2px;
+      background: rgba(242, 239, 232, 0.035);
       display: grid;
       grid-template-columns: auto minmax(0, 1fr);
       align-items: center;
-      gap: 8px;
+      gap: 0.55rem;
     }
     .plane-grid {
       min-width: 0;
@@ -476,56 +317,53 @@ INDEX_HTML = """<!doctype html>
       min-width: 0;
       min-height: 28px;
       border: 1px solid var(--line);
-      border-radius: var(--control-radius);
-      background: #fff;
-      color: #344054;
-      font-size: 12px;
+      border-radius: 2px;
+      background: rgba(242, 239, 232, 0.035);
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
       font-weight: 700;
       padding: 0 4px;
     }
-    .plane-chip[data-channel="G"].active {
-      border-color: var(--green);
-      background: #dcfae6;
-      color: #074d31;
+    .plane-chip.active {
+      border-color: var(--orange);
+      background: var(--orange-dim);
+      color: var(--orange);
     }
-    .plane-chip[data-channel="R"].active {
-      border-color: var(--red);
-      background: #fee4e2;
-      color: #7a271a;
-    }
-    .plane-chip[data-channel="B"].active {
-      border-color: var(--blue);
-      background: #d1e9ff;
-      color: #1849a9;
-    }
+    .plane-chip[data-channel="G"].active { border-color: var(--green); color: var(--green); background: rgba(97, 211, 148, 0.10); }
+    .plane-chip[data-channel="R"].active { border-color: var(--red); color: var(--red); background: rgba(255, 122, 111, 0.10); }
+    .plane-chip[data-channel="B"].active { border-color: var(--blue); color: var(--blue); background: rgba(122, 183, 255, 0.10); }
+
     .live-section {
       grid-template-columns: auto minmax(0, 1fr);
       align-items: start;
     }
     .live-dot {
-      width: 12px;
-      height: 12px;
+      width: 10px;
+      height: 10px;
+      margin-top: 0.2rem;
       border-radius: 999px;
       background: var(--amber);
-      box-shadow: 0 0 0 5px rgba(181, 71, 8, 0.12);
+      box-shadow: 0 0 0 5px rgba(255, 184, 77, 0.12);
     }
     .live-section.available .live-dot {
-      background: var(--blue);
-      box-shadow: 0 0 0 5px rgba(23, 92, 211, 0.14);
+      background: var(--orange);
+      box-shadow: 0 0 0 5px var(--orange-dim);
     }
     .live-title {
-      color: var(--ink);
-      font-size: 14px;
+      color: var(--offwhite);
+      font-size: 0.88rem;
       font-weight: 700;
     }
     .live-info {
       min-width: 0;
       display: grid;
-      gap: 6px;
+      gap: 0.4rem;
     }
+    .live-copy,
     .lut-summary {
-      color: #344054;
-      font-size: 12px;
+      color: var(--muted);
+      font-size: 0.78rem;
       line-height: 1.35;
     }
     .lut-grid {
@@ -533,66 +371,91 @@ INDEX_HTML = """<!doctype html>
       max-height: 62px;
       display: flex;
       flex-wrap: wrap;
-      gap: 4px;
+      gap: 0.25rem;
       overflow: auto;
     }
     .lut-entry {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 24px;
+      min-height: 23px;
       min-width: 52px;
-      padding: 2px 6px;
+      padding: 0.12rem 0.35rem;
       border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #fff;
-      color: #344054;
-      font-size: 11px;
+      border-radius: 2px;
+      background: rgba(242, 239, 232, 0.035);
+      color: var(--muted);
+      font-size: 0.66rem;
       font-weight: 700;
       white-space: nowrap;
     }
-    .lut-entry[data-channel="G"] {
-      color: #074d31;
-      border-color: #abefc6;
-      background: #ecfdf3;
+    .lut-entry[data-channel="G"] { color: var(--green); border-color: rgba(97, 211, 148, 0.5); background: rgba(97, 211, 148, 0.08); }
+    .lut-entry[data-channel="R"] { color: var(--red); border-color: rgba(255, 122, 111, 0.5); background: rgba(255, 122, 111, 0.08); }
+    .lut-entry[data-channel="B"] { color: var(--blue); border-color: rgba(122, 183, 255, 0.5); background: rgba(122, 183, 255, 0.08); }
+
+    .refresh-section { align-content: start; }
+    .refresh-actions {
+      min-width: 0;
+      display: grid;
+      gap: 0.55rem;
     }
-    .lut-entry[data-channel="R"] {
-      color: #7a271a;
-      border-color: #fecdca;
-      background: #fef3f2;
+    .auto-refresh-controls {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 92px;
+      gap: 0.55rem;
+      align-items: end;
     }
-    .lut-entry[data-channel="B"] {
-      color: #1849a9;
-      border-color: #b2ddff;
-      background: #eff8ff;
+    .auto-toggle {
+      min-width: 0;
+      min-height: var(--control-h);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.42rem 0.55rem;
+      border: 1px solid var(--line);
+      border-radius: 2px;
+      background: rgba(242, 239, 232, 0.035);
+      color: var(--offwhite);
+      font-size: 0.74rem;
+      font-weight: 700;
+      user-select: none;
     }
-    .refresh-section {
-      align-content: center;
+    .auto-toggle input {
+      width: 15px;
+      height: 15px;
+      accent-color: var(--orange);
     }
     .refresh-button {
       width: 100%;
       height: var(--control-h);
-      border: 1px solid var(--accent-strong);
-      border-radius: 8px;
-      background: var(--accent);
-      color: #fff;
-      font-size: 14px;
-      font-weight: 700;
-      padding: 0 16px;
+      border: 1px solid var(--orange);
+      border-radius: 2px;
+      background: var(--orange);
+      color: var(--black);
+      font-size: 0.78rem;
+      font-weight: 800;
+      padding: 0 1rem;
+      transition: background var(--transition-speed), color var(--transition-speed), border-color var(--transition-speed);
     }
     .refresh-button:hover {
-      background: var(--accent-strong);
+      background: var(--offwhite);
+      border-color: var(--offwhite);
+      color: var(--black);
     }
     .status {
       min-height: 16px;
+      color: var(--muted);
+      font-size: 0.7rem;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    @media (max-width: 1220px) {
+
+    @media (max-width: 1180px) {
       body { overflow: auto; }
-      .app-shell { height: auto; min-height: calc(100vh - 54px); }
-      .stage { min-height: 420px; }
+      .dashboard { height: auto; min-height: 100vh; }
+      .stage { min-height: 60vh; }
       .control-surface { grid-template-columns: 1fr; }
       .control-section,
       .offline-controls .control-section { border-left: 0; border-top: 1px solid var(--line); }
@@ -601,22 +464,21 @@ INDEX_HTML = """<!doctype html>
       .field-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
     }
     @media (max-width: 680px) {
-      .topbar { height: auto; min-height: 54px; align-items: flex-start; padding: 10px 12px; }
-      .top-badges { justify-content: flex-start; }
-      .preview-titlebar { align-items: flex-start; flex-direction: column; }
-      .preview-status-strip { flex-wrap: wrap; }
+      .dashboard { padding: 8px; gap: 8px; }
+      .stage { min-height: 52vh; }
       .field-grid,
       .view-grid,
-      .plane-panel { grid-template-columns: 1fr; }
+      .plane-panel,
+      .auto-refresh-controls { grid-template-columns: 1fr; }
       .plane-grid { grid-template-columns: repeat(4, minmax(44px, 1fr)); }
     }
   </style>
 </head>
 <body>
-  <main class="app-shell">
-    <section class="stage">
+  <main class="dashboard">
+    <section class="stage" aria-label="DMD preview viewport">
       <article class="preview-card">
-        <div class="preview-status-strip">
+        <div class="state-cache" aria-hidden="true">
           <span class="state-token source-offline" id="sourceBadge">offline</span>
           <span class="state-token" id="layoutBadge">paired</span>
           <span class="state-token" id="testBadge">coarse-grid</span>
@@ -631,72 +493,94 @@ INDEX_HTML = """<!doctype html>
         </div>
       </article>
     </section>
-    <section class="bottom-panel">
+
+    <section class="control-panel" aria-label="DMD preview controls">
       <div class="command-deck">
         <div class="control-surface">
-        <section class="control-section source-section">
-          <div class="card-title">Source</div>
-          <label class="source-toggle" for="sourceSwitch">
-            <input id="sourceSwitch" type="checkbox">
-            <span class="thumb"></span>
-            <span class="option offline-option">Offline</span>
-            <span class="option live-option">Live</span>
-          </label>
-          <div class="source-meta" id="sourceMeta">Offline simulated frames</div>
-        </section>
-        <div class="offline-controls" id="offlineControls">
-          <section class="control-section control-group">
-            <div class="card-title">Pattern</div>
-            <div class="field-grid">
-              <label><span class="field-label">Layout</span>
-                <select id="layout">
-                  <option value="pair">Paired</option>
-                  <option value="single">Single</option>
-                </select>
-              </label>
-              <label><span class="field-label">Test</span>
-                <select id="test"></select>
-              </label>
-              <label><span class="field-label">A</span>
-                <select id="testA"></select>
-              </label>
-              <label><span class="field-label">B</span>
-                <select id="testB"></select>
-              </label>
-            </div>
+          <section class="control-section source-section">
+            <div class="card-title">Source</div>
+            <label class="source-toggle" for="sourceSwitch">
+              <input id="sourceSwitch" type="checkbox">
+              <span class="thumb"></span>
+              <span class="option offline-option">Offline</span>
+              <span class="option live-option">Live</span>
+            </label>
+            <div class="source-meta" id="sourceMeta">Offline simulated frames</div>
           </section>
-          <section class="control-section control-group">
-            <div class="card-title">Render</div>
-            <div class="view-grid">
-              <label><span class="field-label">View</span>
-                <div class="segmented" id="viewControl">
-                  <button type="button" data-view="packed">Packed</button>
-                  <button type="button" data-view="bitplane">Bitplane</button>
-                </div>
-              </label>
-              <label><span class="field-label">Frame</span>
-                <input id="frame" type="number" min="0" step="1" value="0">
-              </label>
-            </div>
-            <div class="plane-panel" id="planePanel" hidden>
-              <div class="plane-title">Plane</div>
-              <div class="plane-grid" id="planeButtons"></div>
-            </div>
-          </section>
-        </div>
-        <section class="control-section live-section" id="liveControls" hidden>
-          <span class="live-dot" aria-hidden="true"></span>
-          <div class="live-info">
-            <div class="live-title">Live mirror</div>
-            <div class="live-copy" id="liveCopy">Waiting for posted frames</div>
-            <div class="lut-summary" id="lutSummary">No LUT metadata yet</div>
-            <div class="lut-grid" id="lutEntries" aria-label="Live LUT entries"></div>
+
+          <div class="offline-controls" id="offlineControls">
+            <section class="control-section control-group">
+              <div class="card-title">Pattern</div>
+              <div class="field-grid">
+                <label><span class="field-label">Layout</span>
+                  <select id="layout">
+                    <option value="pair">Paired</option>
+                    <option value="single">Single</option>
+                  </select>
+                </label>
+                <label><span class="field-label">Test</span>
+                  <select id="test"></select>
+                </label>
+                <label><span class="field-label">A</span>
+                  <select id="testA"></select>
+                </label>
+                <label><span class="field-label">B</span>
+                  <select id="testB"></select>
+                </label>
+              </div>
+            </section>
+
+            <section class="control-section control-group">
+              <div class="card-title">Render</div>
+              <div class="view-grid">
+                <label><span class="field-label">View</span>
+                  <div class="segmented" id="viewControl">
+                    <button type="button" data-view="packed">Packed</button>
+                    <button type="button" data-view="bitplane">Bitplane</button>
+                  </div>
+                </label>
+                <label><span class="field-label">Frame</span>
+                  <input id="frame" type="number" min="0" step="1" value="0">
+                </label>
+              </div>
+              <div class="plane-panel" id="planePanel" hidden>
+                <div class="plane-title">Plane</div>
+                <div class="plane-grid" id="planeButtons"></div>
+              </div>
+            </section>
           </div>
-        </section>
-        <section class="control-section refresh-section">
-          <button class="refresh-button" id="refresh" type="button">Refresh</button>
-          <div class="status" id="status"></div>
-        </section>
+
+          <section class="control-section live-section" id="liveControls" hidden>
+            <span class="live-dot" aria-hidden="true"></span>
+            <div class="live-info">
+              <div class="live-title">Live</div>
+              <div class="live-copy" id="liveCopy">Waiting for posted frames</div>
+              <div class="lut-summary" id="lutSummary">No LUT metadata yet</div>
+              <div class="lut-grid" id="lutEntries" aria-label="Live LUT entries"></div>
+            </div>
+          </section>
+
+          <section class="control-section refresh-section">
+            <div class="card-title">Refresh</div>
+            <div class="refresh-actions">
+              <button class="refresh-button" id="refresh" type="button">Refresh</button>
+              <div class="auto-refresh-controls">
+                <label class="auto-toggle">
+                  <input id="autoRefresh" type="checkbox">
+                  <span>Auto</span>
+                </label>
+                <label><span class="field-label">Every</span>
+                  <select id="autoInterval">
+                    <option value="1">1 sec</option>
+                    <option value="5" selected>5 sec</option>
+                    <option value="10">10 sec</option>
+                    <option value="60">60 sec</option>
+                  </select>
+                </label>
+              </div>
+              <div class="status" id="status"></div>
+            </div>
+          </section>
         </div>
       </div>
     </section>
@@ -718,6 +602,8 @@ INDEX_HTML = """<!doctype html>
       planeButtons: document.getElementById("planeButtons"),
       frame: document.getElementById("frame"),
       refresh: document.getElementById("refresh"),
+      autoRefresh: document.getElementById("autoRefresh"),
+      autoInterval: document.getElementById("autoInterval"),
       preview: document.getElementById("preview"),
       status: document.getElementById("status"),
       liveStatus: document.getElementById("liveStatus"),
@@ -731,6 +617,8 @@ INDEX_HTML = """<!doctype html>
     let config = null;
     let currentView = "packed";
     let currentPlane = "G0";
+    let autoRefreshTimer = null;
+    let autoRefreshRunning = false;
 
     function fillSelect(select, values, includeAuto) {
       select.innerHTML = "";
@@ -856,7 +744,7 @@ INDEX_HTML = """<!doctype html>
       const text = available ? "live frame available" : "no live frame";
       els.liveStatus.textContent = text;
       els.liveStatus.className = available ? "state-token good" : "state-token muted";
-      els.liveCopy.textContent = available ? "Showing latest posted packed frame" : "No live frame has been posted";
+      els.liveCopy.textContent = available ? "latest posted packed frame" : "No live frame";
       els.liveControls.classList.toggle("available", Boolean(available));
       renderLutInfo(metadata || {});
     }
@@ -918,6 +806,50 @@ INDEX_HTML = """<!doctype html>
       els.preview.src = imageUrl();
     }
 
+    function stopAutoRefreshTimer() {
+      if (autoRefreshTimer !== null) {
+        window.clearTimeout(autoRefreshTimer);
+        autoRefreshTimer = null;
+      }
+    }
+
+    function autoRefreshDelayMs() {
+      const seconds = Number(els.autoInterval.value);
+      return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 5000;
+    }
+
+    function scheduleAutoRefresh() {
+      stopAutoRefreshTimer();
+      if (!els.autoRefresh.checked) return;
+      autoRefreshTimer = window.setTimeout(runAutoRefresh, autoRefreshDelayMs());
+    }
+
+    async function runAutoRefresh() {
+      if (!els.autoRefresh.checked) return;
+      if (autoRefreshRunning) {
+        scheduleAutoRefresh();
+        return;
+      }
+
+      autoRefreshRunning = true;
+      try {
+        await refreshImage();
+      } catch (error) {
+        els.status.textContent = error.message;
+      } finally {
+        autoRefreshRunning = false;
+        scheduleAutoRefresh();
+      }
+    }
+
+    function syncAutoRefresh() {
+      stopAutoRefreshTimer();
+      if (els.autoRefresh.checked) {
+        refreshImage().catch(error => { els.status.textContent = error.message; });
+        scheduleAutoRefresh();
+      }
+    }
+
     async function loadConfig() {
       const response = await fetch("/api/config");
       config = await response.json();
@@ -944,6 +876,9 @@ INDEX_HTML = """<!doctype html>
     });
     els.sourceSwitch.addEventListener("change", refreshImage);
     els.refresh.addEventListener("click", refreshImage);
+    els.autoRefresh.addEventListener("change", syncAutoRefresh);
+    els.autoInterval.addEventListener("change", scheduleAutoRefresh);
+    window.addEventListener("beforeunload", stopAutoRefreshTimer);
     loadConfig().catch(error => { els.status.textContent = error.message; });
   </script>
 </body>
