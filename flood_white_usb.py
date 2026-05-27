@@ -223,9 +223,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> int:
+def main(argv=None) -> int:
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     requested = args.color_flag or args.color or "white"
     output = _effective_color(requested, args.invert)

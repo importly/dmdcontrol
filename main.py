@@ -393,8 +393,8 @@ def _make_frame_provider(
     return _wrap(lambda: initial_frame)
 
 
-def main():
-    args = _build_parser().parse_args()
+def main(argv=None):
+    args = _build_parser().parse_args(argv)
     setup_logger(args.verbose)
 
     if args.hz not in (60, 120):
@@ -415,7 +415,7 @@ def main():
 
     if args.dry_run_timing:
         _dry_run_timing(args)
-        return
+        return 0
 
     target_hz = args.hz
     dmd_mapping = resolve_dmd_mapping(args.dmd, args.dmd_config) if args.dmd else None
@@ -704,7 +704,7 @@ def main():
                 _maybe_invert_frame(trig_frame, args.invert_dmd),
                 args.runtime_seconds,
             )
-            return
+            return 0
         video_writer = _open_video_writer(args.capture, target_hz) if args.capture else None
         try:
             run_render_loop(
@@ -718,6 +718,7 @@ def main():
 
     except Exception as exc:
         logger.exception(f"Runtime failed: {exc}")
+        return 1
     finally:
         logger.info("[+] Cleaning up...")
         if dlpc is not None:
@@ -726,7 +727,8 @@ def main():
             dlpc.apply_block_lock_workaround()
         if engine is not None:
             engine.cleanup()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
