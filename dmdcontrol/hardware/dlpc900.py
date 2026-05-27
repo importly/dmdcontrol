@@ -403,7 +403,7 @@ class DLPC900:
         self._write(0x1A31, struct.pack("<HI", num_entries, num_to_display))
 
     def set_pattern_lut_reorder(self, order, repeat=True):
-        """0x1A32: Reorder LUT playback sequence for Pattern Mode.""" 
+        """0x1A32: Reorder LUT playback sequence for Pattern Mode."""
         order_list = [int(idx) for idx in order]
         if not order_list:
             raise ValueError("Pattern LUT reorder list cannot be empty")

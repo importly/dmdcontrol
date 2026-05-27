@@ -67,7 +67,7 @@ class MainPairConfigTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 resolve_pair_config(config_path)
 
-    def test_dry_run_accepts_calibration_dot_recipe_without_hardware_imports(self):
+    def test_dry_run_accepts_essential_calibration_dot_command_without_hardware_imports(self):
         for module_name in ("glfw", "OpenGL.GL", "dlpc900_hid"):
             sys.modules.pop(module_name, None)
 
@@ -82,6 +82,12 @@ class MainPairConfigTests(unittest.TestCase):
                 "540",
                 "--b-dot-radius",
                 "40",
+                "--preview-url",
+                "http://127.0.0.1:8080/api/live-frame",
+                "--preview-fps",
+                "1",
+                "--runtime-seconds",
+                "0",
             ]
         )
 
@@ -130,7 +136,7 @@ class MainPairConfigTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertFalse({"glfw", "OpenGL.GL", "dlpc900_hid"} & set(sys.modules))
 
-    def test_dry_run_accepts_kernel_static_recipe_with_b_dot(self):
+    def test_dry_run_accepts_essential_kernel_static_dot_command(self):
         rc = main_pair.main(
             [
                 "--dry-run-timing",
@@ -145,9 +151,9 @@ class MainPairConfigTests(unittest.TestCase):
                 "--b-dot-radius",
                 "40",
                 "--kernel-px",
-                "900",
-                "--kernel-exposure-us",
-                "3000",
+                "201",
+                "--runtime-seconds",
+                "999",
             ]
         )
 
