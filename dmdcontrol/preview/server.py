@@ -8,15 +8,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from dmdcontrol.preview.html import INDEX_HTML
-from dmd_preview_render import (
+from dmdcontrol.preview.render import (
     BITPLANE_LABELS,
     LiveFrameStore,
     render_png_bytes,
     render_preview_png,
     render_view_image,
 )
-from paired_pattern_engine import PAIR_TESTS, STATIC_PAIR_TESTS
-from pattern_modes import PATTERN_NAMES
+from dmdcontrol.patterns.paired import PAIR_TESTS, STATIC_PAIR_TESTS
+from dmdcontrol.patterns.modes import PATTERN_NAMES
 
 
 

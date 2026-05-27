@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import importlib
+from dmdcontrol.hardware import usb as dmd_usb
+from dmdcontrol.hardware import wake as wake_dp
 
 
 def discover(argv: list[str]) -> int | None:
-    legacy = importlib.import_module("dmd_usb")
-    return legacy.main(argv)
+    return dmd_usb.main(argv)
 
 
 def wake(argv: list[str]) -> int | None:
-    legacy = importlib.import_module("wake_dp")
-    return legacy.main(argv)
+    return wake_dp.main(argv)

@@ -1,38 +1,9 @@
-import logging
-from rich.logging import RichHandler
-from rich.console import Console
+"""Compatibility shim for dmdcontrol.support.logging."""
 
-# Create a global rich console for direct printing if needed
-console = Console()
+from __future__ import annotations
 
+import sys
 
-def setup_logger(verbosity=0, verbose=None):
-    """
-    Configure the root logger with rich formatting.
+from dmdcontrol.support import logging as _logging
 
-    Args:
-        verbosity: 0 = basic INFO, 1 = DEBUG, 2+ = DEBUG with source paths.
-    """
-    if verbose is not None:
-        verbosity = verbose
-    if isinstance(verbosity, bool):
-        verbosity = 1 if verbosity else 0
-    level = logging.DEBUG if verbosity >= 1 else logging.INFO
-    # Configure logging
-    logging.basicConfig(
-        level=level,
-        format="%(message)s",
-        datefmt="[%X]",
-        handlers=[
-            RichHandler(rich_tracebacks=True, show_path=verbosity >= 2, console=console)
-        ],
-        force=True,
-    )
-
-    logger = logging.getLogger("dmdcontrol")
-    logger.setLevel(level)
-    return logger
-
-
-# Create a default logger instance
-logger = logging.getLogger("dmdcontrol")
+sys.modules[__name__] = _logging

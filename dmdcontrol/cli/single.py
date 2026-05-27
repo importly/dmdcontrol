@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import importlib
+from dmdcontrol.runtime import single
 
 
 def run(argv: list[str]) -> int | None:
-    legacy = importlib.import_module("main")
-    return legacy.main(argv)
+    return single.main(argv)

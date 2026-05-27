@@ -4,7 +4,7 @@ import argparse
 import json
 from dataclasses import asdict, is_dataclass
 
-import dmd_config
+import dmdcontrol.hardware.mapping as dmd_config
 
 
 FIELDS = (

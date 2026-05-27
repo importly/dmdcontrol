@@ -1,10 +1,9 @@
-"""Shared runtime constants for DLPC900 Video Pattern Mode."""
+"""Compatibility shim for dmdcontrol.support.constants."""
 
-TARGET_HZ = 60
-BITPLANES = 24
-MIN_EXPOSURE_US = 150
-INTER_PATTERN_DARK_US = 0
-MAX_BINARY_RATE_HZ_DLP6500 = 9523
-SAFE_MARGIN_US = 250.0
-MAX_MEASURED_VSYNC_DEVIATION_RATIO = 0.25
-DEFAULT_SEQUENCE_UTILIZATION = 0.90
+from __future__ import annotations
+
+import sys
+
+from dmdcontrol.support import constants as _constants
+
+sys.modules[__name__] = _constants
