@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import importlib
+from dmdcontrol.runtime import pair as pair_runtime
 
 
 CALIBRATION_TEST = "a-calibr-square-b-dot"
@@ -27,14 +27,12 @@ def _has_runtime_seconds(argv: list[str]) -> bool:
 
 
 def run(argv: list[str]) -> int | None:
-    legacy = importlib.import_module("main_pair")
-    return legacy.main(_translate_run_args(argv))
+    return pair_runtime.main(_translate_run_args(argv))
 
 
 def calibrate(argv: list[str]) -> int | None:
-    legacy = importlib.import_module("main_pair")
     translated = ["--test", CALIBRATION_TEST]
     if not _has_runtime_seconds(argv):
         translated.extend(["--runtime-seconds", "0"])
     translated.extend(argv)
-    return legacy.main(translated)
+    return pair_runtime.main(translated)

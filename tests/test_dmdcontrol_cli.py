@@ -2,24 +2,23 @@ import json
 import subprocess
 import sys
 from dataclasses import dataclass
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 from dmdcontrol.cli.main import main
 
 
 def test_single_run_delegates_passthrough_args(monkeypatch):
-    legacy = SimpleNamespace(main=Mock(return_value=7))
-    monkeypatch.setitem(sys.modules, "main", legacy)
+    runtime = Mock(return_value=7)
+    monkeypatch.setattr("dmdcontrol.cli.single.single.main", runtime)
 
     assert main(["single", "run", "--test", "checkerboard"]) == 7
 
-    legacy.main.assert_called_once_with(["--test", "checkerboard"])
+    runtime.assert_called_once_with(["--test", "checkerboard"])
 
 
 def test_pair_run_translates_preferred_flags(monkeypatch):
-    legacy = SimpleNamespace(main=Mock(return_value=0))
-    monkeypatch.setitem(sys.modules, "main_pair", legacy)
+    runtime = Mock(return_value=0)
+    monkeypatch.setattr("dmdcontrol.cli.pair.pair_runtime.main", runtime)
 
     assert main(
         [
@@ -34,7 +33,7 @@ def test_pair_run_translates_preferred_flags(monkeypatch):
         ]
     ) == 0
 
-    legacy.main.assert_called_once_with(
+    runtime.assert_called_once_with(
         [
             "--test",
             "coarse-grid",
@@ -47,12 +46,12 @@ def test_pair_run_translates_preferred_flags(monkeypatch):
 
 
 def test_pair_calibrate_injects_test_and_default_zero_runtime(monkeypatch):
-    legacy = SimpleNamespace(main=Mock(return_value=0))
-    monkeypatch.setitem(sys.modules, "main_pair", legacy)
+    runtime = Mock(return_value=0)
+    monkeypatch.setattr("dmdcontrol.cli.pair.pair_runtime.main", runtime)
 
     assert main(["pair", "calibrate", "--b-dot-x", "10"]) == 0
 
-    legacy.main.assert_called_once_with(
+    runtime.assert_called_once_with(
         [
             "--test",
             "a-calibr-square-b-dot",
@@ -65,12 +64,12 @@ def test_pair_calibrate_injects_test_and_default_zero_runtime(monkeypatch):
 
 
 def test_pair_calibrate_preserves_user_runtime_seconds(monkeypatch):
-    legacy = SimpleNamespace(main=Mock(return_value=0))
-    monkeypatch.setitem(sys.modules, "main_pair", legacy)
+    runtime = Mock(return_value=0)
+    monkeypatch.setattr("dmdcontrol.cli.pair.pair_runtime.main", runtime)
 
     assert main(["pair", "calibrate", "--runtime-seconds=5"]) == 0
 
-    legacy.main.assert_called_once_with(
+    runtime.assert_called_once_with(
         ["--test", "a-calibr-square-b-dot", "--runtime-seconds=5"]
     )
 
@@ -87,20 +86,20 @@ def test_preview_serve_help_exits_zero(capsys):
 
 
 def test_usb_and_flood_commands_delegate_passthrough(monkeypatch):
-    usb = SimpleNamespace(main=Mock(return_value=3))
-    wake = SimpleNamespace(main=Mock(return_value=4))
-    flood = SimpleNamespace(main=Mock(return_value=5))
-    monkeypatch.setitem(sys.modules, "dmd_usb", usb)
-    monkeypatch.setitem(sys.modules, "wake_dp", wake)
-    monkeypatch.setitem(sys.modules, "flood_white_usb", flood)
+    usb = Mock(return_value=3)
+    wake = Mock(return_value=4)
+    flood = Mock(return_value=5)
+    monkeypatch.setattr("dmdcontrol.cli.usb.dmd_usb.main", usb)
+    monkeypatch.setattr("dmdcontrol.cli.usb.wake_dp.main", wake)
+    monkeypatch.setattr("dmdcontrol.cli.flood.flood.main", flood)
 
     assert main(["usb", "discover", "--verbose"]) == 3
     assert main(["usb", "wake", "--dmd", "A"]) == 4
     assert main(["flood", "run", "--yes"]) == 5
 
-    usb.main.assert_called_once_with(["--verbose"])
-    wake.main.assert_called_once_with(["--dmd", "A"])
-    flood.main.assert_called_once_with(["--yes"])
+    usb.assert_called_once_with(["--verbose"])
+    wake.assert_called_once_with(["--dmd", "A"])
+    flood.assert_called_once_with(["--yes"])
 
 
 @dataclass(frozen=True)
