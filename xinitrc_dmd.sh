@@ -76,5 +76,5 @@ sleep 1
 echo "--- xrandr verification ---"
 xrandr --query 2>/dev/null | grep -A 1 "^$DP_OUTPUT" | head -3
 
-echo "=== Launching main.py ==="
-dmd_exec_python_entrypoint "$SCRIPT_DIR" main.py --monitor "$MONITOR_INDEX" "$@"
+echo "=== Launching dmdcontrol single run ==="
+dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol single run --monitor "$MONITOR_INDEX" "$@"

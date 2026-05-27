@@ -119,6 +119,18 @@ dmd_exec_python_entrypoint() {
         /usr/bin/python3 "$script_dir/$entrypoint" "$@"
 }
 
+dmd_exec_python_module() {
+    local script_dir="$1"
+    local module="$2"
+    shift 2
+    local repo_root="$script_dir"
+    local pythonpath="$repo_root:/home/main/.local/lib/python3.14/site-packages"
+    if [ -n "${PYTHONPATH:-}" ]; then
+        pythonpath="$pythonpath:$PYTHONPATH"
+    fi
+    exec env PYTHONPATH="$pythonpath" /usr/bin/python3 -m "$module" "$@"
+}
+
 dmd_create_calibr_square_control_file() {
     mktemp /tmp/dmd_calibr_square_control.XXXXXX
 }

@@ -10,7 +10,7 @@ dmd_parse_dmd_config_arg "$@"
 
 if dmd_has_flag --dry-run-timing "$@"; then
     echo "=== Paired calibration dry-run timing (no DP wake, no X, no sudo) ==="
-    exec /usr/bin/python3 "$SCRIPT_DIR/main_pair.py" --test a-calibr-square-b-dot "$@"
+    dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol pair calibrate "$@"
 fi
 
 CONTROL_FILE="$(dmd_create_calibr_square_control_file)"
@@ -29,7 +29,7 @@ dmd_wake_configured_dmd "$SCRIPT_DIR" B "${DMD_CONFIG_ARGS[@]}"
 dmd_wait_for_hotplug "Xorg and GPU to detect both DP hotplug events"
 
 echo "=== Launching Interactive Paired Calibration Square + B Dot ==="
-dmd_start_calibr_square_control_reader "$CONTROL_FILE" "main_pair.py"
+dmd_start_calibr_square_control_reader "$CONTROL_FILE" "dmdcontrol pair run"
 
 dmd_run_xinit "$SCRIPT_DIR" "$SCRIPT_DIR/xinitrc_dmd_pair.sh" \
     --test a-calibr-square-b-dot \

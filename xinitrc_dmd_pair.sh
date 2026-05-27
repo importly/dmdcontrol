@@ -45,5 +45,5 @@ echo "--- xrandr verification ---"
 xrandr --query
 dmd_x11_verify_pair_layout "$B_OUTPUT" "$A_OUTPUT"
 
-echo "=== Launching main_pair.py ==="
-dmd_exec_python_entrypoint "$SCRIPT_DIR" main_pair.py "$@"
+echo "=== Launching dmdcontrol pair run ==="
+dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol pair run "$@"
