@@ -1,4 +1,4 @@
-"""Compatibility shim for the DMD preview server."""
+"""Preview server package for DMD control tools."""
 
 from __future__ import annotations
 
@@ -15,7 +15,3 @@ __all__ = [
     "create_server",
     "main",
 ]
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
