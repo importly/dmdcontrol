@@ -10,7 +10,7 @@ dmd_parse_dmd_config_arg "$@"
 
 if dmd_has_flag --dry-run-timing "$@"; then
     echo "=== Paired dry-run timing (no DP wake, no X, no sudo) ==="
-    exec /usr/bin/python3 "$SCRIPT_DIR/main_pair.py" "$@"
+    dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol pair run "$@"
 fi
 
 echo "=== Paired DLPC900 DP Wake ==="

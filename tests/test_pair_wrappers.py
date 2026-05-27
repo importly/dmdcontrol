@@ -15,7 +15,35 @@ class PairWrapperTests(unittest.TestCase):
 
         self.assertLess(dry_run_idx, wake_idx)
         self.assertLess(dry_run_idx, xinit_idx)
-        self.assertIn('exec /usr/bin/python3 "$SCRIPT_DIR/main_pair.py" "$@"', script)
+        self.assertIn('dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol pair run "$@"', script)
+
+    def test_common_shell_helper_execs_python_modules_with_repo_pythonpath(self):
+        helper = (ROOT / "dmd_shell_common.sh").read_text(encoding="utf-8")
+
+        self.assertIn("dmd_exec_python_module() {", helper)
+        self.assertIn('local repo_root="$script_dir"', helper)
+        self.assertIn('local pythonpath="$repo_root:/home/main/.local/lib/python3.14/site-packages"', helper)
+        self.assertIn('exec env PYTHONPATH="$pythonpath"', helper)
+        self.assertIn('/usr/bin/python3 -m "$module" "$@"', helper)
+
+    def test_xinit_wrappers_route_to_package_cli_after_x11_setup(self):
+        single = (ROOT / "xinitrc_dmd.sh").read_text(encoding="utf-8")
+        pair = (ROOT / "xinitrc_dmd_pair.sh").read_text(encoding="utf-8")
+
+        self.assertIn(
+            'dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol single run --monitor "$MONITOR_INDEX" "$@"',
+            single,
+        )
+        self.assertIn('dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol pair run "$@"', pair)
+
+    def test_pair_calibration_dry_run_routes_to_package_calibrate_command(self):
+        script = (ROOT / "run_dmd_pair_calibr_square.sh").read_text(encoding="utf-8")
+
+        self.assertIn("Paired calibration dry-run timing", script)
+        self.assertIn(
+            'dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol pair calibrate "$@"',
+            script,
+        )
 
     def test_xinit_pair_uses_configured_target_hz_when_hz_omitted(self):
         script = (ROOT / "xinitrc_dmd_pair.sh").read_text(encoding="utf-8")

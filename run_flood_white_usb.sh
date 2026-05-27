@@ -8,6 +8,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3}"
+source "$SCRIPT_DIR/dmd_shell_common.sh"
 
-exec "$PYTHON_BIN" "$SCRIPT_DIR/flood_white_usb.py" "$@"
+dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol flood run "$@"

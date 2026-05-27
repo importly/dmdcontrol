@@ -2,4 +2,6 @@
 set -e
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-exec /usr/bin/python3 "$SCRIPT_DIR/dmd_usb.py" discover "$@"
+source "$SCRIPT_DIR/dmd_shell_common.sh"
+
+dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol usb discover "$@"
