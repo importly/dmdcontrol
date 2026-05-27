@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import argparse
-
-from . import config, flood, pair, preview, single, usb
+from importlib import import_module
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -41,19 +40,27 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int | None:
     args, passthrough = _build_parser().parse_known_args(argv)
     if args.area == "single" and args.command == "run":
+        single = import_module("dmdcontrol.cli.single")
         return single.run(passthrough)
     if args.area == "pair" and args.command == "run":
+        pair = import_module("dmdcontrol.cli.pair")
         return pair.run(passthrough)
     if args.area == "pair" and args.command == "calibrate":
+        pair = import_module("dmdcontrol.cli.pair")
         return pair.calibrate(passthrough)
     if args.area == "preview" and args.command == "serve":
+        preview = import_module("dmdcontrol.cli.preview")
         return preview.serve(passthrough)
     if args.area == "usb" and args.command == "discover":
+        usb = import_module("dmdcontrol.cli.usb")
         return usb.discover(passthrough)
     if args.area == "usb" and args.command == "wake":
+        usb = import_module("dmdcontrol.cli.usb")
         return usb.wake(passthrough)
     if args.area == "flood" and args.command == "run":
+        flood = import_module("dmdcontrol.cli.flood")
         return flood.run(passthrough)
     if args.area == "config" and args.command == "show":
+        config = import_module("dmdcontrol.cli.config")
         return config.show(passthrough)
     raise SystemExit(f"Unsupported command: {args.area} {args.command}")

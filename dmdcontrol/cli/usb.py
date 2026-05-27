@@ -1,12 +1,23 @@
 from __future__ import annotations
 
-from dmdcontrol.hardware import usb as dmd_usb
-from dmdcontrol.hardware import wake as wake_dp
+from types import ModuleType
+
+
+def _usb_module() -> ModuleType:
+    from dmdcontrol.hardware import usb
+
+    return usb
+
+
+def _wake_module() -> ModuleType:
+    from dmdcontrol.hardware import wake
+
+    return wake
 
 
 def discover(argv: list[str]) -> int | None:
-    return dmd_usb.main(argv)
+    return _usb_module().main(argv)
 
 
 def wake(argv: list[str]) -> int | None:
-    return wake_dp.main(argv)
+    return _wake_module().main(argv)

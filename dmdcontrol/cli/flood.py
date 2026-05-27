@@ -1,7 +1,13 @@
 from __future__ import annotations
 
-from dmdcontrol.hardware import flood
+from types import ModuleType
+
+
+def _flood_module() -> ModuleType:
+    from dmdcontrol.hardware import flood
+
+    return flood
 
 
 def run(argv: list[str]) -> int | None:
-    return flood.main(argv)
+    return _flood_module().main(argv)

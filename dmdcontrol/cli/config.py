@@ -3,8 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict, is_dataclass
-
-import dmdcontrol.hardware.mapping as dmd_config
+from types import ModuleType
 
 
 FIELDS = (
@@ -15,6 +14,12 @@ FIELDS = (
     "glfw_monitor_index",
     "target_hz",
 )
+
+
+def _mapping_module() -> ModuleType:
+    from dmdcontrol.hardware import mapping
+
+    return mapping
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -33,7 +38,7 @@ def _mapping_dict(mapping) -> dict:
 
 def show(argv: list[str]) -> int:
     args = _build_parser().parse_args(argv)
-    mapping = dmd_config.resolve_dmd_mapping(args.dmd, args.config)
+    mapping = _mapping_module().resolve_dmd_mapping(args.dmd, args.config)
     values = _mapping_dict(mapping)
     if args.field:
         value = values[args.field]

@@ -102,17 +102,17 @@ class PatternEngine:
         Future-proof wrapper that packs up to 8 independent binary masks into a pure grayscale frame.
         Because R=G=B, this perfectly bypasses Linux YCbCr chroma subsampling and dithering natively.
         The 8 bitplanes are duplicated across Green, Red, and Blue channels for a total of 24 planes.
-        
+
         Args:
             binary_images: List of up to 8 binary numpy arrays (0 or 1)
         """
         if len(binary_images) > 8:
             logger.warning("[WARNING] pack_patterns_safe_8bit received more than 8 patterns. Only the first 8 will be used.")
-            
+
         gray = np.zeros((self.height, self.width), dtype=np.uint8)
         for i in range(min(8, len(binary_images))):
             gray |= binary_images[i] << i
-            
+
         # Duplicate the gray channel into R, G, and B
         return np.ascontiguousarray(np.stack([gray, gray, gray], axis=-1))
 
@@ -225,41 +225,41 @@ class PatternEngine:
         if not hasattr(self, 'snake_pos'):
             self.snake_pos = [(grid_w//2, grid_h//2), (grid_w//2 - 1, grid_h//2), (grid_w//2 - 2, grid_h//2), (grid_w//2 - 3, grid_h//2)]
             self.snake_dir = (1, 0)
-        
+
         # Move snake
         head_x, head_y = self.snake_pos[0]
         dx, dy = self.snake_dir
-        
+
         # Randomly change direction, but don't reverse
         if random.random() < 0.2:
             possible_dirs = [(1,0), (-1,0), (0,1), (0,-1)]
             possible_dirs = [(nx, ny) for nx, ny in possible_dirs if (nx, ny) != (-dx, -dy)]
             self.snake_dir = random.choice(possible_dirs)
             dx, dy = self.snake_dir
-            
+
         new_head = (head_x + dx, head_y + dy)
         new_head = (new_head[0] % grid_w, new_head[1] % grid_h)
-        
+
         self.snake_pos.insert(0, new_head)
         self.snake_pos.pop() # remove tail
-        
+
         # Draw grid
         grid = np.zeros((grid_h, grid_w), dtype=np.uint8)
         for x, y in self.snake_pos:
             grid[y, x] = 255
-            
+
         # Fast nearest neighbor scaling
         block_w = self.width // grid_w
         block_h = self.height // grid_h
         frame_2d = np.repeat(np.repeat(grid, block_h, axis=0), block_w, axis=1)
-        
+
         # Pad if there are remainder pixels
         if frame_2d.shape != (self.height, self.width):
             padded = np.zeros((self.height, self.width), dtype=np.uint8)
             h, w = frame_2d.shape
             padded[:min(h, self.height), :min(w, self.width)] = frame_2d[:min(h, self.height), :min(w, self.width)]
             frame_2d = padded
-            
+
         # Return directly packed RGB frame (pure Grayscale for chroma bypass)
         return np.ascontiguousarray(np.stack([frame_2d, frame_2d, frame_2d], axis=-1))
 
@@ -269,40 +269,40 @@ class PatternEngine:
         """
         import time
         from datetime import datetime
-        
+
         # We need cv2 to render the text
         import cv2
-        
+
         canvas = np.zeros((self.height, self.width), dtype=np.uint8)
-        
+
         # Format: HH:MM:SS.usec
         time_str = datetime.now().strftime("%H:%M:%S.%f")
-        
+
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 5
         thickness = 15
         color = 255
-        
+
         # Roughly center the text
         text_size = cv2.getTextSize(time_str, font, font_scale, thickness)[0]
         text_x = (self.width - text_size[0]) // 2
         text_y = (self.height + text_size[1]) // 2
-        
+
         cv2.putText(canvas, time_str, (text_x, text_y), font, font_scale, color, thickness, cv2.LINE_AA)
-        
+
         # flip the image Y axis
         # canvas = np.flip(canvas, axis=0)
 
         # flip the image X axis
         canvas = np.flip(canvas, axis=1)
-        
+
         return np.ascontiguousarray(np.stack([canvas, canvas, canvas], axis=-1))
 
     def generate_gradient(self):
         patterns = []
         x = np.indices((self.height, self.width))[1]
-        
-        # Build 24 bitplanes. To bypass YCbCr chroma subsampling on Linux, 
+
+        # Build 24 bitplanes. To bypass YCbCr chroma subsampling on Linux,
         # we must ensure the packed RGB buffer is purely grayscale (R=G=B).
         # We do this by grouping the 24 bitplanes into 8 spatial bands.
         # Bit 0 of G, R, B all turn on at band 0. Bit 1 at band 1, etc.

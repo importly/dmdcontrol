@@ -20,36 +20,83 @@ DLPC900 1080p Video Pattern Mode runtime. Drives a TI DLP6500 / DLP9000 evaluati
 
 `xinitrc_dmd.sh` detects when xrandr cannot switch to the custom mode by name (expected on NVIDIA proprietary) and validates the active MetaMode via `nvidia-settings -q CurrentMetaMode` instead. It only aborts if neither path applied the target mode.
 
-## Run
+## Command model
 
-Production (Linux + Xorg + DLPC900 attached):
+On the Linux DMD box, the shell launchers are the production orchestration entrypoints. They handle DisplayPort wakeup, `xinit`, sudo/env pass-through, NVIDIA/X11 mode validation, and calibration terminal input wiring before handing off to the Python package.
 
 ```bash
 ./run_dmd.sh [flags]
+./run_dmd_pair.sh [flags]
+./run_dmd_pair_calibr_square.sh [flags]
 ```
 
-Wraps `wake_dp.py` -> `xinit xinitrc_dmd.sh` -> `python main.py`. Requires root for `xinit`.
-
-Direct (skip the X11 wrapper, useful for debugging on dev host):
+The package CLI is the direct command surface for dry-run/dev/runtime intent. Use it on a dev host for commands that do not need X11/USB, or inside an already prepared X session when driving hardware directly:
 
 ```bash
-python main.py [flags]
+python -m dmdcontrol single run --dry-run-timing --test kernel --kernel-exposure-us 3000
+python -m dmdcontrol pair run --dry-run-timing --mode snake
+python -m dmdcontrol preview serve --host 127.0.0.1 --port 8080
+python -m dmdcontrol usb discover
+python -m dmdcontrol usb wake
+python -m dmdcontrol flood run --yes --white
+python -m dmdcontrol config show --dmd A
 ```
 
-Dual-DMD USB discovery:
+Compatibility shims such as `main.py`, `main_pair.py`, `dmd_preview_server.py`, `wake_dp.py`, and the USB/debug helper scripts remain useful for older workflows, but new automation should prefer `python -m dmdcontrol` or the shell launcher that wraps it.
+
+## Essential Linux DMD workflows
+
+Paired kernel-on-A with static dot-on-B:
 
 ```bash
-./discover_dmd_usb.sh
+./run_dmd_pair.sh --test a-kernel-b-static --test-b dot --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --kernel-px 201 --runtime-seconds 999
 ```
+
+Equivalent package CLI, for use only inside a prepared X session:
+
+```bash
+python -m dmdcontrol pair run --mode a-kernel-b-static --b-test dot --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --kernel-px 201 --runtime-seconds 999
+```
+
+Paired calibration square on A with static dot-on-B and live preview:
+
+```bash
+./run_dmd_pair_calibr_square.sh --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
+```
+
+Equivalent package CLI, for use only inside a prepared X session:
+
+```bash
+python -m dmdcontrol pair calibrate --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
+```
+
+Run the preview server separately before using a `--preview-url`:
+
+```bash
+python -m dmdcontrol preview serve --host 0.0.0.0 --port 8080
+# open http://127.0.0.1:8080/
+```
+
+Linux DMD verification checklist:
+
+- `python -m dmdcontrol usb discover` sees both DLPC900 boards.
+- `python -m dmdcontrol config show --dmd A` and `--dmd B` resolve the expected USB and DisplayPort mappings.
+- `python -m dmdcontrol preview serve --host 0.0.0.0 --port 8080` serves `http://127.0.0.1:8080/`.
+- The paired kernel shell command above starts both DMDs, shows B's dot, and runs A's kernel sequence.
+- The paired calibration shell command above keeps B's dot static, shows the interactive A square, and updates `http://127.0.0.1:8080/api/live-frame`.
+
+## Dual-DMD mapping
 
 Explicit dual-DMD runs use `dmd_devices.json`:
 
 ```bash
 ./run_dmd.sh --dmd A [flags]
 ./run_dmd.sh --dmd B [flags]
+python -m dmdcontrol config show --dmd A
+python -m dmdcontrol config show --dmd B
 ```
 
-`--dmd` selects the configured udev `ID_PATH` and expected `DEVPATH` fragment before USB is opened. The X11 wrapper also requires that DMD's configured `xrandr_output` to be connected; leave it blank only when you want explicit dual-DMD launches to fail closed until the DisplayPort mapping is filled in.
+`--dmd` selects the configured udev `ID_PATH` and expected `DEVPATH` fragment before USB is opened. The X11 wrapper also requires that DMD's configured `xrandr_output` be connected; leave it blank only when you want explicit dual-DMD launches to fail closed until the DisplayPort mapping is filled in.
 
 Current validated dual-DMD mapping:
 
@@ -65,17 +112,17 @@ This mapping is by labeled USB and DisplayPort ports, not by board serial number
 Paired mode is intentionally separate from the single-DMD flow:
 
 ```bash
-python main_pair.py --dry-run-timing --test snake
+python -m dmdcontrol pair run --dry-run-timing --mode snake
 ./run_dmd_pair.sh --test coarse-grid --runtime-seconds 300
 ./run_dmd_pair.sh --test coarse-lines --runtime-seconds 300
 ./run_dmd_pair.sh --test checkerboard --test-a checkerboard --test-b lines
 ./run_dmd_pair.sh --test gradient --runtime-seconds 300
 ./run_dmd_pair.sh --test a-kernel-b-static --test-b lines --kernel-px 900 --kernel-exposure-us 14000 --runtime-seconds 999
-./run_dmd_pair.sh --test a-kernel-b-static --test-b dot --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --kernel-px 900 --kernel-exposure-us 3000 --runtime-seconds 999
-./run_dmd_pair_calibr_square.sh --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 5
+./run_dmd_pair.sh --test a-kernel-b-static --test-b dot --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --kernel-px 201 --runtime-seconds 999
+./run_dmd_pair_calibr_square.sh --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
 ```
 
-`run_dmd_pair.sh` wakes both mapped controllers, starts `xinitrc_dmd_pair.sh`, and launches `main_pair.py`. The paired X layout is one X screen at `3840x1080`: B/`DP-0` is the left half at `+0+0`, and A/`DP-2` is the right half at `+1920+0`. `main_pair.py` opens one undecorated GLFW window at `(0, 0)`, renders B into `x=0..1919`, renders A into `x=1920..3839`, and performs one buffer swap per paired frame.
+`run_dmd_pair.sh` wakes both mapped controllers, starts `xinitrc_dmd_pair.sh`, and launches `python -m dmdcontrol pair run`. The paired X layout is one X screen at `3840x1080`: B/`DP-0` is the left half at `+0+0`, and A/`DP-2` is the right half at `+1920+0`. The runtime opens one undecorated GLFW window at `(0, 0)`, renders B into `x=0..1919`, renders A into `x=1920..3839`, and performs one buffer swap per paired frame.
 
 For visual inspection through the tiny optical images, use `coarse-grid` or `coarse-lines`. They draw thick geometry and large A/B block markers without adding an artificial outer border to the 1920x1080 DMD image. `lines` and `colors` remain technical bitplane diagnostics; `lines` is one-pixel/fine-textured and `colors` maps RGB channels to DLPC900 bitplanes, so either can look blank through the optics.
 
@@ -84,12 +131,12 @@ For visual inspection through the tiny optical images, use `coarse-grid` or `coa
 Preview packed frames and individual DLPC900 bitplanes in a browser:
 
 ```bash
-python dmd_preview_server.py --host 0.0.0.0 --port 8080
+python -m dmdcontrol preview serve --host 0.0.0.0 --port 8080
 # open http://127.0.0.1:8080/
 ./run_dmd_pair.sh --test coarse-grid --runtime-seconds 300 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
 ```
 
-The preview server is offline by default and does not open GLFW, OpenGL, USB, or DMD hardware. `--preview-url` is opt-in live mirroring from `main_pair.py`. Live posts include the configured DLPC900 LUT order and timing, so the browser can show which packed bitplanes are being displayed during each VSYNC. The order is `G0..G7`, then `R0..R7`, then `B0..B7`.
+The preview server is offline by default and does not open GLFW, OpenGL, USB, or DMD hardware. `--preview-url` is opt-in live mirroring from the paired runtime. Live posts include the configured DLPC900 LUT order and timing, so the browser can show which packed bitplanes are being displayed during each VSYNC. The order is `G0..G7`, then `R0..R7`, then `B0..B7`.
 
 Dynamic paired `snake` is rendered as grayscale on both routes for bitplane inspection. If a snake segment is present, it should be visible in the corresponding G/R/B bitplanes according to its intensity bits, not only on one color channel for one DMD.
 
@@ -114,7 +161,7 @@ Both DLPC900 controllers are prepared and have matching LUTs loaded before the f
 ./run_dmd.sh --test kernel --kernel-px 900 --runtime-seconds 60
 
 # Plan kernel timing and DAQ trigger mapping without opening hardware
-python main.py --dry-run-timing --test kernel --kernel-exposure-us 3000
+python -m dmdcontrol single run --dry-run-timing --test kernel --kernel-exposure-us 3000
 ```
 
 ## Flags
@@ -128,7 +175,7 @@ python main.py --dry-run-timing --test kernel --kernel-exposure-us 3000
 | `--test` | `checkerboard`, `ordering`, `numbered`, `single-pixel`, `2x2`, `lines`, `colors`, `coarse-grid`, `grid`, `coarse-lines`, `bands`, `numbers`, `calibr-square`, `snake`, `clock`, `gradient`, `kernel` | `checkerboard` | Diagnostic pattern. See table below. |
 | `--trigger` | flag | off | Software trigger mode. Renders black until you press space; one press shows the pattern frame. ESC exits. |
 | `--runtime-seconds` | int | `60` | Total wall-clock runtime for the render loop. |
-| `--wake-dp` | flag | off | Send the DP-receiver wakeup packet from inside `main.py` (in addition to `wake_dp.py`). |
+| `--wake-dp` | flag | off | Send the DP-receiver wakeup packet from inside the runtime, in addition to the shell launcher wake step. |
 | `--dual-pixel` | flag | off | Force dual-pixel P1-P2 parallel input mode. Default is single-pixel P1. |
 | `--seq-utilization` | float in `(0, 1]` | `0.90` | Fraction of the safe per-frame budget used by the LUT. Lower = more idle headroom = more robust against forced-swap aborts. |
 | `--trig2-frame-zero` | flag | off | Emit `TRIG_OUT_2` only on bitplane 0 (one pulse per frame). Default emits per bitplane. |
@@ -180,27 +227,10 @@ Kernel mode prepends `--kernel-leader-frames` all-black VSYNC frames to every cy
 ## Standalone tools
 
 ```bash
-python wake_dp.py                      # send DP-receiver wakeup only
+python -m dmdcontrol usb wake          # send DP-receiver wakeup only
+python -m dmdcontrol usb discover      # list DLPC900 USB devices and mappings
+python -m dmdcontrol flood run --yes   # USB-only internal test-pattern flood
 python debug_scripts/usb_sanity.py     # USB connectivity smoke test
-```
-
-## Layout
-
-```
-main.py             CLI parsing + orchestration
-config.py           Shared timing constants (BITPLANES, SAFE_MARGIN_US, ...)
-dlpc_lifecycle.py   Configure mode 2, build LUT, arm sequencer, verify state
-runtime_loop.py     Render loop + watchdog + auto-recover
-pattern_modes.py    Registry of --test names -> pattern builders
-pattern_engine.py   GLFW + OpenGL renderer, frame packing, dynamic frames
-dlpc900_hid.py      DLPC900 USB HID driver (current)
-logger.py           Centralized logger
-wake_dp.py          DisplayPort-receiver wakeup helper
-run_dmd.sh          Top-level launcher
-xinitrc_dmd.sh      X session wrapper (xrandr modeset + python launch)
-debug_scripts/      usb_sanity, debug_numbered_regions
-context/            Notes (DP/X11 quirks, optical diffraction, sync)
-documentation/      DLPC900 / DLPT028 / DLPU018J PDFs + extracted text
 ```
 
 ## Trigger output behavior
@@ -223,17 +253,22 @@ The runtime watchdog logs `hw=0x61` continuously when bit 0 (init_ok), bit 5 (re
 ## Layout
 
 ```
-main.py             CLI parsing + orchestration
-config.py           Shared timing constants (BITPLANES, SAFE_MARGIN_US, ...)
-dlpc_lifecycle.py   Configure mode 2, build LUT, arm sequencer, verify state
-runtime_loop.py     Render loop + watchdog + auto-recover
-pattern_modes.py    Registry of --test names -> pattern builders
-pattern_engine.py   GLFW + OpenGL renderer, frame packing, dynamic frames
-dlpc900_hid.py      DLPC900 USB HID driver (current)
-logger.py           Centralized logger
-wake_dp.py          DisplayPort-receiver wakeup helper
-run_dmd.sh          Top-level launcher
+dmdcontrol/         Package CLI, runtime, hardware, preview, and pattern modules
+main.py             Compatibility shim for single-DMD runtime
+main_pair.py        Compatibility shim for paired runtime
+config.py           Compatibility shim for shared timing constants
+dlpc_lifecycle.py   Compatibility shim for lifecycle helpers
+runtime_loop.py     Compatibility shim for runtime loop
+pattern_modes.py    Compatibility shim for pattern registry
+pattern_engine.py   Compatibility shim for renderer/frame packing
+dlpc900_hid.py      Compatibility shim for DLPC900 USB HID driver
+logger.py           Compatibility shim for centralized logging
+wake_dp.py          Compatibility shim for DisplayPort-receiver wakeup
+run_dmd.sh          Single-DMD Linux DMD launcher
+run_dmd_pair.sh     Paired Linux DMD launcher
+run_dmd_pair_calibr_square.sh  Paired calibration launcher with terminal input
 xinitrc_dmd.sh      X session wrapper (xrandr modeset + MetaMode validation + python launch)
+xinitrc_dmd_pair.sh Paired X session wrapper
 sync_dmd.sh         rsync local -> lab box (bash)
 sync_dmd.ps1        rsync local -> lab box (PowerShell)
 debug_scripts/      usb_sanity, debug_numbered_regions
@@ -244,5 +279,13 @@ documentation/      DLPC900 / DLPT028 / DLPU018J PDFs + extracted text
 ## Help
 
 ```bash
-python main.py --help
+python -m dmdcontrol --help
+python -m dmdcontrol single run --help
+python -m dmdcontrol pair run --help
+python -m dmdcontrol pair calibrate --help
+python -m dmdcontrol preview serve --help
+python -m dmdcontrol usb discover --help
+python -m dmdcontrol usb wake --help
+python -m dmdcontrol flood run --help
+python -m dmdcontrol config show --help
 ```
