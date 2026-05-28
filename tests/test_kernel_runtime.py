@@ -38,6 +38,18 @@ class KernelRuntimeTests(unittest.TestCase):
         self.assertEqual(entries, 4)
         self.assertEqual(exposure_us, 3000)
 
+    def test_compute_kernel_lut_override_counts_dark_time_in_slot_budget(self):
+        entries, exposure_us = compute_kernel_lut_override(
+            enabled=True,
+            kernel_exposure_us=5000,
+            target_hz=60,
+            sequence_utilization=0.9,
+            dark_time_us=5000,
+        )
+
+        self.assertEqual(entries, 1)
+        self.assertEqual(exposure_us, 5000)
+
     def test_compute_kernel_lut_override_returns_none_when_disabled(self):
         self.assertEqual(
             compute_kernel_lut_override(

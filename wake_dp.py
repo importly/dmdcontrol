@@ -7,7 +7,6 @@ import sys
 from dmdcontrol.hardware import wake as _wake
 from dmdcontrol.hardware.wake import main
 
-
 if __name__ == "__main__":
     raise SystemExit(main())
 

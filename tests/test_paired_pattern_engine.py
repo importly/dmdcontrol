@@ -2,13 +2,12 @@ import unittest
 
 import numpy as np
 
-from visual_patterns import DEFAULT_COARSE_GRID_SPACING, generate_coarse_grid_rgb
-
 from paired_pattern_engine import (
     CalibrationSquareDotPairFrameProvider,
     DynamicAStaticBPairFrameProvider,
     DynamicGradientPairFrameProvider,
     DynamicSnakePairFrameProvider,
+    NumberSequencePairFrameProvider,
     PAIR_TESTS,
     STATIC_PAIR_TESTS,
     StaticPairFrameProvider,
@@ -16,6 +15,21 @@ from paired_pattern_engine import (
     generate_dot_frame,
     generate_static_frame,
 )
+from pattern_modes import generate_number_rgb
+from visual_patterns import DEFAULT_COARSE_GRID_SPACING, generate_coarse_grid_rgb
+
+
+def _extract_packed_bitplane(frame, plane):
+    if plane < 8:
+        channel = 1
+        bit = plane
+    elif plane < 16:
+        channel = 0
+        bit = plane - 8
+    else:
+        channel = 2
+        bit = plane - 16
+    return ((frame[:, :, channel] >> bit) & 1).astype(np.uint8) * 255
 
 
 class PairedPatternEngineTests(unittest.TestCase):
@@ -74,6 +88,51 @@ class PairedPatternEngineTests(unittest.TestCase):
             self.assertGreater(np.count_nonzero(frame[:, :, 2]), 0)
             np.testing.assert_array_equal(frame[:, :, 0], frame[:, :, 1])
             np.testing.assert_array_equal(frame[:, :, 1], frame[:, :, 2])
+
+    def test_number_sequence_provider_packs_requested_digits_into_bitplanes(self):
+        provider = NumberSequencePairFrameProvider(
+            numbers=(1, 2, 3),
+            width=120,
+            height=160,
+            size_px=80,
+        )
+
+        frame_a, frame_b = provider.initial_pair()
+
+        np.testing.assert_array_equal(frame_a, frame_b)
+        np.testing.assert_array_equal(
+            _extract_packed_bitplane(frame_a, 0),
+            generate_number_rgb(1, width=120, height=160, size_px=80)[:, :, 0],
+        )
+        np.testing.assert_array_equal(
+            _extract_packed_bitplane(frame_a, 1),
+            generate_number_rgb(2, width=120, height=160, size_px=80)[:, :, 0],
+        )
+        np.testing.assert_array_equal(
+            _extract_packed_bitplane(frame_a, 2),
+            generate_number_rgb(3, width=120, height=160, size_px=80)[:, :, 0],
+        )
+        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame_a, 3))), 0)
+
+    def test_a_numbers_b_static_provider_applies_requested_b_dot_geometry(self):
+        from dmdcontrol.patterns.paired import A_NUMBERS_B_STATIC_PAIR_TEST, make_pair_frame_provider
+
+        provider = make_pair_frame_provider(
+            A_NUMBERS_B_STATIC_PAIR_TEST,
+            test_b="dot",
+            numbers=(1,),
+            width=9,
+            height=9,
+            numbers_size_px=5,
+            b_dot_x=2,
+            b_dot_y=6,
+            b_dot_radius=1,
+        )
+
+        _frame_a, frame_b = provider.initial_pair()
+
+        self.assertEqual(frame_b[6, 2, 0], 255)
+        self.assertEqual(frame_b[4, 4, 0], 0)
 
     def test_only_colors_pair_mode_uses_route_specific_rgb_channels(self):
         for mode in STATIC_PAIR_TESTS:

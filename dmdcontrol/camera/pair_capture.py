@@ -1,0 +1,483 @@
+from __future__ import annotations
+
+import argparse
+import sys
+from dataclasses import asdict, is_dataclass
+from importlib import import_module
+
+import numpy as np
+
+from dmdcontrol.camera.capture import (
+    AsyncCapture,
+    flush_stale_batches,
+    record_until_trigger_count,
+    validate_camera_ready,
+)
+from dmdcontrol.camera.discovery import (
+    configure_camera_performance,
+    configure_rising_edge_triggers,
+    import_dv_processing,
+)
+from dmdcontrol.camera.local_support_filter import (
+    add_event_noise_filter_arguments,
+    event_noise_filter_config_from_args,
+    event_noise_filter_metadata,
+)
+from dmdcontrol.camera.runs import (
+    create_run_directory,
+    write_capture_artifacts,
+    write_json,
+    write_run_metadata,
+)
+
+
+def positive_int(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be positive") from exc
+    if number <= 0:
+        raise argparse.ArgumentTypeError("value must be positive")
+    return number
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m dmdcontrol camera pair-capture",
+        description="Capture paired camera data while running DMD pair patterns.",
+    )
+    parser.add_argument("--dry-run-timing", action="store_true")
+    parser.add_argument("--output-root", default=None)
+    parser.add_argument("--timestamp", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--test", default="a-kernel-b-static")
+    parser.add_argument("--test-b", default="dot")
+    parser.add_argument("--b-dot-x", type=int, default=960)
+    parser.add_argument("--b-dot-y", type=int, default=540)
+    parser.add_argument("--b-dot-radius", type=positive_int, default=40)
+    parser.add_argument("--kernel-px", type=positive_int, default=129)
+    parser.add_argument("--kernel-exposure-us", type=positive_int, default=None)
+    parser.add_argument("--runtime-seconds", type=positive_int, default=999)
+    parser.add_argument("--trigger-out-2-delay-fraction", type=float, default=0.03)
+    parser.add_argument("--dmd-config", default=None)
+    parser.add_argument("--hz", type=positive_int, default=None)
+    parser.add_argument("--bias-sensitivity", default="default", choices=["default", "verylow", "low", "high", "veryhigh"])
+    parser.add_argument("--efps", default="default", choices=["default", "variable", "variable_5000", "constant_1000", "constant_100"])
+    parser.add_argument("--polarity-mode", default="positive", choices=["positive", "signed", "ignore"])
+    parser.add_argument("--dark-time-us", type=int, default=None)
+    parser.add_argument(
+        "--max-accumulation-triggers",
+        type=positive_int,
+        default=512,
+        help="Maximum rising triggers used for derived accumulation artifacts. Raw AEDAT recording is unchanged.",
+    )
+    add_event_noise_filter_arguments(parser)
+    parser.add_argument("-v", "--verbose", action="count", default=0)
+    return parser
+
+
+def expected_shape(args: argparse.Namespace) -> dict[str, int | None]:
+    return {
+        "kernel_count": 512 if args.test == "a-kernel-b-static" else None,
+        "input_image_count": None,
+    }
+
+
+def requested_command_shape(args: argparse.Namespace) -> list[str]:
+    shape = [
+        "--test",
+        args.test,
+        "--test-b",
+        args.test_b,
+        "--b-dot-x",
+        str(args.b_dot_x),
+        "--b-dot-y",
+        str(args.b_dot_y),
+        "--b-dot-radius",
+        str(args.b_dot_radius),
+        "--kernel-px",
+        str(args.kernel_px),
+    ]
+    if args.kernel_exposure_us is not None:
+        shape.extend(["--kernel-exposure-us", str(args.kernel_exposure_us)])
+    shape.extend(["--runtime-seconds", str(args.runtime_seconds)])
+    return shape
+
+
+def dmd_config(args: argparse.Namespace) -> dict[str, int | str | None]:
+    return {
+        "test": args.test,
+        "test_b": args.test_b,
+        "b_dot_x": args.b_dot_x,
+        "b_dot_y": args.b_dot_y,
+        "b_dot_radius": args.b_dot_radius,
+        "kernel_px": args.kernel_px,
+        "kernel_exposure_us": args.kernel_exposure_us,
+        "runtime_seconds": args.runtime_seconds,
+        "dmd_config": args.dmd_config,
+        "hz": args.hz,
+    }
+
+
+def trigger_policy(args: argparse.Namespace) -> dict[str, str | float]:
+    return {
+        "channel": "TRIG_OUT_2",
+        "edge": "rising",
+        "delay_fraction": args.trigger_out_2_delay_fraction,
+    }
+
+
+def dry_run(args: argparse.Namespace):
+    run = create_run_directory("pair-capture", args.output_root, timestamp=args.timestamp)
+    policy = trigger_policy(args)
+    event_filter = event_noise_filter_config_from_args(args)
+    metadata = {
+        "mode": "pair-capture",
+        "dry_run": True,
+        "command": sys.argv,
+        "dmd": dmd_config(args),
+        "requested_command_shape": requested_command_shape(args),
+        "expected_shape": expected_shape(args),
+        "trigger_policy": policy,
+        "bias_sensitivity": args.bias_sensitivity,
+        "efps": args.efps,
+        "polarity_mode": args.polarity_mode,
+        "dark_time_us": args.dark_time_us,
+        "max_accumulation_triggers": args.max_accumulation_triggers,
+        "event_noise_filter": event_noise_filter_metadata(event_filter),
+        "save_filtered_events": args.save_filtered_events,
+    }
+    write_json(run.timing_path, policy)
+    write_run_metadata(
+        run,
+        metadata,
+        artifacts=["metadata.json", "timing.json", "command.txt", "run.log"],
+    )
+    run.command_path.write_text(
+        "python -m dmdcontrol camera pair-capture --dry-run-timing\n",
+        encoding="utf-8",
+    )
+    run.log_path.write_text("dry-run\n", encoding="utf-8")
+    return run
+
+
+def _asdict(value):
+    if is_dataclass(value):
+        return asdict(value)
+    return dict(getattr(value, "__dict__", {}))
+
+
+def _open_ready_camera(run, args):
+    dv = import_dv_processing()
+    capture = dv.io.camera.open()
+    try:
+        configure_camera_performance(capture, bias_sensitivity=args.bias_sensitivity, efps=args.efps)
+        configure_rising_edge_triggers(capture)
+        ready = validate_camera_ready(capture)
+        flush_stale_batches(capture)
+        writer = dv.io.MonoCameraWriter(str(run.raw_recording_path), capture)
+    except Exception:
+        del capture
+        raise
+    return capture, writer, ready
+
+
+def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
+    pair_args = [
+        "--test",
+        args.test,
+        "--test-b",
+        args.test_b,
+        "--b-dot-x",
+        str(args.b_dot_x),
+        "--b-dot-y",
+        str(args.b_dot_y),
+        "--b-dot-radius",
+        str(args.b_dot_radius),
+        "--kernel-px",
+        str(args.kernel_px),
+        "--runtime-seconds",
+        str(args.runtime_seconds),
+        "--trigger-out-2-delay-fraction",
+        str(args.trigger_out_2_delay_fraction),
+    ]
+    if args.kernel_exposure_us is not None:
+        pair_args.extend(["--kernel-exposure-us", str(args.kernel_exposure_us)])
+    if getattr(args, "dark_time_us", None) is not None:
+        pair_args.extend(["--dark-time-us", str(args.dark_time_us)])
+    if args.dmd_config is not None:
+        pair_args.extend(["--dmd-config", args.dmd_config])
+    if args.hz is not None:
+        pair_args.extend(["--hz", str(args.hz)])
+    for _ in range(args.verbose or 0):
+        pair_args.append("-v")
+    return pair_args
+
+
+def _expected_trigger_count(args: argparse.Namespace) -> int | None:
+    return None
+
+
+def _accumulation_window_us(args: argparse.Namespace) -> int:
+    if args.kernel_exposure_us is not None:
+        return args.kernel_exposure_us
+    return 0
+
+
+class _BoundedArtifactBuffer:
+    def __init__(self, max_rising_triggers: int | None, window_us: int):
+        self.max_rising_triggers = max_rising_triggers
+        self.window_us = max(0, int(window_us))
+        self.events = []
+        self.triggers = []
+        self.raw_rising_triggers = 0
+        self.cutoff_us = None
+        self.truncated = False
+
+    def append_events(self, batch) -> None:
+        records = _event_records_from_batch(batch)
+        if _record_count(records) == 0:
+            return
+        filtered = self._filter_events(records)
+        if _record_count(filtered) == 0:
+            return
+        if isinstance(filtered, np.ndarray):
+            self.events.append(filtered)
+        else:
+            self.events.extend(filtered)
+
+    def append_triggers(self, batch) -> None:
+        if batch is None:
+            return
+        for trigger in list(batch):
+            is_rising = _trigger_edge(trigger) == "rising"
+            if is_rising:
+                self.raw_rising_triggers += 1
+            if self.max_rising_triggers is not None and self.raw_rising_triggers > self.max_rising_triggers:
+                self.truncated = True
+                continue
+            self.triggers.append(trigger)
+            if (
+                    is_rising
+                    and self.max_rising_triggers is not None
+                    and self.raw_rising_triggers == self.max_rising_triggers
+            ):
+                self.cutoff_us = _record_timestamp(trigger) + self.window_us
+                self._prune_events_to_cutoff()
+
+    def to_metadata(self) -> dict:
+        return {
+            "max_accumulation_triggers": self.max_rising_triggers,
+            "retained_trigger_records": len(self.triggers),
+            "raw_rising_triggers_seen": self.raw_rising_triggers,
+            "artifact_capture_truncated": self.truncated,
+            "event_cutoff_us": self.cutoff_us,
+        }
+
+    def _filter_events(self, records):
+        if self.cutoff_us is None:
+            return records
+        return _filter_events_before(records, self.cutoff_us)
+
+    def _prune_events_to_cutoff(self) -> None:
+        if self.cutoff_us is None:
+            return
+        pruned = []
+        for records in self.events:
+            if isinstance(records, np.ndarray):
+                filtered = _filter_events_before(records, self.cutoff_us)
+                if _record_count(filtered) != 0:
+                    pruned.append(filtered)
+            elif _record_timestamp(records) < self.cutoff_us:
+                pruned.append(records)
+        self.events = pruned
+
+
+def _event_records_from_batch(batch):
+    if batch is None:
+        return []
+    if hasattr(batch, "numpy"):
+        return batch.numpy()
+    if isinstance(batch, np.ndarray):
+        return batch
+    try:
+        return list(batch)
+    except TypeError:
+        return [batch]
+
+
+def _filter_events_before(records, cutoff_us):
+    if isinstance(records, np.ndarray):
+        timestamp_field = _timestamp_field_name(records)
+        return records[records[timestamp_field] < cutoff_us]
+    return [record for record in records if _record_timestamp(record) < cutoff_us]
+
+
+def _timestamp_field_name(records):
+    field_names = records.dtype.names or ()
+    if "timestamp" in field_names:
+        return "timestamp"
+    if "t" in field_names:
+        return "t"
+    raise ValueError("event array missing timestamp field")
+
+
+def _record_count(records) -> int:
+    try:
+        return len(records)
+    except TypeError:
+        return 0
+
+
+def _trigger_edge(record) -> str:
+    return str(_record_field(record, "edge", default="rising")).lower()
+
+
+def _record_timestamp(record) -> int:
+    return int(_record_field(record, "timestamp"))
+
+
+def _record_field(record, name, default=None):
+    if hasattr(record, name):
+        value = getattr(record, name)
+        return value() if callable(value) else value
+    if isinstance(record, dict):
+        return record.get(name, default)
+    if isinstance(record, np.void) and record.dtype.names and name in record.dtype.names:
+        return record[name]
+    if default is not None:
+        return default
+    raise AttributeError(f"{record!r} has no {name!r} field")
+
+
+def _run_pair_with_callback(pair_args, before_start):
+    pair_module = import_module("dmdcontrol.runtime.pair")
+    return pair_module.run_with_before_start_callback(pair_args, before_start)
+
+
+def live(args: argparse.Namespace) -> int:
+    run = create_run_directory("pair-capture", args.output_root, timestamp=args.timestamp)
+    event_filter = event_noise_filter_config_from_args(args)
+    capture = None
+    writer = None
+    recording = None
+    capture_result = None
+    artifact_summary = None
+    artifact_buffer = _BoundedArtifactBuffer(
+        max_rising_triggers=args.max_accumulation_triggers,
+        window_us=_accumulation_window_us(args),
+    )
+    metadata = {
+        "mode": "pair-capture",
+        "dry_run": False,
+        "command": sys.argv,
+        "dmd": dmd_config(args),
+        "requested_command_shape": requested_command_shape(args),
+        "expected_shape": expected_shape(args),
+        "trigger_policy": trigger_policy(args),
+        "bias_sensitivity": args.bias_sensitivity,
+        "efps": args.efps,
+        "polarity_mode": args.polarity_mode,
+        "dark_time_us": args.dark_time_us,
+        "max_accumulation_triggers": args.max_accumulation_triggers,
+        "event_noise_filter": event_noise_filter_metadata(event_filter),
+        "save_filtered_events": args.save_filtered_events,
+    }
+
+    try:
+        capture, writer, ready = _open_ready_camera(run, args)
+        write_json(run.timing_path, metadata["trigger_policy"])
+        run.command_path.write_text(" ".join(sys.argv) + "\n", encoding="utf-8")
+        run.log_path.write_text("live\n", encoding="utf-8")
+
+        def before_start(context):
+            nonlocal recording
+            metadata.update({
+                "camera_ready": _asdict(ready),
+                "dmd_ready": True,
+                "timing_a": context["state_a"]["timing"],
+                "timing_b": context["state_b"]["timing"],
+            })
+            if recording is None:
+                recording = AsyncCapture(
+                    capture,
+                    writer,
+                    expected_trigger_count=_expected_trigger_count(args),
+                    timeout_s=max(1, args.runtime_seconds),
+                    on_events=artifact_buffer.append_events,
+                    on_triggers=artifact_buffer.append_triggers,
+                    record_fn=record_until_trigger_count,
+                )
+                recording.start()
+            write_run_metadata(
+                run,
+                metadata,
+                artifacts=["raw.aedat4", "metadata.json"],
+            )
+
+        _run_pair_with_callback(_to_pair_runtime_args(args), before_start)
+        if recording is not None:
+            recording.stop()
+            capture_result = recording.join()
+            artifact_summary = write_capture_artifacts(
+                run,
+                events=artifact_buffer.events,
+                triggers=artifact_buffer.triggers,
+                resolution=tuple(ready.event_resolution),
+                window_us=_accumulation_window_us(args),
+                polarity_mode=args.polarity_mode,
+                event_noise_filter=event_filter,
+                save_filtered_events=args.save_filtered_events,
+                max_accumulation_triggers=args.max_accumulation_triggers,
+            )
+            metadata["artifact_capture"] = artifact_buffer.to_metadata()
+            metadata["artifact_summary"] = artifact_summary
+            if "event_noise_filter" in artifact_summary:
+                metadata["event_noise_filter"] = artifact_summary["event_noise_filter"]
+        return 0
+    finally:
+        if recording is not None and capture_result is None:
+            recording.stop()
+            try:
+                capture_result = recording.join()
+            except BaseException as exc:
+                metadata["capture_error"] = repr(exc)
+        if capture_result is not None:
+            metadata["capture"] = _asdict(capture_result)
+            artifacts = [
+                "raw.aedat4",
+                "metadata.json",
+                "command.txt",
+                "run.log",
+                "timing.json",
+            ]
+            if artifact_summary is not None:
+                artifacts.extend([
+                    "triggers.csv",
+                    "accumulated.npy",
+                    "contact_sheet.png",
+                    "summary.json",
+                ])
+                artifacts.extend(artifact_summary.get("frame_artifacts", []))
+                artifacts.extend(artifact_summary.get("filtered_frame_artifacts", []))
+                if artifact_summary.get("filtered_contact_sheet_artifact"):
+                    artifacts.append(artifact_summary["filtered_contact_sheet_artifact"])
+                if artifact_summary.get("filtered_events_artifact"):
+                    artifacts.append(artifact_summary["filtered_events_artifact"])
+            write_run_metadata(
+                run,
+                metadata,
+                artifacts=artifacts,
+            )
+        if writer is not None:
+            del writer
+        if capture is not None:
+            del capture
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.dry_run_timing:
+        dry_run(args)
+        return 0
+    return live(args)

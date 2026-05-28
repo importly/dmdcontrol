@@ -1,4 +1,5 @@
 import argparse
+import math
 import threading
 import time
 
@@ -15,6 +16,7 @@ from dmdcontrol.patterns.calibration_square import (
 )
 from dmdcontrol.runtime.lifecycle import (
     build_lut_entries,
+    compute_trigger_out_2_timing,
     configure_dlpc900_for_video_pattern,
     log_board_snapshot,
     verify_runtime_state,
@@ -55,6 +57,12 @@ def _build_parser():
     parser.add_argument("--trig2-frame-zero", action="store_true",
                         help="Emit TRIG_OUT_2 only on LUT bitplane 0 (single frame anchor). "
                              "Default mode emits TRIG_OUT_2 on every bitplane.")
+    parser.add_argument(
+        "--trigger-out-2-delay-fraction",
+        type=float,
+        default=0.03,
+        help="Fraction of LUT exposure used as TRIG_OUT_2 rising-edge delay. Default: 0.03.",
+    )
     parser.add_argument("--abort-recover-cooldown", type=float, default=8.0,
                         help="Seconds between automatic abort recovery attempts while watchdog detects sequencer abort.")
     parser.add_argument("--no-auto-recover-abort", action="store_true",
@@ -85,6 +93,9 @@ def _build_parser():
     parser.add_argument("--numbers-exposure-us", type=int, default=None,
                         help="Wall-clock display time in microseconds for each digit in --test numbers. "
                              f"Default: {DEFAULT_NUMBERS_EXPOSURE_US} us.")
+    parser.add_argument("--numbers-size-px", type=int, default=None,
+                        help="Seven-segment digit height in pixels for --test numbers. "
+                             "Default: preserve existing height-scaled rendering.")
     parser.add_argument("--calibr-square-control-file", default=None,
                         help="Calibration-square only: read single-character controls from this file. "
                              "Used by run_calibr_square.sh; normal run_dmd.sh behavior is unchanged.")
@@ -265,6 +276,16 @@ def _dry_run_timing(args):
         f"[DRY RUN] TRIG_OUT_2 mode: {timing['trig2_mode']}; expected pulses/s="
         f"{timing['effective_frame_hz'] if args.trig2_frame_zero else timing['effective_binary_rate_hz']:.1f}."
     )
+    trigger_timing = compute_trigger_out_2_timing(
+        timing["exposure_us"],
+        delay_fraction=args.trigger_out_2_delay_fraction,
+    )
+    timing["trigger_out_2"] = trigger_timing
+    logger.info(
+        f"[DRY RUN] TRIG_OUT_2 rising edge delay={trigger_timing['rising_delay_us']}us, "
+        f"falling={trigger_timing['falling_delay_us']}us "
+        f"({trigger_timing['delay_fraction']:.3f} of {trigger_timing['delay_basis']})."
+    )
     if args.test == "kernel":
         _log_kernel_timing_summary(args, timing, prefix="[DRY RUN]")
     elif args.test == "numbers":
@@ -275,6 +296,8 @@ def _dry_run_timing(args):
         logger.warning("[DRY RUN] --kernel-exposure-us is only used with --test kernel.")
     if args.test != "numbers" and args.numbers_exposure_us is not None:
         logger.warning("[DRY RUN] --numbers-exposure-us is only used with --test numbers.")
+    if args.test != "numbers" and args.numbers_size_px is not None:
+        logger.warning("[DRY RUN] --numbers-size-px is only used with --test numbers.")
 
 
 def _open_video_writer(path, target_hz):
@@ -300,11 +323,16 @@ def _select_post_arm_prime_frame(initial_frame, dynamic_kind, kernel_frames, ker
     return initial_frame
 
 
-def _build_numbers_frames(engine):
+def _build_numbers_frames(engine, size_px=None):
     return tuple(
         engine.pack_patterns(
             engine.rgb_to_binary_patterns(
-                generate_number_rgb(number, width=engine.width, height=engine.height)
+                generate_number_rgb(
+                    number,
+                    width=engine.width,
+                    height=engine.height,
+                    size_px=size_px,
+                )
             )
         )
         for number in NUMBER_SEQUENCE
@@ -312,21 +340,24 @@ def _build_numbers_frames(engine):
 
 
 def _make_frame_provider(
-    engine,
-    initial_frame,
-    dynamic_kind,
-    args=None,
-    kernel_frames=None,
-    numbers_frames=None,
-    calibration_square_state=None,
-    invert_dmd=False,
+        engine,
+        initial_frame,
+        dynamic_kind,
+        args=None,
+        kernel_frames=None,
+        numbers_frames=None,
+        calibration_square_state=None,
+        invert_dmd=False,
 ):
     """Returns callable() -> frame. Hides per-mode frame regeneration from loop."""
+
     def _wrap(provider):
         if not invert_dmd:
             return provider
+
         def _provider_inverted():
             return _maybe_invert_frame(provider(), True)
+
         return _provider_inverted
 
     if dynamic_kind == "snake":
@@ -339,8 +370,10 @@ def _make_frame_provider(
         solid_g = engine.pack_patterns(engine.rgb_to_binary_patterns(_solid_color(1)))
         solid_b = engine.pack_patterns(engine.rgb_to_binary_patterns(_solid_color(2)))
         frames = (solid_r, solid_g, solid_b)
+
         def _provider():
             return frames[int(time.time() * 2) % 3]
+
         return _wrap(_provider)
     if dynamic_kind == "numbers":
         frames = numbers_frames
@@ -359,6 +392,7 @@ def _make_frame_provider(
                 state["start"] = now
             index = number_index_for_elapsed(now - state["start"], exposure_s, len(frames))
             return frames[index]
+
         return _wrap(_provider_numbers)
     if dynamic_kind == "calibr-square":
         # Calibration square is an interactive dynamic display-frame mode. The
@@ -384,11 +418,14 @@ def _make_frame_provider(
                     state["i"] = i + 1
                     return frames[i]
                 return black
+
             return _wrap(_provider_once)
+
         def _provider_loop():
             f = frames[state["i"] % n]
             state["i"] += 1
             return f
+
         return _wrap(_provider_loop)
     return _wrap(lambda: initial_frame)
 
@@ -409,9 +446,18 @@ def main(argv=None):
     if args.numbers_exposure_us is not None and args.numbers_exposure_us <= 0:
         logger.error("--numbers-exposure-us must be positive.")
         raise SystemExit("Invalid --numbers-exposure-us value")
+    if args.numbers_size_px is not None and args.numbers_size_px <= 0:
+        logger.error("--numbers-size-px must be positive.")
+        raise SystemExit("Invalid --numbers-size-px value")
     if args.kernel_leader_frames < 0:
         logger.error("--kernel-leader-frames must be >= 0.")
         raise SystemExit("Invalid --kernel-leader-frames value")
+    if not math.isfinite(args.trigger_out_2_delay_fraction):
+        logger.error("--trigger-out-2-delay-fraction must be finite.")
+        raise SystemExit("Invalid --trigger-out-2-delay-fraction value")
+    if args.trigger_out_2_delay_fraction < 0:
+        logger.error("--trigger-out-2-delay-fraction must be non-negative.")
+        raise SystemExit("Invalid --trigger-out-2-delay-fraction value")
 
     if args.dry_run_timing:
         _dry_run_timing(args)
@@ -483,6 +529,8 @@ def main(argv=None):
             logger.warning("--kernel-exposure-us is only used with --test kernel; ignoring it.")
         if dynamic_kind != "numbers" and args.numbers_exposure_us is not None:
             logger.warning("--numbers-exposure-us is only used with --test numbers; ignoring it.")
+        if dynamic_kind != "numbers" and args.numbers_size_px is not None:
+            logger.warning("--numbers-size-px is only used with --test numbers; ignoring it.")
 
         kernel_frames = None
         numbers_frames = None
@@ -524,9 +572,10 @@ def main(argv=None):
             number_exposure_us = _numbers_exposure_us(args)
             logger.info(
                 f"[+] Prebuilding {len(NUMBER_SEQUENCE)} number frames "
-                f"(digits 1..9, exposure={number_exposure_us} us per number)..."
+                f"(digits 1..9, exposure={number_exposure_us} us per number, "
+                f"size_px={args.numbers_size_px or 'default'})..."
             )
-            numbers_frames = _build_numbers_frames(engine)
+            numbers_frames = _build_numbers_frames(engine, size_px=args.numbers_size_px)
             logger.info("[+] Number frames ready as full packed DisplayPort frames.")
         if dynamic_kind == "calibr-square":
             calibration_square_state = default_calibration_square_state(engine.width, engine.height)
@@ -627,6 +676,7 @@ def main(argv=None):
                 frame_pump=_frame_pump,
                 entries_count=lut_entries_count,
                 per_entry_exposure_us=lut_per_entry_exposure_us,
+                trigger_out_2_delay_fraction=args.trigger_out_2_delay_fraction,
             )
         finally:
             # Stop the background pump and reclaim the GL context for the main thread.
@@ -659,10 +709,10 @@ def main(argv=None):
         logger.info(f"[+] Priming DP output after sequencer arm with {prime_label}...")
         engine.display_frame(_maybe_invert_frame(post_arm_prime_frame, args.invert_dmd))
         if (
-            dynamic_kind == "kernel"
-            and kernel_frames is not None
-            and len(kernel_frames) > 0
-            and post_arm_prime_frame is not kernel_frames[0]
+                dynamic_kind == "kernel"
+                and kernel_frames is not None
+                and len(kernel_frames) > 0
+                and post_arm_prime_frame is not kernel_frames[0]
         ):
             logger.info("[+] Returning DP output to kernel leader frame before runtime cycle...")
             engine.display_frame(_maybe_invert_frame(kernel_frames[0], args.invert_dmd))

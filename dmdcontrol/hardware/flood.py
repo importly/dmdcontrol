@@ -30,7 +30,6 @@ import usb.core
 
 from dmdcontrol.hardware.dlpc900 import DLPC900
 
-
 DLPC900_VID = 0x0451
 DLPC900_PID = 0xC900
 
@@ -103,9 +102,9 @@ def _write_internal_test_pattern_color(dlpc: DLPC900, color: str) -> None:
 
 
 def configure_solid_flood(
-    color: str,
-    led_current: int,
-    leave_leds_alone: bool,
+        color: str,
+        led_current: int,
+        leave_leds_alone: bool,
 ) -> None:
     device_count = _count_dlpc900_devices()
     if device_count == 0:

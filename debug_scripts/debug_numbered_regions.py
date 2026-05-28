@@ -37,10 +37,10 @@ def generate_numbered_regions(width, height, grid_cols=6, grid_rows=4):
     colors = [
         (255, 255, 255),  # White
         (128, 128, 128),  # Gray
-        (64, 64, 64),     # Dark Gray
+        (64, 64, 64),  # Dark Gray
         (192, 192, 192),  # Light Gray
-        (32, 32, 32),     # Very Dark Gray
-        (96, 96, 96),     # Medium Dark Gray
+        (32, 32, 32),  # Very Dark Gray
+        (96, 96, 96),  # Medium Dark Gray
     ]
 
     region_num = 1
@@ -158,7 +158,7 @@ def save_numbered_diagnostics():
     # Extract actual crop for comparison
     print("  - Extracting crop region from numbered pattern...")
     cropped_numbered = numbered_pattern[
-        crop_y : crop_y + crop_h, crop_x : crop_x + crop_w
+        crop_y: crop_y + crop_h, crop_x: crop_x + crop_w
     ]
     img_cropped = Image.fromarray(cropped_numbered)
     crop_path = os.path.join(out_dir, "diagnostic_numbered_crop.png")

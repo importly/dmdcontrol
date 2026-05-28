@@ -15,11 +15,11 @@ def run_cli(argv):
 
 def test_cli_main_import_does_not_load_hardware_modules():
     for name in (
-        "usb.core",
-        "dmdcontrol.hardware.flood",
-        "dmdcontrol.hardware.usb",
-        "dmdcontrol.hardware.wake",
-        "dmdcontrol.hardware.dlpc900",
+            "usb.core",
+            "dmdcontrol.hardware.flood",
+            "dmdcontrol.hardware.usb",
+            "dmdcontrol.hardware.wake",
+            "dmdcontrol.hardware.dlpc900",
     ):
         sys.modules.pop(name, None)
     for name in [name for name in sys.modules if name.startswith("dmdcontrol.cli")]:
@@ -111,23 +111,23 @@ def test_pair_calibrate_preserves_essential_preview_dot_args(monkeypatch):
     )
 
     assert (
-        run_cli(
-            [
-                "pair",
-                "calibrate",
-                "--b-dot-x",
-                "960",
-                "--b-dot-y",
-                "540",
-                "--b-dot-radius",
-                "40",
-                "--preview-url",
-                "http://127.0.0.1:8080/api/live-frame",
-                "--preview-fps",
-                "1",
-            ]
-        )
-        == 0
+            run_cli(
+                [
+                    "pair",
+                    "calibrate",
+                    "--b-dot-x",
+                    "960",
+                    "--b-dot-y",
+                    "540",
+                    "--b-dot-radius",
+                    "40",
+                    "--preview-url",
+                    "http://127.0.0.1:8080/api/live-frame",
+                    "--preview-fps",
+                    "1",
+                ]
+            )
+            == 0
     )
 
     runtime.assert_called_once_with(

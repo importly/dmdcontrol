@@ -8,14 +8,14 @@ actually constructed.
 import os
 import time
 
-from dmdcontrol.support.constants import BITPLANES
-from dmdcontrol.support.logging import logger
 from dmdcontrol.patterns.modes import (
     apply_calibration_square_commands,
     calibration_square_bounds,
     default_calibration_square_state,
     generate_calibration_square_mask,
 )
+from dmdcontrol.support.constants import BITPLANES
+from dmdcontrol.support.logging import logger
 
 VALID_CALIBRATION_COMMANDS = {"w", "a", "s", "d", "q", "e", "r", "f", "x"}
 
@@ -75,16 +75,16 @@ def calibration_square_key_commands(glfw):
 
 
 def make_calibration_square_frame_provider(
-    engine,
-    initial_frame,
-    control_file=None,
-    initial_state=None,):
+        engine,
+        initial_frame,
+        control_file=None,
+        initial_state=None, ):
     import glfw
 
     key_commands = calibration_square_key_commands(glfw)
     state = {
         "square": initial_state
-        or default_calibration_square_state(engine.width, engine.height),
+                  or default_calibration_square_state(engine.width, engine.height),
         "frame": initial_frame,
         "control_offset": 0,
         "last_log": 0.0,

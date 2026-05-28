@@ -7,7 +7,6 @@ import sys
 from dmdcontrol.hardware import mapping as _mapping
 from dmdcontrol.hardware.mapping import main
 
-
 if __name__ == "__main__":
     raise SystemExit(main())
 

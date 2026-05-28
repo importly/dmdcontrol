@@ -34,6 +34,13 @@ def _build_parser() -> argparse.ArgumentParser:
     config_actions = config_parser.add_subparsers(dest="command", required=True)
     config_actions.add_parser("show", add_help=False)
 
+    camera_parser = subparsers.add_parser("camera")
+    camera_actions = camera_parser.add_subparsers(dest="command", required=True)
+    camera_actions.add_parser("discover", add_help=False)
+    camera_actions.add_parser("status", add_help=False)
+    camera_actions.add_parser("sync-check", add_help=False)
+    camera_actions.add_parser("pair-capture", add_help=False)
+
     return parser
 
 
@@ -63,4 +70,16 @@ def main(argv: list[str] | None = None) -> int | None:
     if args.area == "config" and args.command == "show":
         config = import_module("dmdcontrol.cli.config")
         return config.show(passthrough)
+    if args.area == "camera" and args.command == "discover":
+        camera = import_module("dmdcontrol.cli.camera")
+        return camera.discover(passthrough)
+    if args.area == "camera" and args.command == "status":
+        camera = import_module("dmdcontrol.cli.camera")
+        return camera.status(passthrough)
+    if args.area == "camera" and args.command == "sync-check":
+        camera = import_module("dmdcontrol.cli.camera")
+        return camera.sync_check(passthrough)
+    if args.area == "camera" and args.command == "pair-capture":
+        camera = import_module("dmdcontrol.cli.camera")
+        return camera.pair_capture(passthrough)
     raise SystemExit(f"Unsupported command: {args.area} {args.command}")

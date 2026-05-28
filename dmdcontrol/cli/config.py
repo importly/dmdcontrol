@@ -5,7 +5,6 @@ import json
 from dataclasses import asdict, is_dataclass
 from types import ModuleType
 
-
 FIELDS = (
     "name",
     "usb_id_path",

@@ -34,6 +34,5 @@ __all__ = [
     "render_view_image",
 ]
 
-
 if __name__ == "__main__":
     raise SystemExit(main())

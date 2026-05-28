@@ -28,8 +28,8 @@ class VisualPatternTests(unittest.TestCase):
         t = DEFAULT_COARSE_GRID_THICKNESS
         s = DEFAULT_COARSE_GRID_SPACING
         self.assertTrue(np.all(frame[:, 0:t, :] == 255))
-        self.assertTrue(np.all(frame[:, s : s + t, :] == 255))
-        self.assertTrue(np.all(frame[s : s + t, :, :] == 255))
+        self.assertTrue(np.all(frame[:, s: s + t, :] == 255))
+        self.assertTrue(np.all(frame[s: s + t, :, :] == 255))
         self.assertEqual(frame[t + 4, t + 4, 0], 0)
 
     def test_coarse_grid_can_shift_position_for_pair_distinction(self):
@@ -52,9 +52,9 @@ class VisualPatternTests(unittest.TestCase):
         t = DEFAULT_COARSE_LINE_THICKNESS
         s = DEFAULT_COARSE_LINE_SPACING
         self.assertTrue(np.all(vertical[:, 0:t, :] == 255))
-        self.assertTrue(np.all(vertical[:, s : s + t, :] == 255))
+        self.assertTrue(np.all(vertical[:, s: s + t, :] == 255))
         self.assertTrue(np.all(horizontal[0:t, :, :] == 255))
-        self.assertTrue(np.all(horizontal[s : s + t, :, :] == 255))
+        self.assertTrue(np.all(horizontal[s: s + t, :, :] == 255))
         self.assertFalse(np.array_equal(vertical, horizontal))
 
     def test_single_dmd_visual_modes_are_registered(self):

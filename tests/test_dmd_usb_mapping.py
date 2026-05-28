@@ -13,7 +13,6 @@ from dmd_usb import (
     usb_ids_from_properties,
 )
 
-
 UDEV_HIDRAW0 = """
 DEVPATH=/devices/pci0000:00/0000:00:03.1/0000:03:00.0/usb1/1-1/1-1:1.0/0003:0451:C900.0001/hidraw/hidraw0
 DEVNAME=/dev/hidraw0

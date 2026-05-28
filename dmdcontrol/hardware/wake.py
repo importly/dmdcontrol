@@ -1,8 +1,8 @@
 import argparse
 import time
 
-from dmdcontrol.hardware.mapping import resolve_dmd_mapping
 from dmdcontrol.hardware.dlpc900 import DLPC900
+from dmdcontrol.hardware.mapping import resolve_dmd_mapping
 from dmdcontrol.support.logging import logger, setup_logger
 
 

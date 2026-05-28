@@ -1,7 +1,9 @@
-import glfw
-from OpenGL.GL import *
-import numpy as np
 import time
+
+import glfw
+import numpy as np
+from OpenGL.GL import *
+
 from dmdcontrol.support.logging import logger
 
 
@@ -107,7 +109,8 @@ class PatternEngine:
             binary_images: List of up to 8 binary numpy arrays (0 or 1)
         """
         if len(binary_images) > 8:
-            logger.warning("[WARNING] pack_patterns_safe_8bit received more than 8 patterns. Only the first 8 will be used.")
+            logger.warning(
+                "[WARNING] pack_patterns_safe_8bit received more than 8 patterns. Only the first 8 will be used.")
 
         gray = np.zeros((self.height, self.width), dtype=np.uint8)
         for i in range(min(8, len(binary_images))):
@@ -223,7 +226,8 @@ class PatternEngine:
         import random
         # Initialize snake state if it doesn't exist
         if not hasattr(self, 'snake_pos'):
-            self.snake_pos = [(grid_w//2, grid_h//2), (grid_w//2 - 1, grid_h//2), (grid_w//2 - 2, grid_h//2), (grid_w//2 - 3, grid_h//2)]
+            self.snake_pos = [(grid_w // 2, grid_h // 2), (grid_w // 2 - 1, grid_h // 2),
+                              (grid_w // 2 - 2, grid_h // 2), (grid_w // 2 - 3, grid_h // 2)]
             self.snake_dir = (1, 0)
 
         # Move snake
@@ -232,7 +236,7 @@ class PatternEngine:
 
         # Randomly change direction, but don't reverse
         if random.random() < 0.2:
-            possible_dirs = [(1,0), (-1,0), (0,1), (0,-1)]
+            possible_dirs = [(1, 0), (-1, 0), (0, 1), (0, -1)]
             possible_dirs = [(nx, ny) for nx, ny in possible_dirs if (nx, ny) != (-dx, -dy)]
             self.snake_dir = random.choice(possible_dirs)
             dx, dy = self.snake_dir
@@ -241,7 +245,7 @@ class PatternEngine:
         new_head = (new_head[0] % grid_w, new_head[1] % grid_h)
 
         self.snake_pos.insert(0, new_head)
-        self.snake_pos.pop() # remove tail
+        self.snake_pos.pop()  # remove tail
 
         # Draw grid
         grid = np.zeros((grid_h, grid_w), dtype=np.uint8)
@@ -267,7 +271,6 @@ class PatternEngine:
         """
         Generates a 1920x1080 pure grayscale frame with a massive microsecond clock timestamp.
         """
-        import time
         from datetime import datetime
 
         # We need cv2 to render the text
@@ -279,7 +282,7 @@ class PatternEngine:
         time_str = datetime.now().strftime("%H:%M:%S.%f")
 
         font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 5
+        font_scale = 9
         thickness = 15
         color = 255
 
@@ -327,7 +330,7 @@ class PatternEngine:
             bx_start = x_start + (i * block_w)
             bx_end = min(x_start + sub_width, bx_start + block_w)
 
-            img[y_start : y_start + sub_height, bx_start:bx_end] = 1
+            img[y_start: y_start + sub_height, bx_start:bx_end] = 1
             patterns.append(img)
         return patterns
 
@@ -337,8 +340,8 @@ class PatternEngine:
             img = np.zeros((self.height, self.width), dtype=np.uint8)
             y_start = (self.height - sub_height) // 2
             x_start = (self.width - sub_width) // 2
-            img[y_start : y_start + sub_height, x_start : x_start + sub_width] = (
-                np.random.rand(sub_height, sub_width) > 0.5
+            img[y_start: y_start + sub_height, x_start: x_start + sub_width] = (
+                    np.random.rand(sub_height, sub_width) > 0.5
             ).astype(np.uint8)
             patterns.append(img)
         return patterns
@@ -367,7 +370,7 @@ class PatternEngine:
                 if k & (1 << bit):
                     row, col = bit // 3, bit % 3
                     yy, xx = y0 + row * cell, x0 + col * cell
-                    m[yy : yy + cell, xx : xx + cell] = 1
+                    m[yy: yy + cell, xx: xx + cell] = 1
             masks.append(m)
         return masks
 
@@ -390,7 +393,7 @@ class PatternEngine:
         padded = list(masks) + [black_mask] * pad
         unused = [black_mask] * (24 - slots_per_frame)
         frames = [
-            self.pack_patterns(padded[i : i + slots_per_frame] + unused)
+            self.pack_patterns(padded[i: i + slots_per_frame] + unused)
             for i in range(0, len(padded), slots_per_frame)
         ]
         if blank_end_frame:
@@ -399,8 +402,8 @@ class PatternEngine:
 
     def should_close(self):
         return (
-            glfw.window_should_close(self.window)
-            or glfw.get_key(self.window, glfw.KEY_ESCAPE) == glfw.PRESS
+                glfw.window_should_close(self.window)
+                or glfw.get_key(self.window, glfw.KEY_ESCAPE) == glfw.PRESS
         )
 
     def cleanup(self):

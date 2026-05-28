@@ -1,6 +1,7 @@
 import logging
-from rich.logging import RichHandler
+
 from rich.console import Console
+from rich.logging import RichHandler
 
 # Create a global rich console for direct printing if needed
 console = Console()
