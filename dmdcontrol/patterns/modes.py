@@ -11,7 +11,6 @@ import numpy as np
 
 from dmdcontrol.patterns.visual import generate_coarse_grid_rgb, generate_coarse_lines_rgb
 
-
 NUMBER_SEQUENCE = tuple(range(1, 10))
 DEFAULT_NUMBERS_EXPOSURE_US = 500_000
 DEFAULT_CALIBRATION_SQUARE_FRACTION = 0.25
@@ -73,10 +72,10 @@ def calibration_square_bounds(state, width=1920, height=1080):
     xs = []
     ys = []
     for local_x, local_y in (
-        (-half, -half),
-        (half, -half),
-        (half, half),
-        (-half, half),
+            (-half, -half),
+            (half, -half),
+            (half, half),
+            (-half, half),
     ):
         xs.append(state.x + cos_a * local_x - sin_a * local_y)
         ys.append(state.y + sin_a * local_x + cos_a * local_y)
@@ -89,13 +88,13 @@ def calibration_square_bounds(state, width=1920, height=1080):
 
 
 def apply_calibration_square_commands(
-    state,
-    commands,
-    width=1920,
-    height=1080,
-    move_px=10,
-    rotation_deg=2,
-    size_step_px=10,
+        state,
+        commands,
+        width=1920,
+        height=1080,
+        move_px=10,
+        rotation_deg=2,
+        size_step_px=10,
 ):
     x = state.x
     y = state.y
@@ -127,12 +126,12 @@ def apply_calibration_square_commands(
 
 
 def generate_calibration_square_mask(
-    width=1920,
-    height=1080,
-    center_x=None,
-    center_y=None,
-    size_px=None,
-    angle_deg=0.0,
+        width=1920,
+        height=1080,
+        center_x=None,
+        center_y=None,
+        size_px=None,
+        angle_deg=0.0,
 ):
     if width <= 0 or height <= 0:
         raise ValueError("width and height must be positive")
@@ -193,14 +192,20 @@ def _fill_rect(img, x0, y0, x1, y1):
         img[y0:y1, x0:x1, :] = 255
 
 
-def generate_number_rgb(number, width=1920, height=1080):
+def generate_number_rgb(number, width=1920, height=1080, size_px=None):
     """Generate a binary RGB seven-segment digit frame for number mode."""
     if number not in _DIGIT_SEGMENTS:
         raise ValueError("number must be in the range 1..9")
 
     img = np.zeros((height, width, 3), dtype=np.uint8)
-    digit_h = max(24, int(height * 0.78))
-    digit_w = min(max(16, int(width * 0.46)), max(16, int(digit_h * 0.62)))
+    if size_px is not None:
+        if size_px <= 0:
+            raise ValueError("size_px must be positive")
+        digit_h = min(int(size_px), height)
+        digit_w = min(max(16, int(digit_h * 0.62)), width)
+    else:
+        digit_h = max(24, int(height * 0.78))
+        digit_w = min(max(16, int(width * 0.46)), max(16, int(digit_h * 0.62)))
     thickness = max(4, int(min(digit_w, digit_h) * 0.16))
     x0 = (width - digit_w) // 2
     x1 = x0 + digit_w
@@ -241,23 +246,23 @@ def _coarse_lines(engine):
 
 PATTERN_MODES = {
     #                 label                                   pattern generator          dynamic or not
-    "checkerboard":  ("Static Checkerboard",       lambda e: (e.generate_checkerboard(), None)),
-    "ordering":      ("Bit Ordering Sweep",        lambda e: (e.generate_ordering_diagnostic_patterns(1920, 1080), None)),
-    "numbered":      ("Numbered Regions (6x4 grid)", _numbered),
-    "single-pixel":  ("1x1 Single Pixel",          lambda e: (e.generate_checkerboard(block_size=1), None)),
-    "2x2":           ("2x2 Checkerboard",          lambda e: (e.generate_checkerboard(block_size=2), None)),
-    "lines":         ("1-pixel Lines",             lambda e: (e.generate_lines(), None)),
-    "colors":        ("Color Channels (R/G/B)",    lambda e: (e.rgb_to_binary_patterns(_solid_color(0)), "colors")),
-    "coarse-grid":   ("Human-Visible Coarse Grid", _coarse_grid),
-    "grid":          ("Human-Visible Coarse Grid", _coarse_grid),
-    "coarse-lines":  ("Human-Visible Coarse Lines", _coarse_lines),
-    "bands":         ("Human-Visible Coarse Lines", _coarse_lines),
-    "numbers":       ("Sequential Numbers (1-9)",  lambda e: (None, "numbers")),
+    "checkerboard": ("Static Checkerboard", lambda e: (e.generate_checkerboard(), None)),
+    "ordering": ("Bit Ordering Sweep", lambda e: (e.generate_ordering_diagnostic_patterns(1920, 1080), None)),
+    "numbered": ("Numbered Regions (6x4 grid)", _numbered),
+    "single-pixel": ("1x1 Single Pixel", lambda e: (e.generate_checkerboard(block_size=1), None)),
+    "2x2": ("2x2 Checkerboard", lambda e: (e.generate_checkerboard(block_size=2), None)),
+    "lines": ("1-pixel Lines", lambda e: (e.generate_lines(), None)),
+    "colors": ("Color Channels (R/G/B)", lambda e: (e.rgb_to_binary_patterns(_solid_color(0)), "colors")),
+    "coarse-grid": ("Human-Visible Coarse Grid", _coarse_grid),
+    "grid": ("Human-Visible Coarse Grid", _coarse_grid),
+    "coarse-lines": ("Human-Visible Coarse Lines", _coarse_lines),
+    "bands": ("Human-Visible Coarse Lines", _coarse_lines),
+    "numbers": ("Sequential Numbers (1-9)", lambda e: (None, "numbers")),
     "calibr-square": ("Interactive Calibration Square", lambda e: (None, "calibr-square")),
-    "snake":         ("60FPS Snake",               lambda e: (None, "snake")),
-    "clock":         ("Microsecond Clock",         lambda e: (None, "clock")),
-    "gradient":      ("Temporal Gradient",         lambda e: (e.generate_gradient(), None)),
-    "kernel":        ("3x3 Kernel Variations (512 patterns)", lambda e: (None, "kernel")),
+    "snake": ("60FPS Snake", lambda e: (None, "snake")),
+    "clock": ("Microsecond Clock", lambda e: (None, "clock")),
+    "gradient": ("Temporal Gradient", lambda e: (e.generate_gradient(), None)),
+    "kernel": ("3x3 Kernel Variations (512 patterns)", lambda e: (None, "kernel")),
 }
 
 PATTERN_NAMES = list(PATTERN_MODES.keys())

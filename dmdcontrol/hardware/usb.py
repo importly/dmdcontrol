@@ -6,7 +6,6 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-
 DLPC900_VID = 0x0451
 DLPC900_PID = 0xC900
 
@@ -165,10 +164,10 @@ def resolve_usb_candidate(usb_id_path, usb_devpath_contains=None, candidates=Non
         candidate
         for candidate in coerced
         if candidate.id_path == usb_id_path
-        and (
-            not usb_devpath_contains
-            or (candidate.devpath and usb_devpath_contains in candidate.devpath)
-        )
+           and (
+                   not usb_devpath_contains
+                   or (candidate.devpath and usb_devpath_contains in candidate.devpath)
+           )
     ]
     if not matches:
         discovered = ", ".join(
@@ -218,19 +217,18 @@ def _select_pyusb_device_by_candidate(devices, candidate):
     if candidate.bus is not None and candidate.address is not None:
         for device in devices:
             if (
-                getattr(device, "bus", None) == candidate.bus
-                and getattr(device, "address", None) == candidate.address
+                    getattr(device, "bus", None) == candidate.bus
+                    and getattr(device, "address", None) == candidate.address
             ):
                 return device
     return _select_pyusb_device_by_physical_path(devices, candidate.physical_path)
 
 
 def select_pyusb_device_for_mapping(
-    usb_id_path,
-    usb_devpath_contains=None,
-    candidates=None,
-    pyusb_devices=None,
-):
+        usb_id_path,
+        usb_devpath_contains=None,
+        candidates=None,
+        pyusb_devices=None, ):
     devices = _load_pyusb_devices(pyusb_devices)
     try:
         candidate = resolve_usb_candidate(

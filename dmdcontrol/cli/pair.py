@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from types import ModuleType
 
-
 CALIBRATION_TEST = "a-calibr-square-b-dot"
 
 

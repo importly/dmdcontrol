@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from dmdcontrol.support.logging import logger
+from dmdcontrol.patterns.modes import NUMBER_SEQUENCE, generate_number_rgb
 from dmdcontrol.patterns.visual import (
     DEFAULT_COARSE_GRID_SPACING,
     DEFAULT_COARSE_LINE_SPACING,
@@ -16,6 +16,8 @@ from dmdcontrol.patterns.visual import (
     generate_coarse_grid_rgb,
     generate_coarse_lines_rgb,
 )
+from dmdcontrol.support.constants import BITPLANES
+from dmdcontrol.support.logging import logger
 
 DMD_WIDTH = 1920
 DMD_HEIGHT = 1080
@@ -26,7 +28,9 @@ OFFSET_A = (DMD_WIDTH, 0)
 
 HUMAN_VISIBLE_PAIR_TESTS = ("coarse-grid", "grid", "coarse-lines", "bands")
 STATIC_PAIR_TESTS = ("checkerboard", "lines", "colors", "dot") + HUMAN_VISIBLE_PAIR_TESTS
-DYNAMIC_PAIR_TESTS = ("gradient", "snake")
+NUMBER_PAIR_TEST = "numbers"
+A_NUMBERS_B_STATIC_PAIR_TEST = "a-numbers-b-static"
+DYNAMIC_PAIR_TESTS = ("gradient", "snake", NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST)
 CALIBRATION_DOT_PAIR_TEST = "a-calibr-square-b-dot"
 KERNEL_STATIC_PAIR_TEST = "a-kernel-b-static"
 RECIPE_PAIR_TESTS = (CALIBRATION_DOT_PAIR_TEST, KERNEL_STATIC_PAIR_TEST)
@@ -115,13 +119,13 @@ def _draw_block_letter(frame, label, x0, y0, cell):
 
 
 def generate_dot_frame(
-    width=DMD_WIDTH,
-    height=DMD_HEIGHT,
-    x=None,
-    y=None,
-    radius=40,
-    shape="circle",
-    invert=False,
+        width=DMD_WIDTH,
+        height=DMD_HEIGHT,
+        x=None,
+        y=None,
+        radius=40,
+        shape="circle",
+        invert=False,
 ):
     """Generate a static RGB dot mask/aperture frame."""
     if width <= 0 or height <= 0:
@@ -171,15 +175,15 @@ def _route_mark(frame, label):
 
 
 def generate_static_frame(
-    mode,
-    width=DMD_WIDTH,
-    height=DMD_HEIGHT,
-    route_label="A",
-    dot_x=None,
-    dot_y=None,
-    dot_radius=40,
-    dot_shape="circle",
-    dot_invert=False,
+        mode,
+        width=DMD_WIDTH,
+        height=DMD_HEIGHT,
+        route_label="A",
+        dot_x=None,
+        dot_y=None,
+        dot_radius=40,
+        dot_shape="circle",
+        dot_invert=False,
 ):
     if mode == "checkerboard":
         frame = _checkerboard(width, height)
@@ -377,7 +381,7 @@ class DynamicSnakePairFrameProvider(PairFrameProvider):
                 x0 = col * cell_w
                 y0 = row * cell_h
                 level = max(64, 255 - segment * 32)
-                frame[y0 : y0 + cell_h, x0 : x0 + cell_w, :] = level
+                frame[y0: y0 + cell_h, x0: x0 + cell_w, :] = level
         return _route_mark(frame_a, "A"), _route_mark(frame_b, "B")
 
     def initial_pair(self):
@@ -388,7 +392,124 @@ class DynamicSnakePairFrameProvider(PairFrameProvider):
         return self._frame_for_index(self.frame_index)
 
 
-def make_pair_frame_provider(test, test_a=None, test_b=None, width=DMD_WIDTH, height=DMD_HEIGHT):
+class NumberSequencePairFrameProvider(PairFrameProvider):
+    def __init__(
+            self,
+            numbers=NUMBER_SEQUENCE,
+            width=DMD_WIDTH,
+            height=DMD_HEIGHT,
+            size_px=None,
+    ):
+        if not numbers:
+            raise ValueError("numbers must not be empty")
+        if len(numbers) > BITPLANES:
+            raise ValueError(f"numbers can contain at most {BITPLANES} entries")
+        self.numbers = tuple(numbers)
+        self.width = width
+        self.height = height
+        self.size_px = size_px
+        self.frame_index = 0
+        self._frame = _pack_number_sequence_bitplanes(
+            self.numbers,
+            width=width,
+            height=height,
+            size_px=size_px,
+        )
+
+    def initial_pair(self):
+        return self._frame, self._frame
+
+    def next_pair(self):
+        return self._frame, self._frame
+
+
+class NumberSequenceAStaticBPairFrameProvider(PairFrameProvider):
+    def __init__(
+            self,
+            mode_b="dot",
+            numbers=NUMBER_SEQUENCE,
+            width=DMD_WIDTH,
+            height=DMD_HEIGHT,
+            size_px=None,
+            b_dot_x=None,
+            b_dot_y=None,
+            b_dot_radius=40,
+            b_dot_shape="circle",
+            b_dot_invert=False,
+    ):
+        if not numbers:
+            raise ValueError("numbers must not be empty")
+        if len(numbers) > BITPLANES:
+            raise ValueError(f"numbers can contain at most {BITPLANES} entries")
+        self.width = width
+        self.height = height
+        self._frame_a = _pack_number_sequence_bitplanes(
+            numbers,
+            width=width,
+            height=height,
+            size_px=size_px,
+        )
+        self._frame_b = generate_static_frame(
+            mode_b,
+            width=width,
+            height=height,
+            route_label="B",
+            dot_x=b_dot_x,
+            dot_y=b_dot_y,
+            dot_radius=b_dot_radius,
+            dot_shape=b_dot_shape,
+            dot_invert=b_dot_invert,
+        )
+
+    def initial_pair(self):
+        return self._frame_a, self._frame_b
+
+    def next_pair(self):
+        return self._frame_a, self._frame_b
+
+
+def _pack_number_sequence_bitplanes(numbers, width, height, size_px=None):
+    masks = [
+        (
+            generate_number_rgb(
+                number,
+                width=width,
+                height=height,
+                size_px=size_px,
+            )[:, :, 0] > 0
+        ).astype(np.uint8)
+        for number in numbers
+    ]
+    masks.extend(
+        np.zeros((height, width), dtype=np.uint8)
+        for _ in range(BITPLANES - len(masks))
+    )
+
+    r = np.zeros((height, width), dtype=np.uint8)
+    g = np.zeros((height, width), dtype=np.uint8)
+    b = np.zeros((height, width), dtype=np.uint8)
+    for bit in range(8):
+        g |= masks[bit] << bit
+        r |= masks[bit + 8] << bit
+        b |= masks[bit + 16] << bit
+    return np.ascontiguousarray(np.stack([r, g, b], axis=-1))
+
+
+def make_pair_frame_provider(
+        test,
+        test_a=None,
+        test_b=None,
+        width=DMD_WIDTH,
+        height=DMD_HEIGHT,
+        numbers=None,
+        numbers_size_px=None,
+        numbers_exposure_us=None,
+        b_dot_x=None,
+        b_dot_y=None,
+        b_dot_radius=40,
+        b_dot_shape="circle",
+        b_dot_invert=False,
+):
     if test in STATIC_PAIR_TESTS:
         return StaticPairFrameProvider(
             mode_a=test_a or test,
@@ -400,6 +521,26 @@ def make_pair_frame_provider(test, test_a=None, test_b=None, width=DMD_WIDTH, he
         return DynamicGradientPairFrameProvider(width=width, height=height)
     if test == "snake":
         return DynamicSnakePairFrameProvider(width=width, height=height)
+    if test == NUMBER_PAIR_TEST:
+        return NumberSequencePairFrameProvider(
+            numbers=numbers or NUMBER_SEQUENCE,
+            width=width,
+            height=height,
+            size_px=numbers_size_px,
+        )
+    if test == A_NUMBERS_B_STATIC_PAIR_TEST:
+        return NumberSequenceAStaticBPairFrameProvider(
+            mode_b=test_b or "dot",
+            numbers=numbers or NUMBER_SEQUENCE,
+            width=width,
+            height=height,
+            size_px=numbers_size_px,
+            b_dot_x=b_dot_x,
+            b_dot_y=b_dot_y,
+            b_dot_radius=b_dot_radius,
+            b_dot_shape=b_dot_shape,
+            b_dot_invert=b_dot_invert,
+        )
     raise ValueError(f"Unsupported paired test mode: {test}")
 
 
@@ -525,7 +666,7 @@ class PairedPatternEngine:
 
     def should_close(self):
         return self._glfw.window_should_close(self.window) or (
-            self._glfw.get_key(self.window, self._glfw.KEY_ESCAPE) == self._glfw.PRESS
+                self._glfw.get_key(self.window, self._glfw.KEY_ESCAPE) == self._glfw.PRESS
         )
 
     def cleanup(self):

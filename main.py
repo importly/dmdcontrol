@@ -7,7 +7,6 @@ import sys
 from dmdcontrol.runtime import single as _single
 from dmdcontrol.runtime.single import main
 
-
 if __name__ == "__main__":
     raise SystemExit(main())
 

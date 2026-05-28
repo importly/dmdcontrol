@@ -96,6 +96,80 @@ class PairWrapperTests(unittest.TestCase):
         self.assertIn("138.6528 1920 1968 2000 2080 1080 1083 1088 1111", helper)
         self.assertIn("311.50 1920 1968 2000 2080 1080 1083 1088 1248", helper)
 
+    def test_camera_sync_check_runner_routes_dry_run_without_xinit(self):
+        script = (ROOT / "run_camera_sync_check.sh").read_text(encoding="utf-8")
+
+        dry_run_idx = script.index("Camera sync-check dry-run")
+        wake_idx = script.index("dmd_wake_configured_dmd")
+        xinit_idx = script.index("dmd_run_xinit")
+
+        self.assertLess(dry_run_idx, wake_idx)
+        self.assertLess(dry_run_idx, xinit_idx)
+        self.assertIn("camera sync-check", script)
+        self.assertIn("dmd_has_flag --dry-run", script)
+        self.assertIn("xinitrc_camera_sync_check.sh", script)
+        self.assertIn('dmd_wake_configured_dmd "$SCRIPT_DIR" A', script)
+        self.assertIn('dmd_wake_configured_dmd "$SCRIPT_DIR" B', script)
+
+        dry_run_command_idx = script.index(
+            'dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol camera sync-check "$@"'
+        )
+        dry_run_guarded_by_exit = (
+            script.find("exit 0", dry_run_command_idx, wake_idx) != -1
+        )
+        dry_run_guarded_by_else = (
+            script.find("else", dry_run_command_idx, wake_idx) != -1
+            and script.find("fi", wake_idx, xinit_idx) != -1
+        )
+        self.assertTrue(
+            dry_run_guarded_by_exit or dry_run_guarded_by_else,
+            "sync-check dry-run must exit or use else before DP wake/xinit",
+        )
+
+    def test_camera_sync_check_xinit_runs_camera_module(self):
+        script = (ROOT / "xinitrc_camera_sync_check.sh").read_text(encoding="utf-8")
+
+        self.assertIn("dmdcontrol camera sync-check", script)
+        self.assertIn("dmd_x11_verify_pair_layout", script)
+        self.assertIn('source "$SCRIPT_DIR/dmd_x11_common.sh"', script)
+
+    def test_pair_capture_runner_routes_dry_run_without_xinit(self):
+        script = (ROOT / "run_dmd_pair_capture.sh").read_text(encoding="utf-8")
+
+        dry_run_idx = script.index("Paired camera capture dry-run timing")
+        dry_run_command_idx = script.index(
+            'dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol camera pair-capture "$@"'
+        )
+        wake_idx = script.index("dmd_wake_configured_dmd")
+        xinit_idx = script.index("dmd_run_xinit")
+
+        self.assertLess(dry_run_idx, wake_idx)
+        self.assertLess(dry_run_idx, xinit_idx)
+        self.assertIn("dmdcontrol camera pair-capture", script)
+        self.assertIn("dmd_has_flag --dry-run-timing", script)
+        self.assertIn("xinitrc_dmd_pair_capture.sh", script)
+        self.assertIn('dmd_wake_configured_dmd "$SCRIPT_DIR" A', script)
+        self.assertIn('dmd_wake_configured_dmd "$SCRIPT_DIR" B', script)
+
+        dry_run_guarded_by_exit = (
+            script.find("exit 0", dry_run_command_idx, wake_idx) != -1
+        )
+        dry_run_guarded_by_else = (
+            script.find("else", dry_run_command_idx, wake_idx) != -1
+            and script.find("fi", wake_idx, xinit_idx) != -1
+        )
+        self.assertTrue(
+            dry_run_guarded_by_exit or dry_run_guarded_by_else,
+            "pair-capture dry-run must exit or use else before DP wake/xinit",
+        )
+
+    def test_pair_capture_xinit_runs_camera_module(self):
+        script = (ROOT / "xinitrc_dmd_pair_capture.sh").read_text(encoding="utf-8")
+
+        self.assertIn("dmdcontrol camera pair-capture", script)
+        self.assertIn("dmd_x11_verify_pair_layout", script)
+        self.assertIn('source "$SCRIPT_DIR/dmd_x11_common.sh"', script)
+
 
 if __name__ == "__main__":
     unittest.main()

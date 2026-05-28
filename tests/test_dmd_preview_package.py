@@ -30,9 +30,9 @@ class DmdPreviewPackageTests(unittest.TestCase):
 
     def test_preview_package_import_is_lightweight(self):
         for module_name in (
-            "dmdcontrol.preview",
-            "dmdcontrol.preview.server",
-            "dmd_preview_render",
+                "dmdcontrol.preview",
+                "dmdcontrol.preview.server",
+                "dmd_preview_render",
         ):
             sys.modules.pop(module_name, None)
 

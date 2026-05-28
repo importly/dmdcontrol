@@ -28,7 +28,7 @@ def _paint_vertical_bands(frame, spacing, thickness, offset):
     width = frame.shape[1]
     x = offset % spacing
     while x < width:
-        frame[:, x : min(width, x + thickness), :] = 255
+        frame[:, x: min(width, x + thickness), :] = 255
         x += spacing
 
 
@@ -36,17 +36,17 @@ def _paint_horizontal_bands(frame, spacing, thickness, offset):
     height = frame.shape[0]
     y = offset % spacing
     while y < height:
-        frame[y : min(height, y + thickness), :, :] = 255
+        frame[y: min(height, y + thickness), :, :] = 255
         y += spacing
 
 
 def generate_coarse_grid_rgb(
-    width=1920,
-    height=1080,
-    spacing=DEFAULT_COARSE_GRID_SPACING,
-    thickness=DEFAULT_COARSE_GRID_THICKNESS,
-    offset_x=0,
-    offset_y=0,
+        width=1920,
+        height=1080,
+        spacing=DEFAULT_COARSE_GRID_SPACING,
+        thickness=DEFAULT_COARSE_GRID_THICKNESS,
+        offset_x=0,
+        offset_y=0,
 ):
     """Return a binary RGB grid with human-scale spacing and thick strokes."""
     _validate_spacing(spacing, thickness)
@@ -57,12 +57,12 @@ def generate_coarse_grid_rgb(
 
 
 def generate_coarse_lines_rgb(
-    width=1920,
-    height=1080,
-    spacing=DEFAULT_COARSE_LINE_SPACING,
-    thickness=DEFAULT_COARSE_LINE_THICKNESS,
-    orientation="vertical",
-    offset=0,
+        width=1920,
+        height=1080,
+        spacing=DEFAULT_COARSE_LINE_SPACING,
+        thickness=DEFAULT_COARSE_LINE_THICKNESS,
+        orientation="vertical",
+        offset=0,
 ):
     """Return thick vertical or horizontal bands instead of one-pixel lines."""
     _validate_spacing(spacing, thickness)

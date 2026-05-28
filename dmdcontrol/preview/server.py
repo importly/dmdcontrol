@@ -7,6 +7,8 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+from dmdcontrol.patterns.modes import PATTERN_NAMES
+from dmdcontrol.patterns.paired import PAIR_TESTS, STATIC_PAIR_TESTS
 from dmdcontrol.preview.html import INDEX_HTML
 from dmdcontrol.preview.render import (
     BITPLANE_LABELS,
@@ -15,9 +17,6 @@ from dmdcontrol.preview.render import (
     render_preview_png,
     render_view_image,
 )
-from dmdcontrol.patterns.paired import PAIR_TESTS, STATIC_PAIR_TESTS
-from dmdcontrol.patterns.modes import PATTERN_NAMES
-
 
 
 class DmdPreviewHandler(BaseHTTPRequestHandler):

@@ -92,8 +92,8 @@ class DmdPreviewServerTests(unittest.TestCase):
 
     def test_offline_frame_endpoints_return_png(self):
         for path in (
-            "/api/frame.png?layout=pair&test=coarse-grid&view=packed",
-            "/api/frame.png?layout=pair&test=coarse-grid&view=bitplane&plane=0",
+                "/api/frame.png?layout=pair&test=coarse-grid&view=packed",
+                "/api/frame.png?layout=pair&test=coarse-grid&view=bitplane&plane=0",
         ):
             with self.subTest(path=path):
                 with self._get(path) as response:
@@ -105,8 +105,8 @@ class DmdPreviewServerTests(unittest.TestCase):
 
     def test_offline_frame_accepts_plane_labels_from_page_controls(self):
         for path in (
-            "/api/frame.png?layout=pair&test=coarse-grid&view=packed&plane=G0&frame=0",
-            "/api/frame.png?layout=pair&test=coarse-grid&view=bitplane&plane=G0&frame=0",
+                "/api/frame.png?layout=pair&test=coarse-grid&view=packed&plane=G0&frame=0",
+                "/api/frame.png?layout=pair&test=coarse-grid&view=bitplane&plane=G0&frame=0",
         ):
             with self.subTest(path=path):
                 with self._get(path) as response:

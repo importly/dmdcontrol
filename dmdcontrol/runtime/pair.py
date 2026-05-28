@@ -3,19 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import math
 import threading
 import time
 from dataclasses import dataclass
 
-from dmdcontrol.support.constants import BITPLANES, DEFAULT_SEQUENCE_UTILIZATION
-from dmdcontrol.runtime.lifecycle import (
-    build_lut_entries,
-    load_pattern_sequence,
-    prepare_dlpc900_for_video_pattern,
-    start_loaded_pattern_sequences,
-)
 from dmdcontrol.hardware.mapping import DmdMapping, resolve_dmd_mapping
-from dmdcontrol.support.logging import logger, setup_logger
 from dmdcontrol.patterns.calibration_square import (
     build_calibration_square_frame,
     make_calibration_square_frame_provider,
@@ -26,14 +19,15 @@ from dmdcontrol.patterns.kernel import (
     compute_kernel_lut_override,
 )
 from dmdcontrol.patterns.modes import default_calibration_square_state
-from dmdcontrol.preview.render import LivePreviewPoster, build_lut_preview_metadata
 from dmdcontrol.patterns.paired import (
+    A_NUMBERS_B_STATIC_PAIR_TEST,
     CALIBRATION_DOT_PAIR_TEST,
     CalibrationSquareDotPairFrameProvider,
     DMD_HEIGHT,
     DMD_WIDTH,
     DynamicAStaticBPairFrameProvider,
     KERNEL_STATIC_PAIR_TEST,
+    NUMBER_PAIR_TEST,
     OFFSET_A,
     OFFSET_B,
     PAIR_HEIGHT,
@@ -45,6 +39,16 @@ from dmdcontrol.patterns.paired import (
     generate_static_frame,
     make_pair_frame_provider,
 )
+from dmdcontrol.preview.render import LivePreviewPoster, build_lut_preview_metadata
+from dmdcontrol.runtime.lifecycle import (
+    build_lut_entries,
+    compute_trigger_out_2_timing,
+    load_pattern_sequence,
+    prepare_dlpc900_for_video_pattern,
+    start_loaded_pattern_sequences,
+)
+from dmdcontrol.support.constants import BITPLANES, DEFAULT_SEQUENCE_UTILIZATION
+from dmdcontrol.support.logging import logger, setup_logger
 
 
 @dataclass(frozen=True)
@@ -75,6 +79,18 @@ def _nonnegative_int(value):
     if parsed < 0:
         raise argparse.ArgumentTypeError("must be non-negative")
     return parsed
+
+
+def _parse_numbers(value):
+    try:
+        numbers = [int(part.strip()) for part in value.split(",") if part.strip()]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("numbers must be decimal digits") from exc
+    if not numbers:
+        raise argparse.ArgumentTypeError("numbers must not be empty")
+    if any(number < 1 or number > 9 for number in numbers):
+        raise argparse.ArgumentTypeError("numbers must be in the range 1..9")
+    return numbers
 
 
 def resolve_pair_config(config_path=None, target_hz=None):
@@ -171,6 +187,24 @@ def _build_parser():
         default=3,
         help="A-kernel paired recipe: all-black VSYNC frames prepended to each cycle",
     )
+    parser.add_argument(
+        "--numbers",
+        type=_parse_numbers,
+        default=_parse_numbers("1,2,3,4,5"),
+        help="Numbers paired recipe: comma-separated sequence of digits 1..9",
+    )
+    parser.add_argument(
+        "--numbers-exposure-us",
+        type=_positive_int,
+        default=None,
+        help="Numbers paired recipe: optional per-bitplane LUT exposure override",
+    )
+    parser.add_argument(
+        "--numbers-size-px",
+        type=_positive_int,
+        default=None,
+        help="Numbers paired recipe: seven-segment digit height in pixels",
+    )
     parser.add_argument("--wake-dp", action="store_true", help="Wake both DP receivers in main_pair.py")
     parser.add_argument(
         "--dual-pixel",
@@ -187,6 +221,18 @@ def _build_parser():
         "--trig2-frame-zero",
         action="store_true",
         help="Emit TRIG_OUT_2 only for bitplane/frame-zero anchor entries",
+    )
+    parser.add_argument(
+        "--trigger-out-2-delay-fraction",
+        type=float,
+        default=0.03,
+        help="Fraction of LUT exposure used as TRIG_OUT_2 rising-edge delay. Default: 0.03.",
+    )
+    parser.add_argument(
+        "--dark-time-us",
+        type=int,
+        default=None,
+        help="Optional override for INTER_PATTERN_DARK_US",
     )
     parser.add_argument(
         "--dry-run-timing",
@@ -211,9 +257,19 @@ def _build_parser():
 def _validate_pair_args(args):
     if args.preview_fps <= 0:
         raise SystemExit("--preview-fps must be positive")
+    if not math.isfinite(args.trigger_out_2_delay_fraction):
+        raise SystemExit("--trigger-out-2-delay-fraction must be finite")
+    if args.trigger_out_2_delay_fraction < 0:
+        raise SystemExit("--trigger-out-2-delay-fraction must be non-negative")
     if args.test == KERNEL_STATIC_PAIR_TEST:
         if args.test_a:
             raise SystemExit("--test-a is not valid for a-kernel-b-static; A is the kernel stream")
+        return
+    if args.test in (NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST):
+        if args.test == A_NUMBERS_B_STATIC_PAIR_TEST and args.test_a:
+            raise SystemExit("--test-a is not valid for a-numbers-b-static; A is the numbers stream")
+        if len(args.numbers) > BITPLANES:
+            raise SystemExit(f"--numbers can contain at most {BITPLANES} entries")
         return
     if args.test not in STATIC_PAIR_TESTS and (args.test_a or args.test_b):
         raise SystemExit("--test-a/--test-b are only valid for static paired tests")
@@ -225,7 +281,18 @@ def _kernel_lut_override(args, target_hz):
         kernel_exposure_us=args.kernel_exposure_us,
         target_hz=target_hz,
         sequence_utilization=args.seq_utilization,
+        dark_time_us=getattr(args, "dark_time_us", None),
     )
+
+
+def _lut_override(args, target_hz):
+    if args.test in (NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST):
+        # The numbers recipe packs only the requested digits into the first N
+        # video bitplanes. The LUT must expose exactly those N bitplanes, not
+        # all 24 possible RGB bitplanes. Forcing BITPLANES makes long exposures
+        # impossible at 60 Hz; e.g. 24 * 3000 us.
+        return len(args.numbers), args.numbers_exposure_us
+    return _kernel_lut_override(args, target_hz)
 
 
 def _make_runtime_pair_frame_provider(args, engine, target_hz):
@@ -309,11 +376,26 @@ def _make_runtime_pair_frame_provider(args, engine, target_hz):
             width=DMD_WIDTH,
             height=DMD_HEIGHT,
         )
+    if args.test in (NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST):
+        return make_pair_frame_provider(
+            args.test,
+            test_b=args.test_b,
+            numbers=args.numbers,
+            numbers_size_px=args.numbers_size_px,
+            numbers_exposure_us=args.numbers_exposure_us,
+            b_dot_x=args.b_dot_x,
+            b_dot_y=args.b_dot_y,
+            b_dot_radius=args.b_dot_radius,
+            b_dot_shape=args.b_dot_shape,
+            b_dot_invert=args.b_dot_invert,
+            width=DMD_WIDTH,
+            height=DMD_HEIGHT,
+        )
     return make_pair_frame_provider(args.test, width=DMD_WIDTH, height=DMD_HEIGHT)
 
 
 def _dry_run_timing(args, pair_config):
-    entries_count, exposure_us = _kernel_lut_override(args, pair_config.target_hz)
+    entries_count, exposure_us = _lut_override(args, pair_config.target_hz)
     entries, timing = build_lut_entries(
         _DryRunDLPC(),
         pair_config.target_hz,
@@ -321,6 +403,7 @@ def _dry_run_timing(args, pair_config):
         trig2_frame_zero=args.trig2_frame_zero,
         entries_count=entries_count,
         per_entry_exposure_us=exposure_us,
+        dark_time_us=args.dark_time_us,
     )
     logger.info("[DRY RUN] Hardware was not opened. OpenGL and USB modules were not imported.")
     logger.info(
@@ -356,6 +439,12 @@ def _dry_run_timing(args, pair_config):
             f"{args.kernel_leader_frames * slots} leader fires, 512 kernels, {pad} pad fires"
             f"{', ' + str(slots) + ' end-marker fires' if args.kernel_blank_end_frame else ''}."
         )
+    elif args.test in (NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST):
+        logger.info(
+            f"[DRY RUN] Pair content: numbers={','.join(str(n) for n in args.numbers)}, "
+            f"per-bitplane exposure={args.numbers_exposure_us or timing['exposure_us']}us, "
+            f"size_px={args.numbers_size_px or 'default'} on both DMDs."
+        )
     elif args.test in STATIC_PAIR_TESTS:
         logger.info(
             f"[DRY RUN] Pair content: test={args.test}, test_a={args.test_a or args.test}, "
@@ -374,6 +463,16 @@ def _dry_run_timing(args, pair_config):
     logger.info(
         f"[DRY RUN] TRIG_OUT_2 mode: {timing['trig2_mode']}; expected pulses/s="
         f"{timing['effective_frame_hz'] if args.trig2_frame_zero else timing['effective_binary_rate_hz']:.1f}."
+    )
+    trigger_timing = compute_trigger_out_2_timing(
+        timing["exposure_us"],
+        delay_fraction=args.trigger_out_2_delay_fraction,
+    )
+    timing["trigger_out_2"] = trigger_timing
+    logger.info(
+        f"[DRY RUN] TRIG_OUT_2 rising edge delay={trigger_timing['rising_delay_us']}us, "
+        f"falling={trigger_timing['falling_delay_us']}us "
+        f"({trigger_timing['delay_fraction']:.3f} of {trigger_timing['delay_basis']})."
     )
 
 
@@ -406,6 +505,12 @@ def _build_live_preview_metadata(args, pair_config, state_a, state_b):
         },
         "target_hz": pair_config.target_hz,
     }
+    if args.test in (NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST):
+        metadata["numbers"] = {
+            "sequence": list(args.numbers),
+            "exposure_us": args.numbers_exposure_us,
+            "size_px": args.numbers_size_px,
+        }
     if lut_state:
         metadata["lut"] = build_lut_preview_metadata(lut_state["entries"], lut_state["timing"])
         metadata["lut_applies_to"] = ["A", "B"]
@@ -413,13 +518,13 @@ def _build_live_preview_metadata(args, pair_config, state_a, state_b):
 
 
 def _run_pair_render_loop(
-    dlpc_a,
-    dlpc_b,
-    engine,
-    provider,
-    args,
-    preview_poster=None,
-    preview_metadata=None,
+        dlpc_a,
+        dlpc_b,
+        engine,
+        provider,
+        args,
+        preview_poster=None,
+        preview_metadata=None,
 ):
     end_t = None if args.runtime_seconds <= 0 else time.time() + args.runtime_seconds
     while (end_t is None or time.time() < end_t) and not engine.should_close():
@@ -464,19 +569,11 @@ def _stop_pair_pump(engine, pump_event, pump_thread):
     engine.make_context_current()
 
 
-def main(argv=None):
-    args = _build_parser().parse_args(argv)
-    setup_logger(verbosity=args.verbose)
-    pair_config = resolve_pair_config(args.dmd_config, target_hz=args.hz)
-    _validate_pair_args(args)
-    lut_entries_count, lut_per_entry_exposure_us = _kernel_lut_override(
+def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
+    lut_entries_count, lut_per_entry_exposure_us = _lut_override(
         args,
         pair_config.target_hz,
     )
-
-    if args.dry_run_timing:
-        _dry_run_timing(args, pair_config)
-        return 0
 
     from dmdcontrol.hardware.dlpc900 import DLPC900
     from dmdcontrol.patterns.paired import PairedPatternEngine
@@ -523,6 +620,8 @@ def main(argv=None):
             trig2_frame_zero=args.trig2_frame_zero,
             entries_count=lut_entries_count,
             per_entry_exposure_us=lut_per_entry_exposure_us,
+            trigger_out_2_delay_fraction=args.trigger_out_2_delay_fraction,
+            dark_time_us=args.dark_time_us,
         )
         logger.info("[+] Preparing DMD B controller without starting sequencer...")
         state_b = prepare_dlpc900_for_video_pattern(
@@ -533,6 +632,8 @@ def main(argv=None):
             trig2_frame_zero=args.trig2_frame_zero,
             entries_count=lut_entries_count,
             per_entry_exposure_us=lut_per_entry_exposure_us,
+            trigger_out_2_delay_fraction=args.trigger_out_2_delay_fraction,
+            dark_time_us=args.dark_time_us,
         )
 
         logger.info("[+] Loading paired pattern LUTs without starting sequencers...")
@@ -540,8 +641,17 @@ def main(argv=None):
         load_pattern_sequence(dlpc_b, state_b["entries"])
         live_preview_metadata = _build_live_preview_metadata(args, pair_config, state_a, state_b)
 
+        if before_sequencer_start is not None:
+            before_sequencer_start({
+                "args": args,
+                "pair_config": pair_config,
+                "state_a": state_a,
+                "state_b": state_b,
+                "preview_metadata": live_preview_metadata,
+            })
+
         logger.info("[+] Starting both DLPC900 sequencers from paired software barrier...")
-        start_loaded_pattern_sequences(dlpc_a, dlpc_b, verify=True)
+        start_loaded_pattern_sequences(dlpc_a, dlpc_b, post_start_delay_s=0.0, verify=True)
         logger.info("[SCOPE] Compare TRIG_OUT_2_A and TRIG_OUT_2_B for start skew and drift.")
 
         _stop_pair_pump(engine, pump_event, pump_thread)
@@ -584,6 +694,30 @@ def main(argv=None):
                 logger.warning(f"DMD {label} cleanup warning: {cleanup_exc}")
         if engine is not None:
             engine.cleanup()
+
+
+def run_with_before_start_callback(argv, before_start):
+    args = _build_parser().parse_args(argv)
+    setup_logger(verbosity=args.verbose)
+    pair_config = resolve_pair_config(args.dmd_config, target_hz=args.hz)
+    _validate_pair_args(args)
+    if args.dry_run_timing:
+        _dry_run_timing(args, pair_config)
+        return 0
+    return _run_prepared_pair(args, pair_config, before_sequencer_start=before_start)
+
+
+def main(argv=None):
+    args = _build_parser().parse_args(argv)
+    setup_logger(verbosity=args.verbose)
+    pair_config = resolve_pair_config(args.dmd_config, target_hz=args.hz)
+    _validate_pair_args(args)
+
+    if args.dry_run_timing:
+        _dry_run_timing(args, pair_config)
+        return 0
+
+    return _run_prepared_pair(args, pair_config)
 
 
 if __name__ == "__main__":

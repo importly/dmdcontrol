@@ -8,7 +8,6 @@ from dmdcontrol.runtime import pair as _pair
 from dmdcontrol.runtime.pair import main
 from dmdcontrol.support.logging import logger
 
-
 if __name__ == "__main__":
     try:
         raise SystemExit(main())

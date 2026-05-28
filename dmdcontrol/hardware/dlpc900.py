@@ -100,13 +100,13 @@ class DLPC900:
         buf = bytearray([
             flag, seq,
             plen & 0xFF, (plen >> 8) & 0xFF,
-            cmd_id & 0xFF,          # LSB → byte 4
-            (cmd_id >> 8) & 0xFF,   # MSB → byte 5
+            cmd_id & 0xFF,  # LSB → byte 4
+            (cmd_id >> 8) & 0xFF,  # MSB → byte 5
         ])
         buf.extend(data)
 
         for off in range(0, max(len(buf), 1), 64):
-            chunk = bytes(buf[off : off + 64]).ljust(64, b"\x00")
+            chunk = bytes(buf[off: off + 64]).ljust(64, b"\x00")
             try:
                 self.dev.write(0x01, chunk, timeout=2000)
             except usb.core.USBError:
@@ -170,11 +170,11 @@ class DLPC900:
             return b""
         # With command echo: data starts at byte 6, length = plen - 2.
         if len(resp) >= 7 and plen >= 2:
-            d = resp[6 : 6 + (plen - 2)]
+            d = resp[6: 6 + (plen - 2)]
             if len(d) >= min_len:
                 return d
         # Without command echo: data starts at byte 4, length = plen.
-        d = resp[4 : 4 + plen]
+        d = resp[4: 4 + plen]
         return d if len(d) >= min_len else None
 
     # ---- status / diagnostic -----------------------------------------
@@ -212,12 +212,12 @@ class DLPC900:
         if p:
             v = p[0]
             return {
-                "dmd_parked":            bool(v & 0x01),
-                "sequencer_running":     bool(v & 0x02),
-                "video_frozen":          bool(v & 0x04),
-                "external_source_locked":bool(v & 0x08),
-                "port1_syncs_valid":     bool(v & 0x10),
-                "port2_syncs_valid":     bool(v & 0x20),
+                "dmd_parked": bool(v & 0x01),
+                "sequencer_running": bool(v & 0x02),
+                "video_frozen": bool(v & 0x04),
+                "external_source_locked": bool(v & 0x08),
+                "port1_syncs_valid": bool(v & 0x10),
+                "port2_syncs_valid": bool(v & 0x20),
                 "raw": hex(v),
             }
         return None
@@ -232,6 +232,7 @@ class DLPC900:
         p = self._payload(resp, min_len=16)
         if not p or len(p) < 16:
             return None
+
         def _ver(buf):
             return {
                 "major": buf[3],
@@ -239,10 +240,11 @@ class DLPC900:
                 "patch": buf[0] | (buf[1] << 8),
                 "str": f"{buf[3]}.{buf[2]}.{buf[0] | (buf[1] << 8)}",
             }
+
         return {
-            "app":     _ver(p[0:4]),
-            "api":     _ver(p[4:8]),
-            "sw_cfg":  _ver(p[8:12]),
+            "app": _ver(p[0:4]),
+            "api": _ver(p[4:8]),
+            "sw_cfg": _ver(p[8:12]),
             "seq_cfg": _ver(p[12:16]),
         }
 
@@ -273,14 +275,14 @@ class DLPC900:
         p = self._payload(resp, min_len=18)
         if p and len(p) >= 18:
             return {
-                "total_pixels_per_line":   struct.unpack_from("<H", p, 0)[0],
-                "total_lines_per_frame":   struct.unpack_from("<H", p, 2)[0],
-                "active_pixels_per_line":  struct.unpack_from("<H", p, 4)[0],
-                "active_lines_per_frame":  struct.unpack_from("<H", p, 6)[0],
-                "first_active_pixel":      struct.unpack_from("<H", p, 8)[0],
-                "first_active_line":       struct.unpack_from("<H", p, 10)[0],
+                "total_pixels_per_line": struct.unpack_from("<H", p, 0)[0],
+                "total_lines_per_frame": struct.unpack_from("<H", p, 2)[0],
+                "active_pixels_per_line": struct.unpack_from("<H", p, 4)[0],
+                "active_lines_per_frame": struct.unpack_from("<H", p, 6)[0],
+                "first_active_pixel": struct.unpack_from("<H", p, 8)[0],
+                "first_active_line": struct.unpack_from("<H", p, 10)[0],
                 "bottom_field_first_line": struct.unpack_from("<H", p, 12)[0],
-                "pixel_clock_khz":         struct.unpack_from("<I", p, 14)[0],
+                "pixel_clock_khz": struct.unpack_from("<I", p, 14)[0],
             }
         return None
 
@@ -290,12 +292,12 @@ class DLPC900:
         if p:
             v = p[0]
             modes = {0: "Single Pixel Port 1", 1: "Single Pixel Port 2",
-                     2: "Dual Pixel P1-P2",    3: "Dual Pixel P2-P1"}
+                     2: "Dual Pixel P1-P2", 3: "Dual Pixel P2-P1"}
             return {
-                "pixel_mode":   modes.get(v & 0x03, f"Unknown({v & 0x03})"),
-                "pixel_clock":  f"Clock {((v >> 2) & 0x03) + 1}",
-                "data_enable":  f"DE {((v >> 4) & 0x01) + 1}",
-                "sync_select":  f"P{((v >> 5) & 0x01) + 1} VSync/HSync",
+                "pixel_mode": modes.get(v & 0x03, f"Unknown({v & 0x03})"),
+                "pixel_clock": f"Clock {((v >> 2) & 0x03) + 1}",
+                "data_enable": f"DE {((v >> 4) & 0x01) + 1}",
+                "sync_select": f"P{((v >> 5) & 0x01) + 1} VSync/HSync",
                 "raw": hex(v),
             }
         return None
@@ -305,8 +307,8 @@ class DLPC900:
         p = self._payload(resp, min_len=5)
         if p and len(p) >= 5:
             return {
-                "polarity":        "Inverted" if p[0] & 0x01 else "Non-inverted",
-                "rising_delay_us":  struct.unpack_from("<h", p, 1)[0],
+                "polarity": "Inverted" if p[0] & 0x01 else "Non-inverted",
+                "rising_delay_us": struct.unpack_from("<h", p, 1)[0],
                 "falling_delay_us": struct.unpack_from("<h", p, 3)[0],
                 "raw": p.hex(),
             }
@@ -317,8 +319,8 @@ class DLPC900:
         p = self._payload(resp, min_len=5)
         if p and len(p) >= 5:
             return {
-                "polarity":        "Inverted" if p[0] & 0x01 else "Non-inverted",
-                "rising_delay_us":  struct.unpack_from("<h", p, 1)[0],
+                "polarity": "Inverted" if p[0] & 0x01 else "Non-inverted",
+                "rising_delay_us": struct.unpack_from("<h", p, 1)[0],
                 "falling_delay_us": struct.unpack_from("<h", p, 3)[0],
                 "raw": p.hex(),
             }
@@ -335,10 +337,10 @@ class DLPC900:
 
     def set_port_config(self, pixel_mode=2, pixel_clock=0, data_enable=0, sync_select=0):
         val = (
-            (pixel_mode  & 0x03)
-            | ((pixel_clock  & 0x03) << 2)
-            | ((data_enable  & 0x01) << 4)
-            | ((sync_select  & 0x01) << 5)
+                (pixel_mode & 0x03)
+                | ((pixel_clock & 0x03) << 2)
+                | ((data_enable & 0x01) << 4)
+                | ((sync_select & 0x01) << 5)
         )
         self._write(0x1A03, struct.pack("<B", val))
 
@@ -353,8 +355,8 @@ class DLPC900:
         out_w = in_w if out_w is None else out_w
         out_h = in_h if out_h is None else out_h
         self._write(0x1000, struct.pack("<HHHHHHHH",
-                                       in_x, in_y, in_w, in_h,
-                                       out_x, out_y, out_w, out_h))
+                                        in_x, in_y, in_w, in_h,
+                                        out_x, out_y, out_w, out_h))
 
     # ---- LEDs --------------------------------------------------------
 
@@ -382,12 +384,12 @@ class DLPC900:
     # ---- triggers ----------------------------------------------------
 
     def configure_trigger_out_1(self, polarity_high=True,
-                                 rising_delay_us=0, falling_delay_us=20):
+                                rising_delay_us=0, falling_delay_us=20):
         b0 = 0 if polarity_high else 1
         self._write(0x1A1D, struct.pack("<Bhh", b0, rising_delay_us, falling_delay_us))
 
     def configure_trigger_out_2(self, polarity_high=True,
-                                 rising_delay_us=0, falling_delay_us=20):
+                                rising_delay_us=0, falling_delay_us=20):
         b0 = 0 if polarity_high else 1
         self._write(0x1A1E, struct.pack("<Bhh", b0, rising_delay_us, falling_delay_us))
 
@@ -444,21 +446,21 @@ class DLPC900:
             bit_pos = int(bit_pos)
             image_index = int(image_index)
 
-            ext_depth   = 1 if depth > 8 else 0
+            ext_depth = 1 if depth > 8 else 0
             depth_field = (depth - 1) & 0x07
-            exp3        = struct.pack("<I", exp_us)[:3]
-            dark3       = struct.pack("<I", dark_us)[:3]
-            b5          = (1 if clear else 0) | (depth_field << 1) | ((led & 0x07) << 4)
-            b9          = (1 if trig2_disable else 0) | ((ext_depth & 0x01) << 1)
-            b1011       = (image_index & 0x07FF) | ((bit_pos & 0x1F) << 11)
+            exp3 = struct.pack("<I", exp_us)[:3]
+            dark3 = struct.pack("<I", dark_us)[:3]
+            b5 = (1 if clear else 0) | (depth_field << 1) | ((led & 0x07) << 4)
+            b9 = (1 if trig2_disable else 0) | ((ext_depth & 0x01) << 1)
+            b1011 = (image_index & 0x07FF) | ((bit_pos & 0x1F) << 11)
 
             entry_payload = (
-                struct.pack("<H", idx)
-                + exp3
-                + struct.pack("<B", b5)
-                + dark3
-                + struct.pack("<B", b9)
-                + struct.pack("<H", b1011)
+                    struct.pack("<H", idx)
+                    + exp3
+                    + struct.pack("<B", b5)
+                    + dark3
+                    + struct.pack("<B", b9)
+                    + struct.pack("<H", b1011)
             )
             self._write(0x1A34, entry_payload)
 

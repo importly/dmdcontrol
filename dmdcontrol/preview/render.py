@@ -12,7 +12,6 @@ import numpy as np
 from PIL import Image
 
 from dmdcontrol.patterns.calibration_square import build_calibration_square_frame
-from dmdcontrol.support.constants import BITPLANES
 from dmdcontrol.patterns.kernel import build_kernel_frames
 from dmdcontrol.patterns.modes import (
     NUMBER_SEQUENCE,
@@ -34,6 +33,7 @@ from dmdcontrol.patterns.paired import (
     generate_dot_frame,
     generate_static_frame,
 )
+from dmdcontrol.support.constants import BITPLANES
 
 BITPLANE_LABELS = tuple(
     [f"G{i}" for i in range(8)]
@@ -175,7 +175,7 @@ class PreviewEngine:
             img = np.zeros((self.height, self.width), dtype=np.uint8)
             bx_start = x_start + (i * block_w)
             bx_end = min(x_start + sub_width, bx_start + block_w)
-            img[y_start : y_start + sub_height, bx_start:bx_end] = 1
+            img[y_start: y_start + sub_height, bx_start:bx_end] = 1
             patterns.append(img)
         return patterns
 
@@ -209,7 +209,7 @@ def _clock_preview_frame(frame_index, width=DMD_WIDTH, height=DMD_HEIGHT):
     frame = np.zeros((height, width, 3), dtype=np.uint8)
     stripe = max(1, width // 16)
     x0 = (frame_index % 16) * stripe
-    frame[:, x0 : min(width, x0 + stripe), :] = 255
+    frame[:, x0: min(width, x0 + stripe), :] = 255
     return np.ascontiguousarray(frame)
 
 
@@ -281,11 +281,11 @@ def render_pair_frame(test="coarse-grid", test_a=None, test_b=None, frame_index=
 
 
 def render_offline_frame(
-    layout="pair",
-    test="coarse-grid",
-    test_a=None,
-    test_b=None,
-    frame_index=0,
+        layout="pair",
+        test="coarse-grid",
+        test_a=None,
+        test_b=None,
+        frame_index=0,
 ):
     if layout == "pair":
         return render_pair_frame(test=test, test_a=test_a, test_b=test_b, frame_index=frame_index)
@@ -321,13 +321,13 @@ def render_png_bytes(image_array):
 
 
 def render_preview_png(
-    layout="pair",
-    test="coarse-grid",
-    test_a=None,
-    test_b=None,
-    frame_index=0,
-    view="packed",
-    plane=0,
+        layout="pair",
+        test="coarse-grid",
+        test_a=None,
+        test_b=None,
+        frame_index=0,
+        view="packed",
+        plane=0,
 ):
     packed = render_offline_frame(
         layout=layout,
