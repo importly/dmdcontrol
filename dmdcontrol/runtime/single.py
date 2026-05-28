@@ -42,13 +42,13 @@ def _build_parser():
     parser.add_argument("--dmd", default=None,
                         help="Configured DMD name from dmd_devices.json, for example A or B.")
     parser.add_argument("--dmd-config", default=None,
-                        help="Path to DMD mapping config. Defaults to dmd_devices.json next to main.py.")
+                        help="Path to DMD mapping config. Defaults to repository dmd_devices.json.")
     parser.add_argument("--test", choices=PATTERN_NAMES, default="checkerboard",
                         help=f"Diagnostic pattern mode. Choices: {', '.join(PATTERN_NAMES)}.")
     parser.add_argument("--trigger", action="store_true", help="Software Trigger Mode (Approach A)")
     parser.add_argument("--runtime-seconds", type=int, default=60,
                         help="Runtime for diagnostic patterns. Use 0 to run until ESC/window close.")
-    parser.add_argument("--wake-dp", action="store_true", help="Wake DP receiver in main.py")
+    parser.add_argument("--wake-dp", action="store_true", help="Wake DP receiver before runtime")
     parser.add_argument("--dual-pixel", action="store_true",
                         help="Force dual-pixel P1-P2 mode for DLPC900 parallel input (default: single-pixel P1)")
     parser.add_argument("--seq-utilization", type=float, default=DEFAULT_SEQUENCE_UTILIZATION,

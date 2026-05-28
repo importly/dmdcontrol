@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from pattern_modes import (
+from dmdcontrol.patterns.modes import (
     apply_calibration_square_commands,
     calibration_square_bounds,
     default_calibration_square_state,

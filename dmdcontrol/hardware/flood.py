@@ -8,17 +8,17 @@ Purpose:
 
 Typical workflow:
   1. Plug in ONLY the DMD/controller you want to flood.
-  2. Run: ./run_flood_white_usb.sh --yes --white
+  2. Run: python -m dmdcontrol flood run --yes --white
   3. Disconnect that controller.
   4. Plug in the calibration DMD/controller and run run_calibr_square.sh.
 
 Examples:
-  ./flood_white_usb.py --yes
-  ./flood_white_usb.py --yes --white
-  ./flood_white_usb.py --yes --black
-  ./flood_white_usb.py --yes --invert
-  ./flood_white_usb.py --yes --black --invert
-  ./flood_white_usb.py --yes --allow-multiple
+  python -m dmdcontrol flood run --yes
+  python -m dmdcontrol flood run --yes --white
+  python -m dmdcontrol flood run --yes --black
+  python -m dmdcontrol flood run --yes --invert
+  python -m dmdcontrol flood run --yes --black --invert
+  python -m dmdcontrol flood run --yes --allow-multiple
 """
 
 import argparse

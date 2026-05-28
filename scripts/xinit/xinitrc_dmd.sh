@@ -3,8 +3,9 @@
 set -e
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/dmd_shell_common.sh"
-source "$SCRIPT_DIR/dmd_x11_common.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$REPO_ROOT/scripts/lib/dmd_shell_common.sh"
+source "$REPO_ROOT/scripts/lib/dmd_x11_common.sh"
 
 echo "=== xinitrc_dmd: Configuring display for NVIDIA ==="
 sleep 1
@@ -28,8 +29,8 @@ dmd_parse_dmd_config_arg "$@"
 
 MONITOR_INDEX=0
 if [ -n "$DMD_NAME" ]; then
-    DP_OUTPUT="$(dmd_config_field "$SCRIPT_DIR" "$DMD_NAME" xrandr_output "${DMD_CONFIG_FIELD_ARGS[@]}")"
-    MONITOR_FROM_CONFIG="$(dmd_config_field "$SCRIPT_DIR" "$DMD_NAME" glfw_monitor_index "${DMD_CONFIG_FIELD_ARGS[@]}")"
+    DP_OUTPUT="$(dmd_config_field "$REPO_ROOT" "$DMD_NAME" xrandr_output "${DMD_CONFIG_FIELD_ARGS[@]}")"
+    MONITOR_FROM_CONFIG="$(dmd_config_field "$REPO_ROOT" "$DMD_NAME" glfw_monitor_index "${DMD_CONFIG_FIELD_ARGS[@]}")"
     if [ -n "$MONITOR_FROM_CONFIG" ]; then
         MONITOR_INDEX="$MONITOR_FROM_CONFIG"
     fi
@@ -77,4 +78,4 @@ echo "--- xrandr verification ---"
 xrandr --query 2>/dev/null | grep -A 1 "^$DP_OUTPUT" | head -3
 
 echo "=== Launching dmdcontrol single run ==="
-dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol single run --monitor "$MONITOR_INDEX" "$@"
+dmd_exec_python_module "$REPO_ROOT" dmdcontrol single run --monitor "$MONITOR_INDEX" "$@"

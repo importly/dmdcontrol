@@ -24,7 +24,17 @@ import zlib
 from pathlib import Path
 
 import numpy as np
-import dv_processing as dv
+
+
+def import_dv_processing():
+    try:
+        import dv_processing as dv
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "dv_processing is required for live camera probing. Install it on the DMD box "
+            "with the iniVation packages before running a real capture."
+        ) from exc
+    return dv
 
 
 def positive_float(value: str) -> float:
@@ -193,6 +203,7 @@ def drain_events(capture, seconds: float) -> tuple[int, int]:
 
 def run() -> int:
     args = build_parser().parse_args()
+    dv = import_dv_processing()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 

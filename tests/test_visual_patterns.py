@@ -2,8 +2,8 @@ import unittest
 
 import numpy as np
 
-from pattern_modes import PATTERN_MODES
-from visual_patterns import (
+from dmdcontrol.patterns.modes import PATTERN_MODES
+from dmdcontrol.patterns.visual import (
     DEFAULT_COARSE_GRID_SPACING,
     DEFAULT_COARSE_GRID_THICKNESS,
     DEFAULT_COARSE_LINE_SPACING,

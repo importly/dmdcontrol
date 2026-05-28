@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import time
 
-from dlpc900_hid import DLPC900
+from dmdcontrol.hardware.dlpc900 import DLPC900
 
 
 def main():

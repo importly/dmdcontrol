@@ -6,7 +6,7 @@ set -e
 
 echo "=== DLPC900 Calibration Square ==="
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/dmd_shell_common.sh"
+source "$SCRIPT_DIR/scripts/lib/dmd_shell_common.sh"
 
 CONTROL_FILE="$(dmd_create_calibr_square_control_file)"
 DMD_CALIBR_CONTROL_PID=""
@@ -24,7 +24,7 @@ dmd_wait_for_hotplug "Xorg and GPU to detect the DP hotplug event"
 echo "=== Launching Interactive Calibration Square ==="
 dmd_start_calibr_square_control_reader "$CONTROL_FILE" "dmdcontrol single run"
 
-dmd_run_xinit "$SCRIPT_DIR" "$SCRIPT_DIR/xinitrc_dmd.sh" \
+dmd_run_xinit "$SCRIPT_DIR" "$SCRIPT_DIR/scripts/xinit/xinitrc_dmd.sh" \
     --test calibr-square \
     --calibr-square-control-file "$CONTROL_FILE" \
     --runtime-seconds 0 \

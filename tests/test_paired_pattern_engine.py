@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from paired_pattern_engine import (
+from dmdcontrol.patterns.paired import (
     CalibrationSquareDotPairFrameProvider,
     DynamicAStaticBPairFrameProvider,
     DynamicGradientPairFrameProvider,
@@ -15,8 +15,8 @@ from paired_pattern_engine import (
     generate_dot_frame,
     generate_static_frame,
 )
-from pattern_modes import generate_number_rgb
-from visual_patterns import DEFAULT_COARSE_GRID_SPACING, generate_coarse_grid_rgb
+from dmdcontrol.patterns.modes import generate_number_rgb
+from dmdcontrol.patterns.visual import DEFAULT_COARSE_GRID_SPACING, generate_coarse_grid_rgb
 
 
 def _extract_packed_bitplane(frame, plane):

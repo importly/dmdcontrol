@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from dmd_config import resolve_dmd_mapping
-from dmd_usb import (
+from dmdcontrol.hardware.mapping import resolve_dmd_mapping
+from dmdcontrol.hardware.usb import (
     format_usb_candidates,
     parse_physical_usb_path,
     parse_udevadm_properties,

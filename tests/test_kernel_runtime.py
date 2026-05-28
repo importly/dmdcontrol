@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from kernel_runtime import (
+from dmdcontrol.patterns.kernel import (
     KernelFrameProvider,
     build_kernel_frames,
     compute_kernel_lut_override,

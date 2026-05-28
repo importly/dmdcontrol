@@ -71,8 +71,8 @@ dmd_require_pass_file() {
 dmd_wake_with_args() {
     local script_dir="$1"
     shift
-    if ! /usr/bin/python3 "$script_dir/wake_dp.py" "$@"; then
-        echo "Error: wake_dp.py failed to run. Check USB connection to DLPC900."
+    if ! dmd_python_module "$script_dir" dmdcontrol usb wake "$@"; then
+        echo "Error: dmdcontrol usb wake failed to run. Check USB connection to DLPC900."
         exit 1
     fi
 }
@@ -81,8 +81,8 @@ dmd_wake_configured_dmd() {
     local script_dir="$1"
     local dmd_name="$2"
     shift 2
-    if ! /usr/bin/python3 "$script_dir/wake_dp.py" --dmd "$dmd_name" "$@"; then
-        echo "Error: wake_dp.py failed for DMD $dmd_name. Check USB connection and dmd_devices.json."
+    if ! dmd_python_module "$script_dir" dmdcontrol usb wake --dmd "$dmd_name" "$@"; then
+        echo "Error: dmdcontrol usb wake failed for DMD $dmd_name. Check USB connection and dmd_devices.json."
         exit 1
     fi
 }
@@ -108,27 +108,39 @@ dmd_config_field() {
     local dmd_name="$2"
     local field="$3"
     shift 3
-    /usr/bin/python3 "$script_dir/dmd_config.py" --dmd "$dmd_name" "$@" --field "$field"
+    dmd_python_module "$script_dir" dmdcontrol config show --dmd "$dmd_name" "$@" --field "$field"
 }
 
 dmd_exec_python_entrypoint() {
     local script_dir="$1"
     local entrypoint="$2"
     shift 2
-    exec env PYTHONPATH=/home/main/.local/lib/python3.14/site-packages \
-        /usr/bin/python3 "$script_dir/$entrypoint" "$@"
+    exec env PYTHONPATH="$(dmd_pythonpath "$script_dir")" \
+        /usr/bin/python3 "$script_dir/compat/legacy/$entrypoint" "$@"
+}
+
+dmd_pythonpath() {
+    local script_dir="$1"
+    local repo_root="$script_dir"
+    local pythonpath="$repo_root:/home/main/.local/lib/python3.14/site-packages"
+    if [ -n "${PYTHONPATH:-}" ]; then
+        pythonpath="$pythonpath:$PYTHONPATH"
+    fi
+    echo "$pythonpath"
+}
+
+dmd_python_module() {
+    local script_dir="$1"
+    local module="$2"
+    shift 2
+    env PYTHONPATH="$(dmd_pythonpath "$script_dir")" /usr/bin/python3 -m "$module" "$@"
 }
 
 dmd_exec_python_module() {
     local script_dir="$1"
     local module="$2"
     shift 2
-    local repo_root="$script_dir"
-    local pythonpath="$repo_root:/home/main/.local/lib/python3.14/site-packages"
-    if [ -n "${PYTHONPATH:-}" ]; then
-        pythonpath="$pythonpath:$PYTHONPATH"
-    fi
-    exec env PYTHONPATH="$pythonpath" /usr/bin/python3 -m "$module" "$@"
+    exec env PYTHONPATH="$(dmd_pythonpath "$script_dir")" /usr/bin/python3 -m "$module" "$@"
 }
 
 dmd_create_calibr_square_control_file() {
@@ -137,7 +149,7 @@ dmd_create_calibr_square_control_file() {
 
 dmd_start_calibr_square_control_reader() {
     local control_file="$1"
-    local runtime_label="${2:-main.py}"
+    local runtime_label="${2:-dmdcontrol}"
     (
         if [ ! -r /dev/tty ]; then
             echo "Warning: /dev/tty is not readable; terminal controls are unavailable."

@@ -25,7 +25,7 @@ as the pattern source, then plays back up to 24 bit-planes per VSYNC frame. This
 - A `Screen` section with
   `Option "MetaModes" "1920x1080_60_RAW +0+0 {ColorSpace=RGB, ColorRange=Full, ForceFullCompositionPipeline=On}"`
 
-`xinitrc_dmd.sh` detects when xrandr cannot switch to the custom mode by name (expected on NVIDIA proprietary) and
+`scripts/xinit/xinitrc_dmd.sh` detects when xrandr cannot switch to the custom mode by name (expected on NVIDIA proprietary) and
 validates the active MetaMode via `nvidia-settings -q CurrentMetaMode` instead. It only aborts if neither path applied
 the target mode.
 
@@ -54,9 +54,10 @@ python -m dmdcontrol flood run --yes --white
 python -m dmdcontrol config show --dmd A
 ```
 
-Compatibility shims such as `main.py`, `main_pair.py`, `dmd_preview_server.py`, `wake_dp.py`, and the USB/debug helper
-scripts remain useful for older workflows, but new automation should prefer `python -m dmdcontrol` or the shell launcher
-that wraps it.
+Compatibility shims such as `compat/legacy/main.py`, `compat/legacy/main_pair.py`, `compat/legacy/wake_dp.py`, and the
+USB/debug helper scripts now live under `compat/legacy/` or `scripts/debug/`. `dmd_preview_server.py` remains at the repository root for
+older preview-server workflows, but new automation should prefer `python -m dmdcontrol` or the shell launcher that wraps
+it.
 
 ## Essential Linux DMD workflows
 
@@ -140,7 +141,7 @@ python -m dmdcontrol pair run --dry-run-timing --mode snake
 ./run_dmd_pair_calibr_square.sh --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
 ```
 
-`run_dmd_pair.sh` wakes both mapped controllers, starts `xinitrc_dmd_pair.sh`, and launches
+`run_dmd_pair.sh` wakes both mapped controllers, starts `scripts/xinit/xinitrc_dmd_pair.sh`, and launches
 `python -m dmdcontrol pair run`. The paired X layout is one X screen at `3840x1080`: B/`DP-0` is the left half at
 `+0+0`, and A/`DP-2` is the right half at `+1920+0`. The runtime opens one undecorated GLFW window at `(0, 0)`, renders
 B into `x=0..1919`, renders A into `x=1920..3839`, and performs one buffer swap per paired frame.
@@ -318,21 +319,16 @@ cosmetic ABORT) are set. That is the healthy steady-state pattern.
 
 ```
 dmdcontrol/         Package CLI, runtime, hardware, preview, and pattern modules
-main.py             Compatibility shim for single-DMD runtime
-main_pair.py        Compatibility shim for paired runtime
-config.py           Compatibility shim for shared timing constants
-dlpc_lifecycle.py   Compatibility shim for lifecycle helpers
-runtime_loop.py     Compatibility shim for runtime loop
-pattern_modes.py    Compatibility shim for pattern registry
-pattern_engine.py   Compatibility shim for renderer/frame packing
-dlpc900_hid.py      Compatibility shim for DLPC900 USB HID driver
-logger.py           Compatibility shim for centralized logging
-wake_dp.py          Compatibility shim for DisplayPort-receiver wakeup
 run_dmd.sh          Single-DMD Linux DMD launcher
 run_dmd_pair.sh     Paired Linux DMD launcher
 run_dmd_pair_calibr_square.sh  Paired calibration launcher with terminal input
-xinitrc_dmd.sh      X session wrapper (xrandr modeset + MetaMode validation + python launch)
-xinitrc_dmd_pair.sh Paired X session wrapper
+run_camera_sync_check.sh       Camera sync-check launcher
+run_dmd_pair_capture.sh        Paired DMD + camera capture launcher
+dmd_preview_server.py          Legacy root preview-server entrypoint
+scripts/lib/       Shared shell helpers for DMD launchers
+scripts/xinit/     X session wrappers (xrandr modeset + MetaMode validation + python launch)
+scripts/debug/     Deprecated/debug USB helper scripts
+compat/legacy/     Old Python entrypoint/import shims kept out of the repository root
 sync_dmd.sh         rsync local -> lab box (bash)
 sync_dmd.ps1        rsync local -> lab box (PowerShell)
 debug_scripts/      usb_sanity, debug_numbered_regions

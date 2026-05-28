@@ -3,8 +3,9 @@
 set -e
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/dmd_shell_common.sh"
-source "$SCRIPT_DIR/dmd_x11_common.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$REPO_ROOT/scripts/lib/dmd_shell_common.sh"
+source "$REPO_ROOT/scripts/lib/dmd_x11_common.sh"
 
 echo "=== xinitrc_camera_sync_check: Configuring one spanning X screen ==="
 sleep 1
@@ -12,10 +13,10 @@ sleep 1
 dmd_parse_dmd_config_arg "$@"
 dmd_parse_hz_arg "" "$@"
 
-A_OUTPUT="$(dmd_config_field "$SCRIPT_DIR" A xrandr_output "${DMD_CONFIG_FIELD_ARGS[@]}")"
-B_OUTPUT="$(dmd_config_field "$SCRIPT_DIR" B xrandr_output "${DMD_CONFIG_FIELD_ARGS[@]}")"
-A_HZ="$(dmd_config_field "$SCRIPT_DIR" A target_hz "${DMD_CONFIG_FIELD_ARGS[@]}")"
-B_HZ="$(dmd_config_field "$SCRIPT_DIR" B target_hz "${DMD_CONFIG_FIELD_ARGS[@]}")"
+A_OUTPUT="$(dmd_config_field "$REPO_ROOT" A xrandr_output "${DMD_CONFIG_FIELD_ARGS[@]}")"
+B_OUTPUT="$(dmd_config_field "$REPO_ROOT" B xrandr_output "${DMD_CONFIG_FIELD_ARGS[@]}")"
+A_HZ="$(dmd_config_field "$REPO_ROOT" A target_hz "${DMD_CONFIG_FIELD_ARGS[@]}")"
+B_HZ="$(dmd_config_field "$REPO_ROOT" B target_hz "${DMD_CONFIG_FIELD_ARGS[@]}")"
 
 if [ -z "$A_OUTPUT" ] || [ -z "$B_OUTPUT" ]; then
     echo "[ERROR] DMD A and B must both define xrandr_output in dmd_devices.json."
@@ -46,4 +47,4 @@ xrandr --query
 dmd_x11_verify_pair_layout "$B_OUTPUT" "$A_OUTPUT"
 
 echo "=== Launching dmdcontrol camera sync-check ==="
-dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol camera sync-check "$@"
+dmd_exec_python_module "$REPO_ROOT" dmdcontrol camera sync-check "$@"
