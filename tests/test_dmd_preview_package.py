@@ -32,14 +32,14 @@ class DmdPreviewPackageTests(unittest.TestCase):
         for module_name in (
                 "dmdcontrol.preview",
                 "dmdcontrol.preview.server",
-                "dmd_preview_render",
+                "dmdcontrol.preview.render",
         ):
             sys.modules.pop(module_name, None)
 
         importlib.import_module("dmdcontrol.preview")
 
         self.assertNotIn("dmdcontrol.preview.server", sys.modules)
-        self.assertNotIn("dmd_preview_render", sys.modules)
+        self.assertNotIn("dmdcontrol.preview.render", sys.modules)
 
 
 if __name__ == "__main__":

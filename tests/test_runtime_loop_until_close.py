@@ -1,7 +1,7 @@
 import types
 import unittest
 
-from runtime_loop import run_render_loop
+from dmdcontrol.runtime.loop import run_render_loop
 
 
 class _Engine:

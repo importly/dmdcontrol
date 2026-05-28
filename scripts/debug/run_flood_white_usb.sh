@@ -2,12 +2,13 @@
 # USB-only DLPC900 solid flood launcher.
 #
 # This intentionally does NOT use DisplayPort, Xorg, xinit, GLFW, or the
-# calibration-square runtime. It only runs flood_white_usb.py against the
+# calibration-square runtime. It only runs dmdcontrol flood against the
 # currently connected DLPC900 USB controller.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/dmd_shell_common.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$REPO_ROOT/scripts/lib/dmd_shell_common.sh"
 
-dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol flood run "$@"
+dmd_exec_python_module "$REPO_ROOT" dmdcontrol flood run "$@"

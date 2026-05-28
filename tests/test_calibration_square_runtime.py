@@ -2,12 +2,12 @@ import unittest
 
 import numpy as np
 
-from calibration_square_runtime import (
+from dmdcontrol.patterns.calibration_square import (
     build_calibration_square_frame,
     format_calibration_square_state,
 )
-from config import BITPLANES
-from pattern_modes import default_calibration_square_state
+from dmdcontrol.patterns.modes import default_calibration_square_state
+from dmdcontrol.support.constants import BITPLANES
 
 
 class _Engine:

@@ -205,7 +205,7 @@ def _build_parser():
         default=None,
         help="Numbers paired recipe: seven-segment digit height in pixels",
     )
-    parser.add_argument("--wake-dp", action="store_true", help="Wake both DP receivers in main_pair.py")
+    parser.add_argument("--wake-dp", action="store_true", help="Wake both DP receivers before runtime")
     parser.add_argument(
         "--dual-pixel",
         action="store_true",

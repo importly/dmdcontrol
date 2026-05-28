@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 
-from calibration_square_runtime import read_calibration_square_control_file
+from dmdcontrol.patterns.calibration_square import read_calibration_square_control_file
 
 
 class CalibrationSquareControlFileTests(unittest.TestCase):

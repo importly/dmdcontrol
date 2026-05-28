@@ -1,7 +1,7 @@
 from unittest import mock
 
-import flood_white_usb
-import main
+from dmdcontrol.hardware import flood as flood_white_usb
+from dmdcontrol.runtime import single as main
 
 
 def test_main_accepts_argv_and_returns_zero_for_dry_run_timing():

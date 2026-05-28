@@ -4,7 +4,7 @@
 set -e
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/dmd_shell_common.sh"
+source "$SCRIPT_DIR/scripts/lib/dmd_shell_common.sh"
 
 dmd_parse_dmd_config_arg "$@"
 
@@ -20,5 +20,5 @@ dmd_wake_configured_dmd "$SCRIPT_DIR" B "${DMD_CONFIG_ARGS[@]}"
 
 dmd_wait_for_hotplug "Xorg and GPU to detect both DP hotplug events"
 
-echo "=== Launching Camera Sync Check (via xinitrc_camera_sync_check.sh wrapper) ==="
-dmd_run_xinit "$SCRIPT_DIR" "$SCRIPT_DIR/xinitrc_camera_sync_check.sh" "$@"
+echo "=== Launching Camera Sync Check (via scripts/xinit/xinitrc_camera_sync_check.sh wrapper) ==="
+dmd_run_xinit "$SCRIPT_DIR" "$SCRIPT_DIR/scripts/xinit/xinitrc_camera_sync_check.sh" "$@"

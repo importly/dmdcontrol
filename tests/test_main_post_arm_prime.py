@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from main import _select_post_arm_prime_frame
+from dmdcontrol.runtime.single import _select_post_arm_prime_frame
 
 
 class PostArmPrimeFrameTests(unittest.TestCase):

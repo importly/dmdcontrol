@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import sys
 
+from _bootstrap import ensure_repo_root_on_path
+
+ensure_repo_root_on_path()
+
 from dmdcontrol.runtime import pair as _pair
 from dmdcontrol.runtime.pair import main
 from dmdcontrol.support.logging import logger

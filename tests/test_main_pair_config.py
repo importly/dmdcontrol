@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
-import main_pair
-from main_pair import resolve_pair_config
+from dmdcontrol.runtime import pair as main_pair
+from dmdcontrol.runtime.pair import resolve_pair_config
 
 
 class MainPairConfigTests(unittest.TestCase):

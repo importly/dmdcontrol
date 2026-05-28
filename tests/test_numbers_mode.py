@@ -6,7 +6,7 @@ from unittest import mock
 import numpy as np
 
 from dmdcontrol.runtime import single
-from pattern_modes import (
+from dmdcontrol.patterns.modes import (
     NUMBER_SEQUENCE,
     generate_number_rgb,
     number_index_for_elapsed,

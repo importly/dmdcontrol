@@ -11,12 +11,12 @@ class DmdPreviewRenderTests(unittest.TestCase):
         for module_name in ("glfw", "OpenGL.GL", "dlpc900_hid"):
             sys.modules.pop(module_name, None)
 
-        import dmd_preview_render  # noqa: F401
+        import dmdcontrol.preview.render  # noqa: F401
 
         self.assertFalse({"glfw", "OpenGL.GL", "dlpc900_hid"} & set(sys.modules))
 
     def test_bitplane_labels_and_mapping_match_dlpc900_packing(self):
-        from dmd_preview_render import BITPLANE_LABELS, extract_bitplane
+        from dmdcontrol.preview.render import BITPLANE_LABELS, extract_bitplane
 
         packed = np.zeros((2, 3, 3), dtype=np.uint8)
         packed[0, 0, 1] = 0b00000001
@@ -32,8 +32,8 @@ class DmdPreviewRenderTests(unittest.TestCase):
         self.assertEqual(extract_bitplane(packed, 0)[0, 1], 0)
 
     def test_offline_paired_coarse_grid_places_b_left_and_a_right(self):
-        from dmd_preview_render import render_offline_frame
-        from paired_pattern_engine import DMD_HEIGHT, DMD_WIDTH, generate_static_frame
+        from dmdcontrol.patterns.paired import DMD_HEIGHT, DMD_WIDTH, generate_static_frame
+        from dmdcontrol.preview.render import render_offline_frame
 
         frame = render_offline_frame(layout="pair", test="coarse-grid")
 
@@ -48,7 +48,7 @@ class DmdPreviewRenderTests(unittest.TestCase):
         )
 
     def test_bitplane_render_is_binary_grayscale(self):
-        from dmd_preview_render import render_bitplane_image, render_offline_frame
+        from dmdcontrol.preview.render import render_bitplane_image, render_offline_frame
 
         frame = render_offline_frame(layout="pair", test="coarse-grid")
         bitplane = render_bitplane_image(frame, plane=0)
@@ -58,7 +58,7 @@ class DmdPreviewRenderTests(unittest.TestCase):
         self.assertTrue(np.isin(bitplane, [0, 255]).all())
 
     def test_lut_preview_metadata_labels_entries_and_timing_windows(self):
-        from dmd_preview_render import build_lut_preview_metadata
+        from dmdcontrol.preview.render import build_lut_preview_metadata
 
         entries = [
             (0, 600, False, 1, 7, 10, False, 0),
@@ -86,7 +86,7 @@ class DmdPreviewRenderTests(unittest.TestCase):
         self.assertEqual(metadata["timing"]["effective_frame_hz"], 60.0)
 
     def test_png_render_outputs_png_bytes(self):
-        from dmd_preview_render import render_png_bytes
+        from dmdcontrol.preview.render import render_png_bytes
 
         packed = np.zeros((4, 5, 3), dtype=np.uint8)
         png = render_png_bytes(packed)
