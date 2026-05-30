@@ -6,17 +6,19 @@ import time
 
 from dmdcontrol.support.constants import (
     BITPLANES,
+    DEFAULT_HZ,
     DEFAULT_SEQUENCE_UTILIZATION,
+    DMD_HEIGHT,
+    DMD_WIDTH,
     INTER_PATTERN_DARK_US,
     MAX_BINARY_RATE_HZ_DLP6500,
     MAX_MEASURED_VSYNC_DEVIATION_RATIO,
     MIN_EXPOSURE_US,
     SAFE_MARGIN_US,
+    SIGNED_INT16_MAX,
+    SIGNED_INT16_MIN,
 )
 from dmdcontrol.support.logging import logger
-
-SIGNED_INT16_MIN = -32768
-SIGNED_INT16_MAX = 32767
 
 
 def _format_hw(hw):
@@ -275,7 +277,7 @@ def build_lut_entries(
 
 def compute_trigger_out_2_timing(
         exposure_us,
-        delay_fraction=0.03,
+        delay_fraction=0.00,
         min_pulse_width_us=20,
         delay_basis="exposure_us",
 ):
@@ -525,18 +527,18 @@ def apply_pattern_sequence(dlpc, entries, frame_pump=None):
 
 def prepare_dlpc900_for_video_pattern(
         dlpc,
-        target_hz=60,
+        target_hz=DEFAULT_HZ,
         dual_pixel=False,
         sequence_utilization=DEFAULT_SEQUENCE_UTILIZATION,
         trig2_frame_zero=False,
         entries_count=None,
         per_entry_exposure_us=None,
-        trigger_out_2_delay_fraction=0.03,
+        trigger_out_2_delay_fraction=0.00,
         dark_time_us=None,
 ):
     actual_entries = entries_count if entries_count is not None else BITPLANES
     logger.info(
-        f"[+] Configuring DLPC900 for 1920x1080 @ {target_hz}Hz Video Pattern Mode "
+        f"[+] Configuring DLPC900 for {DMD_WIDTH}x{DMD_HEIGHT} @ {target_hz}Hz Video Pattern Mode "
         f"({actual_entries} LUT entr{'y' if actual_entries == 1 else 'ies'} per VSYNC)..."
     )
     logger.debug("Following TI documentation sequence (DLPU018J Section 5.1)...")
@@ -568,7 +570,7 @@ def prepare_dlpc900_for_video_pattern(
     dlpc.set_led_current(255, 255, 255)
     dlpc.set_led_enables(True, True, True, sequencer=True)
 
-    # DLPU018J p.56: must enter Video Mode (0) with desired source BEFORE switching to Mode 2.
+    #  must enter Video Mode (0) with desired source BEFORE switching to Mode 2.
     logger.debug("  - Entering Video Mode (0) with DisplayPort source...")
     dlpc.set_display_mode(0x00)
     dlpc.set_input_source(0, 1)
@@ -577,9 +579,9 @@ def prepare_dlpc900_for_video_pattern(
         f"[+] Parallel input pixel mode: {'Dual P1-P2' if dual_pixel else 'Single P1'}"
     )
 
-    # Force full 1920x1080 active area — otherwise DLPC900 may use a stale Flash-resident crop.
-    logger.debug("  - Forcing Input Display Resolution to 1920x1080...")
-    dlpc.set_input_display_resolution(0, 0, 1920, 1080)
+    # Force full active area — otherwise DLPC900 may use a stale Flash-resident crop.
+    logger.debug(f"  - Forcing Input Display Resolution to {DMD_WIDTH}x{DMD_HEIGHT}...")
+    dlpc.set_input_display_resolution(0, 0, DMD_WIDTH, DMD_HEIGHT)
 
     dlpc.apply_block_lock_workaround()
 
@@ -699,7 +701,7 @@ def prepare_dlpc900_for_video_pattern(
 
 def configure_dlpc900_for_video_pattern(
         dlpc,
-        target_hz=60,
+        target_hz=DEFAULT_HZ,
         dual_pixel=False,
         sequence_utilization=DEFAULT_SEQUENCE_UTILIZATION,
         trig2_frame_zero=False,
@@ -707,7 +709,7 @@ def configure_dlpc900_for_video_pattern(
         frame_pump=None,
         entries_count=None,
         per_entry_exposure_us=None,
-        trigger_out_2_delay_fraction=0.03,
+        trigger_out_2_delay_fraction=0.00,
         dark_time_us=None,
 ):
     sequence_state = prepare_dlpc900_for_video_pattern(
@@ -786,3 +788,6 @@ def verify_runtime_state(dlpc):
             )
         logger.info("[OK] Runtime verification passed (mode=VideoPattern, sequencer running).")
     return hard_ok
+
+
+

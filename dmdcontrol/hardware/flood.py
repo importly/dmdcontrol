@@ -147,8 +147,6 @@ def configure_solid_flood(
     _write_internal_test_pattern_color(dlpc, color)
     time.sleep(0.05)
 
-    # Existing wrapper uses command 0x1203 here.
-    # This is separate from 0x1A24 pattern sequencer start/stop.
     dlpc.set_internal_test_pattern(INTERNAL_TEST_PATTERN_SOLID_FIELD)
     time.sleep(0.2)
 

@@ -1,5 +1,6 @@
 # sync_dmd.ps1 - Windows helper for TI DLPC900 DMD Controller Sync
 # This script uses WSL's rsync to sync the local folder to a dedicated remote folder.
+# MUST HAVE WSL
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $EnvPath = Join-Path $ScriptDir ".env"

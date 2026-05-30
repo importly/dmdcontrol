@@ -10,11 +10,14 @@ from dataclasses import dataclass
 import numpy as np
 
 from dmdcontrol.patterns.visual import generate_coarse_grid_rgb, generate_coarse_lines_rgb
-
-NUMBER_SEQUENCE = tuple(range(1, 10))
-DEFAULT_NUMBERS_EXPOSURE_US = 500_000
-DEFAULT_CALIBRATION_SQUARE_FRACTION = 0.25
-MIN_CALIBRATION_SQUARE_PX = 4
+from dmdcontrol.support.constants import (
+    DEFAULT_CALIBRATION_SQUARE_FRACTION,
+    DEFAULT_NUMBERS_EXPOSURE_US,
+    DMD_HEIGHT,
+    DMD_WIDTH,
+    MIN_CALIBRATION_SQUARE_PX,
+    NUMBER_SEQUENCE,
+)
 
 _DIGIT_SEGMENTS = {
     1: ("b", "c"),
@@ -41,7 +44,7 @@ def _clamp(value, lo, hi):
     return max(lo, min(hi, value))
 
 
-def default_calibration_square_state(width=1920, height=1080):
+def default_calibration_square_state(width=DMD_WIDTH, height=DMD_HEIGHT):
     size = max(
         MIN_CALIBRATION_SQUARE_PX,
         min(width, height) * DEFAULT_CALIBRATION_SQUARE_FRACTION,
@@ -54,7 +57,7 @@ def default_calibration_square_state(width=1920, height=1080):
     )
 
 
-def clamp_calibration_square_state(state, width=1920, height=1080):
+def clamp_calibration_square_state(state, width=DMD_WIDTH, height=DMD_HEIGHT):
     max_size = max(MIN_CALIBRATION_SQUARE_PX, min(width, height))
     return CalibrationSquareState(
         x=float(_clamp(state.x, 0.0, max(0.0, width - 1.0))),
@@ -64,7 +67,7 @@ def clamp_calibration_square_state(state, width=1920, height=1080):
     )
 
 
-def calibration_square_bounds(state, width=1920, height=1080):
+def calibration_square_bounds(state, width=DMD_WIDTH, height=DMD_HEIGHT):
     half = state.size / 2.0
     angle = np.deg2rad(state.angle_deg)
     cos_a = np.cos(angle)
@@ -90,8 +93,8 @@ def calibration_square_bounds(state, width=1920, height=1080):
 def apply_calibration_square_commands(
         state,
         commands,
-        width=1920,
-        height=1080,
+        width=DMD_WIDTH,
+        height=DMD_HEIGHT,
         move_px=10,
         rotation_deg=2,
         size_step_px=10,
@@ -126,8 +129,8 @@ def apply_calibration_square_commands(
 
 
 def generate_calibration_square_mask(
-        width=1920,
-        height=1080,
+        width=DMD_WIDTH,
+        height=DMD_HEIGHT,
         center_x=None,
         center_y=None,
         size_px=None,
@@ -167,7 +170,7 @@ def generate_calibration_square_mask(
     return mask
 
 
-def _solid_color(color_idx, width=1920, height=1080):
+def _solid_color(color_idx, width=DMD_WIDTH, height=DMD_HEIGHT):
     img = np.zeros((height, width, 3), dtype=np.uint8)
     img[:, :, color_idx] = 255
     return img
@@ -192,7 +195,7 @@ def _fill_rect(img, x0, y0, x1, y1):
         img[y0:y1, x0:x1, :] = 255
 
 
-def generate_number_rgb(number, width=1920, height=1080, size_px=None):
+def generate_number_rgb(number, width=DMD_WIDTH, height=DMD_HEIGHT, size_px=None):
     """Generate a binary RGB seven-segment digit frame for number mode."""
     if number not in _DIGIT_SEGMENTS:
         raise ValueError("number must be in the range 1..9")
@@ -230,7 +233,7 @@ def generate_number_rgb(number, width=1920, height=1080, size_px=None):
 
 def _numbered(engine):
     from debug_scripts.debug_numbered_regions import generate_numbered_regions
-    rgb = generate_numbered_regions(1920, 1080, grid_cols=6, grid_rows=4)
+    rgb = generate_numbered_regions(DMD_WIDTH, DMD_HEIGHT, grid_cols=6, grid_rows=4)
     return engine.rgb_to_binary_patterns(rgb), None
 
 
@@ -247,7 +250,7 @@ def _coarse_lines(engine):
 PATTERN_MODES = {
     #                 label                                   pattern generator          dynamic or not
     "checkerboard": ("Static Checkerboard", lambda e: (e.generate_checkerboard(), None)),
-    "ordering": ("Bit Ordering Sweep", lambda e: (e.generate_ordering_diagnostic_patterns(1920, 1080), None)),
+    "ordering": ("Bit Ordering Sweep", lambda e: (e.generate_ordering_diagnostic_patterns(DMD_WIDTH, DMD_HEIGHT), None)),
     "numbered": ("Numbered Regions (6x4 grid)", _numbered),
     "single-pixel": ("1x1 Single Pixel", lambda e: (e.generate_checkerboard(block_size=1), None)),
     "2x2": ("2x2 Checkerboard", lambda e: (e.generate_checkerboard(block_size=2), None)),

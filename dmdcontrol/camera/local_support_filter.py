@@ -6,16 +6,23 @@ from typing import Literal
 
 import numpy as np
 
+from dmdcontrol.support.constants import (
+    DEFAULT_FILTER_DELTA_T_US,
+    DEFAULT_FILTER_POLARITY,
+    DEFAULT_FILTER_THRESHOLD,
+    DEFAULT_FILTER_WINDOW_PX,
+)
+
 PolaritySupport = Literal["same", "any"]
 
 
 @dataclass(frozen=True)
 class LocalSupportFilterConfig:
     enabled: bool = False
-    delta_t_us: int = 50_000
-    window_px: int = 3
-    threshold: int = 2
-    polarity: PolaritySupport = "same"
+    delta_t_us: int = DEFAULT_FILTER_DELTA_T_US
+    window_px: int = DEFAULT_FILTER_WINDOW_PX
+    threshold: int = DEFAULT_FILTER_THRESHOLD
+    polarity: PolaritySupport = DEFAULT_FILTER_POLARITY
 
     def validate(self) -> None:
         if self.delta_t_us <= 0:
@@ -180,10 +187,10 @@ def apply_local_support_filter_arrays(
 
 def add_event_noise_filter_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--event-noise-filter", default="none", choices=["none", "local-support"])
-    parser.add_argument("--event-filter-delta-us", type=_positive_int, default=50_000)
-    parser.add_argument("--event-filter-window-px", type=_positive_int, default=3)
-    parser.add_argument("--event-filter-threshold", type=_non_negative_int, default=2)
-    parser.add_argument("--event-filter-polarity", default="same", choices=["same", "any"])
+    parser.add_argument("--event-filter-delta-us", type=_positive_int, default=DEFAULT_FILTER_DELTA_T_US)
+    parser.add_argument("--event-filter-window-px", type=_positive_int, default=DEFAULT_FILTER_WINDOW_PX)
+    parser.add_argument("--event-filter-threshold", type=_non_negative_int, default=DEFAULT_FILTER_THRESHOLD)
+    parser.add_argument("--event-filter-polarity", default=DEFAULT_FILTER_POLARITY, choices=["same", "any"])
     parser.add_argument("--save-filtered-events", action="store_true", default=False)
 
 

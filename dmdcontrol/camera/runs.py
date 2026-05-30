@@ -118,6 +118,8 @@ def write_capture_artifacts(
         polarity_mode=polarity_mode,
     )
     np.save(run_directory.accumulated_path, accumulated)
+    accumulation_arrays = filtered_arrays if filter_config.enabled else event_arrays
+    rising_trigger_timestamps = _trigger_timestamps(rising_triggers)
 
     frame_artifacts = []
     filtered_frame_artifacts = []
@@ -157,6 +159,32 @@ def write_capture_artifacts(
         "polarity_mode": polarity_mode,
         "resolution": [int(resolution[0]), int(resolution[1])],
         "accumulated_shape": list(accumulated.shape),
+        "event_time_range_us": _time_range(event_arrays["t"]),
+        "accumulation_event_time_range_us": _time_range(accumulation_arrays["t"]),
+        "rising_trigger_time_range_us": _time_range(rising_trigger_timestamps),
+        "events_per_accumulation_window": _window_counts(
+            accumulation_arrays["t"],
+            rising_trigger_timestamps,
+            int(window_us),
+        ),
+        "events_per_pre_trigger_window": _window_counts(
+            accumulation_arrays["t"],
+            rising_trigger_timestamps - int(window_us),
+            int(window_us),
+        ),
+        "events_per_post_window": _window_counts(
+            accumulation_arrays["t"],
+            rising_trigger_timestamps + int(window_us),
+            int(window_us),
+        ),
+        "accumulated_nonzero_pixels": [
+            int(np.count_nonzero(frame))
+            for frame in accumulated
+        ],
+        "accumulated_abs_sums": [
+            float(np.sum(np.abs(frame)))
+            for frame in accumulated
+        ],
         "frame_artifacts": frame_artifacts,
     }
     if filtered_events_artifact is not None:
@@ -248,6 +276,35 @@ def _write_triggers_csv(path, triggers):
         edge = _record_field(trigger, "edge", default="rising")
         lines.append(f"{index},{int(timestamp)},{edge}")
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _trigger_timestamps(triggers):
+    return np.array(
+        [int(_record_field(trigger, "timestamp")) for trigger in triggers],
+        dtype=np.int64,
+    )
+
+
+def _time_range(values):
+    array = np.asarray(values, dtype=np.int64)
+    if len(array) == 0:
+        return None
+    return [int(np.min(array)), int(np.max(array))]
+
+
+def _window_counts(timestamps, starts, window_us):
+    start_array = np.asarray(starts, dtype=np.int64)
+    if len(start_array) == 0:
+        return []
+    if window_us <= 0:
+        return [0 for _ in start_array]
+    time_array = np.sort(np.asarray(timestamps, dtype=np.int64))
+    if len(time_array) == 0:
+        return [0 for _ in start_array]
+    end_array = start_array + int(window_us)
+    left = np.searchsorted(time_array, start_array, side="left")
+    right = np.searchsorted(time_array, end_array, side="left")
+    return (right - left).astype(int).tolist()
 
 
 def _record_field(record, name, default=None):

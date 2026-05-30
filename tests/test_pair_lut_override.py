@@ -6,6 +6,14 @@ from dmdcontrol.patterns.paired import A_NUMBERS_B_STATIC_PAIR_TEST
 from dmdcontrol.runtime.pair import _lut_override, main
 
 
+def test_pair_runtime_parser_defaults_trigger_delay_to_zero():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args(["--dry-run-timing"])
+
+    assert args.trigger_out_2_delay_fraction == 0.0
+
+
 def test_lut_override_a_numbers_b_static_returns_digit_count():
     # Test with explicitly provided exposure
     args_1 = types.SimpleNamespace(

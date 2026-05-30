@@ -40,6 +40,7 @@ BITPLANE_LABELS = tuple(
     + [f"R{i}" for i in range(8)]
     + [f"B{i}" for i in range(8)]
 )
+# GRB
 _BITPLANE_CHANNELS = (1,) * 8 + (0,) * 8 + (2,) * 8
 _BITPLANE_BITS = tuple(range(8)) * 3
 

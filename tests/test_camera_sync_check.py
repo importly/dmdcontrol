@@ -108,6 +108,34 @@ def test_sync_check_parser_accepts_event_noise_filter_options():
     assert args.save_filtered_events is True
 
 
+def test_sync_check_parser_does_not_reset_camera_usb_by_default():
+    args = build_parser().parse_args(["--dry-run"])
+    enabled = build_parser().parse_args(["--dry-run", "--camera-usb-reset"])
+    disabled = build_parser().parse_args(["--dry-run", "--no-camera-usb-reset"])
+
+    assert args.camera_usb_reset is False
+    assert enabled.camera_usb_reset is True
+    assert disabled.camera_usb_reset is False
+
+
+def test_sync_check_parser_uses_mentor_style_camera_lifecycle_by_default():
+    args = build_parser().parse_args(["--dry-run"])
+
+    assert args.camera_stream_rearm is False
+    assert args.camera_shutdown_streams is False
+    assert args.camera_flush_reads == 1
+
+
+def test_sync_check_parser_accepts_power_cycle_command():
+    args = build_parser().parse_args([
+        "--dry-run",
+        "--camera-power-cycle-command",
+        "uhubctl -l 1-2 -p 3 -a cycle -d 2",
+    ])
+
+    assert args.camera_power_cycle_command == "uhubctl -l 1-2 -p 3 -a cycle -d 2"
+
+
 def test_sync_check_dry_run_creates_run_artifacts(tmp_path):
     args = build_parser().parse_args([
         "--dry-run",

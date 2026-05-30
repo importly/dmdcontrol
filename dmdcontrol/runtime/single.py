@@ -8,7 +8,16 @@ try:
 except ImportError:
     cv2 = None
 
-from dmdcontrol.support.constants import BITPLANES, DEFAULT_SEQUENCE_UTILIZATION, SAFE_MARGIN_US
+from dmdcontrol.support.constants import (
+    BITPLANES,
+    DEFAULT_HZ,
+    DEFAULT_NUMBERS_EXPOSURE_US,
+    DEFAULT_SEQUENCE_UTILIZATION,
+    DMD_HEIGHT,
+    DMD_WIDTH,
+    NUMBER_SEQUENCE,
+    SAFE_MARGIN_US,
+)
 from dmdcontrol.patterns.calibration_square import (
     build_calibration_square_frame,
     format_calibration_square_state,
@@ -24,8 +33,6 @@ from dmdcontrol.runtime.lifecycle import (
 from dmdcontrol.hardware.mapping import resolve_dmd_mapping
 from dmdcontrol.support.logging import logger, setup_logger
 from dmdcontrol.patterns.modes import (
-    DEFAULT_NUMBERS_EXPOSURE_US,
-    NUMBER_SEQUENCE,
     PATTERN_NAMES,
     build_patterns,
     default_calibration_square_state,
@@ -37,7 +44,7 @@ from dmdcontrol.runtime.loop import run_render_loop, run_trigger_loop
 
 def _build_parser():
     parser = argparse.ArgumentParser(description="DLPC900 1080p Video Pattern Runtime")
-    parser.add_argument("--hz", type=int, default=60, help="Target Hz (60 or 120, experimental)")
+    parser.add_argument("--hz", type=int, default=DEFAULT_HZ, help="Target Hz (60 or 120, experimental)")
     parser.add_argument("--monitor", type=int, default=None, help="GLFW monitor index")
     parser.add_argument("--dmd", default=None,
                         help="Configured DMD name from dmd_devices.json, for example A or B.")
@@ -60,8 +67,8 @@ def _build_parser():
     parser.add_argument(
         "--trigger-out-2-delay-fraction",
         type=float,
-        default=0.03,
-        help="Fraction of LUT exposure used as TRIG_OUT_2 rising-edge delay. Default: 0.03.",
+        default=0.00,
+        help="Fraction of LUT exposure used as TRIG_OUT_2 rising-edge delay. Default: 0.",
     )
     parser.add_argument("--abort-recover-cooldown", type=float, default=8.0,
                         help="Seconds between automatic abort recovery attempts while watchdog detects sequencer abort.")
@@ -306,7 +313,7 @@ def _open_video_writer(path, target_hz):
         return None
     logger.info(f"[+] Recording packed frames to {path}")
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    return cv2.VideoWriter(path, fourcc, target_hz, (1920, 1080), isColor=True)
+    return cv2.VideoWriter(path, fourcc, target_hz, (DMD_WIDTH, DMD_HEIGHT), isColor=True)
 
 
 def _maybe_invert_frame(frame, invert_dmd):
@@ -434,8 +441,8 @@ def main(argv=None):
     args = _build_parser().parse_args(argv)
     setup_logger(args.verbose)
 
-    if args.hz not in (60, 120):
-        logger.error(f"Unsupported Hz: {args.hz}. Only 60Hz and 120Hz are supported.")
+    if args.hz not in (DEFAULT_HZ, 120):
+        logger.error(f"Unsupported Hz: {args.hz}. Only {DEFAULT_HZ}Hz and 120Hz are supported.")
         raise SystemExit(f"Unsupported Hz: {args.hz}")
     if args.seq_utilization <= 0.0 or args.seq_utilization > 1.0:
         logger.error("--seq-utilization must be in the interval (0, 1].")

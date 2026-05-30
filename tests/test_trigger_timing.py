@@ -10,14 +10,14 @@ class DryRunDLPC:
 
 
 class TriggerTimingTests(unittest.TestCase):
-    def test_default_delay_is_three_percent_of_exposure(self):
+    def test_default_delay_is_zero_percent_of_exposure(self):
         timing = compute_trigger_out_2_timing(exposure_us=3000)
 
         self.assertEqual(timing["channel"], "TRIG_OUT_2")
         self.assertEqual(timing["edge"], "rising")
-        self.assertEqual(timing["delay_fraction"], 0.03)
-        self.assertEqual(timing["rising_delay_us"], 90)
-        self.assertEqual(timing["falling_delay_us"], 110)
+        self.assertEqual(timing["delay_fraction"], 0.0)
+        self.assertEqual(timing["rising_delay_us"], 0)
+        self.assertEqual(timing["falling_delay_us"], 20)
         self.assertEqual(timing["delay_basis"], "exposure_us")
 
     def test_sixty_hz_full_bitplane_lut_runs_at_1440_triggers_per_second(self):
@@ -36,8 +36,8 @@ class TriggerTimingTests(unittest.TestCase):
     def test_falling_edge_preserves_minimum_twenty_us_pulse(self):
         timing = compute_trigger_out_2_timing(exposure_us=615)
 
-        self.assertEqual(timing["rising_delay_us"], 18)
-        self.assertEqual(timing["falling_delay_us"], 38)
+        self.assertEqual(timing["rising_delay_us"], 0)
+        self.assertEqual(timing["falling_delay_us"], 20)
 
     def test_zero_fraction_keeps_existing_behavior_shape(self):
         timing = compute_trigger_out_2_timing(exposure_us=615, delay_fraction=0.0)

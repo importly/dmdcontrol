@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import math
+import os
 import sys
 from dataclasses import asdict, is_dataclass
 from importlib import import_module
@@ -16,7 +18,8 @@ from dmdcontrol.camera.capture import (
 from dmdcontrol.camera.discovery import (
     configure_camera_performance,
     configure_rising_edge_triggers,
-    import_dv_processing,
+    rearm_camera_streams,
+    shutdown_camera_streams,
 )
 from dmdcontrol.camera.local_support_filter import (
     add_event_noise_filter_arguments,
@@ -29,6 +32,7 @@ from dmdcontrol.camera.runs import (
     write_json,
     write_run_metadata,
 )
+from dmdcontrol.camera.usb_reset import reset_camera_usb, run_power_cycle_command
 
 
 def parse_numbers(value: str) -> list[int]:
@@ -55,6 +59,16 @@ def positive_int(value: str) -> int:
     return number
 
 
+def nonnegative_int(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be non-negative") from exc
+    if number < 0:
+        raise argparse.ArgumentTypeError("value must be non-negative")
+    return number
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m dmdcontrol camera sync-check",
@@ -63,7 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--output-root", default=None)
     parser.add_argument("--timestamp", default=None, help=argparse.SUPPRESS)
-    parser.add_argument("--number-size-px", type=positive_int, default=420)
+    parser.add_argument("--number-size-px", type=positive_int, default=100)
     parser.add_argument("--numbers", type=parse_numbers, default=parse_numbers("1,2,3,4,5"))
     parser.add_argument(
         "--numbers-exposure-us",
@@ -72,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional per-bitplane LUT exposure override in microseconds. "
              "Omit for the maximum safe exposure at the configured VSYNC.",
     )
-    parser.add_argument("--trigger-out-2-delay-fraction", type=float, default=0.03)
+    parser.add_argument("--trigger-out-2-delay-fraction", type=float, default=0.00)
     parser.add_argument("--runtime-seconds", type=int, default=0)
     parser.add_argument(
         "--seq-utilization",
@@ -92,6 +106,46 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--efps", default="default", choices=["default", "variable", "variable_5000", "constant_1000", "constant_100"])
     parser.add_argument("--polarity-mode", default="positive", choices=["positive", "signed", "ignore"])
     parser.add_argument("--dark-time-us", type=int, default=None)
+    parser.add_argument(
+        "--camera-usb-reset",
+        dest="camera_usb_reset",
+        action="store_true",
+        default=False,
+        help="Diagnostic: run a Linux USB device reset before opening the camera. Disabled by default.",
+    )
+    parser.add_argument(
+        "--no-camera-usb-reset",
+        dest="camera_usb_reset",
+        action="store_false",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--camera-power-cycle-command",
+        default=None,
+        help=(
+            "Optional command run before camera open to power-cycle the USB port, "
+            "for example: \"uhubctl -l 1-2 -p 3 -a cycle -d 2\". "
+            "Defaults to DMD_CAMERA_POWER_CYCLE_COMMAND when set."
+        ),
+    )
+    parser.add_argument(
+        "--camera-flush-reads",
+        type=nonnegative_int,
+        default=1,
+        help="Number of stale event/trigger batch reads to discard after opening the camera.",
+    )
+    parser.add_argument(
+        "--camera-stream-rearm",
+        action="store_true",
+        default=False,
+        help="Diagnostic: cycle camera streams off/on before capture. Disabled by default.",
+    )
+    parser.add_argument(
+        "--camera-shutdown-streams",
+        action="store_true",
+        default=False,
+        help="Diagnostic: stop camera streams before releasing the capture object. Disabled by default.",
+    )
     add_event_noise_filter_arguments(parser)
     parser.add_argument("-v", "--verbose", action="count", default=0)
     return parser
@@ -101,50 +155,6 @@ def expected_trigger_count(args: argparse.Namespace) -> int:
     return len(args.numbers)
 
 
-def dry_run(args: argparse.Namespace):
-    run = create_run_directory("sync-check", args.output_root, timestamp=args.timestamp)
-    event_filter = event_noise_filter_config_from_args(args)
-    trigger_policy = {
-        "channel": "TRIG_OUT_2",
-        "edge": "rising",
-        "delay_fraction": args.trigger_out_2_delay_fraction,
-    }
-    metadata = {
-        "mode": "sync-check",
-        "dry_run": True,
-        "command": sys.argv,
-        "number_sequence": list(args.numbers),
-        "number_size_px": args.number_size_px,
-        "numbers_exposure_us": args.numbers_exposure_us,
-        "b_dot_x": args.b_dot_x,
-        "b_dot_y": args.b_dot_y,
-        "b_dot_radius": args.b_dot_radius,
-        "expected_trigger_count": expected_trigger_count(args),
-        "trigger_mode": "per_bitplane",
-        "bitplane_count": len(args.numbers),
-        "seq_utilization": args.seq_utilization,
-        "trigger_policy": trigger_policy,
-        "bias_sensitivity": args.bias_sensitivity,
-        "efps": args.efps,
-        "polarity_mode": args.polarity_mode,
-        "dark_time_us": args.dark_time_us,
-        "event_noise_filter": event_noise_filter_metadata(event_filter),
-        "save_filtered_events": args.save_filtered_events,
-    }
-    write_json(run.timing_path, trigger_policy)
-    write_run_metadata(
-        run,
-        metadata,
-        artifacts=["metadata.json", "timing.json", "command.txt", "run.log"],
-    )
-    run.command_path.write_text(
-        "python -m dmdcontrol camera sync-check --dry-run\n",
-        encoding="utf-8",
-    )
-    run.log_path.write_text("dry-run\n", encoding="utf-8")
-    return run
-
-
 def _asdict(value):
     if is_dataclass(value):
         return asdict(value)
@@ -152,16 +162,35 @@ def _asdict(value):
 
 
 def _open_ready_camera(run, args):
-    dv = import_dv_processing()
+    import dv_processing as dv
+    power_cycle_command = args.camera_power_cycle_command or os.environ.get("DMD_CAMERA_POWER_CYCLE_COMMAND")
+    power_cycle_info = run_power_cycle_command(power_cycle_command)
+    usb_reset_info = reset_camera_usb(dv, enabled=args.camera_usb_reset)
     capture = dv.io.camera.open()
+    writer = None
     try:
+        rearm_info = (
+            rearm_camera_streams(capture)
+            if getattr(args, "camera_stream_rearm", False)
+            else None
+        )
         configure_camera_performance(capture, bias_sensitivity=args.bias_sensitivity, efps=args.efps)
         configure_rising_edge_triggers(capture)
-        ready = validate_camera_ready(capture)
-        flush_stale_batches(capture)
+        ready = validate_camera_ready(
+            capture,
+            stream_rearm=rearm_info,
+            usb_reset=usb_reset_info,
+            power_cycle=power_cycle_info,
+        )
         writer = dv.io.MonoCameraWriter(str(run.raw_recording_path), capture)
+        flush_stale_batches(capture, reads=args.camera_flush_reads)
     except Exception:
+        if writer is not None:
+            del writer
+        if getattr(args, "camera_shutdown_streams", False):
+            shutdown_camera_streams(capture)
         del capture
+        gc.collect()
         raise
     return capture, writer, ready
 
@@ -176,7 +205,7 @@ def _pair_runtime_seconds(args: argparse.Namespace) -> int:
             runtime_seconds = max(1, math.ceil(sequence_seconds))
     return runtime_seconds
 
-
+# special run system for sync check
 def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
     runtime_seconds = _pair_runtime_seconds(args)
     pair_args = [
@@ -218,6 +247,54 @@ def _run_pair_with_callback(pair_args, before_start):
     pair_module = import_module("dmdcontrol.runtime.pair")
     return pair_module.run_with_before_start_callback(pair_args, before_start)
 
+def dry_run(args: argparse.Namespace):
+    run = create_run_directory("sync-check", args.output_root, timestamp=args.timestamp)
+    event_filter = event_noise_filter_config_from_args(args)
+    trigger_policy = {
+        "channel": "TRIG_OUT_2",
+        "edge": "rising",
+        "delay_fraction": args.trigger_out_2_delay_fraction,
+    }
+    metadata = {
+        "mode": "sync-check",
+        "dry_run": True,
+        "command": sys.argv,
+        "number_sequence": list(args.numbers),
+        "number_size_px": args.number_size_px,
+        "numbers_exposure_us": args.numbers_exposure_us,
+        "b_dot_x": args.b_dot_x,
+        "b_dot_y": args.b_dot_y,
+        "b_dot_radius": args.b_dot_radius,
+        "expected_trigger_count": expected_trigger_count(args),
+        "trigger_mode": "per_bitplane",
+        "bitplane_count": len(args.numbers),
+        "seq_utilization": args.seq_utilization,
+        "trigger_policy": trigger_policy,
+        "bias_sensitivity": args.bias_sensitivity,
+        "efps": args.efps,
+        "polarity_mode": args.polarity_mode,
+        "dark_time_us": args.dark_time_us,
+        "camera_usb_reset": args.camera_usb_reset,
+        "camera_power_cycle_command": args.camera_power_cycle_command,
+        "camera_flush_reads": args.camera_flush_reads,
+        "camera_stream_rearm": args.camera_stream_rearm,
+        "camera_shutdown_streams": args.camera_shutdown_streams,
+        "event_noise_filter": event_noise_filter_metadata(event_filter),
+        "save_filtered_events": args.save_filtered_events,
+    }
+    write_json(run.timing_path, trigger_policy)
+    write_run_metadata(
+        run,
+        metadata,
+        artifacts=["metadata.json", "timing.json", "command.txt", "run.log"],
+    )
+    run.command_path.write_text(
+        "python -m dmdcontrol camera sync-check --dry-run\n",
+        encoding="utf-8",
+    )
+    run.log_path.write_text("dry-run\n", encoding="utf-8")
+    return run
+
 
 def live(args: argparse.Namespace) -> int:
     run = create_run_directory("sync-check", args.output_root, timestamp=args.timestamp)
@@ -252,6 +329,13 @@ def live(args: argparse.Namespace) -> int:
         "efps": args.efps,
         "polarity_mode": args.polarity_mode,
         "dark_time_us": args.dark_time_us,
+        
+        "camera_usb_reset": args.camera_usb_reset, # tried added usb reset for camera, was useless, will remove soon
+        "camera_power_cycle_command": args.camera_power_cycle_command,
+        "camera_flush_reads": args.camera_flush_reads,
+        "camera_stream_rearm": args.camera_stream_rearm,
+        "camera_shutdown_streams": args.camera_shutdown_streams,
+        
         "event_noise_filter": event_noise_filter_metadata(event_filter),
         "save_filtered_events": args.save_filtered_events,
     }
@@ -343,10 +427,17 @@ def live(args: argparse.Namespace) -> int:
                 metadata,
                 artifacts=artifacts,
             )
+        if recording is not None:
+            recording = None
         if writer is not None:
             del writer
+            writer = None
         if capture is not None:
+            if args.camera_shutdown_streams:
+                shutdown_camera_streams(capture)
             del capture
+            capture = None
+        gc.collect()
 
 
 def main(argv: list[str] | None = None) -> int:

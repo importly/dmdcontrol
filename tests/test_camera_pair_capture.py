@@ -1,6 +1,37 @@
 import json
 
-from dmdcontrol.camera.pair_capture import build_parser, dry_run
+import numpy as np
+
+from dmdcontrol.camera.pair_capture import _BoundedArtifactBuffer, build_parser, dry_run
+
+
+class FakeNumpyBatch:
+    def __init__(self, array):
+        self.array = array
+
+    def numpy(self):
+        return self.array
+
+
+def test_bounded_artifact_buffer_snapshots_numpy_event_batches():
+    source = np.array(
+        [(100, 2, 1, True)],
+        dtype=[
+            ("timestamp", np.int64),
+            ("x", np.int16),
+            ("y", np.int16),
+            ("polarity", np.bool_),
+        ],
+    )
+    buffer = _BoundedArtifactBuffer(max_rising_triggers=None, window_us=10)
+
+    buffer.append_events(FakeNumpyBatch(source))
+    source["timestamp"][0] = 999
+    source["x"][0] = 9
+
+    assert buffer.events[0]["timestamp"][0] == 100
+    assert buffer.events[0]["x"][0] == 2
+    assert not np.shares_memory(buffer.events[0], source)
 
 
 def test_pair_capture_parser_accepts_requested_command_shape():
@@ -63,6 +94,40 @@ def test_pair_capture_parser_defaults_to_bounded_accumulation_artifacts():
     args = build_parser().parse_args(["--dry-run-timing"])
 
     assert args.max_accumulation_triggers == 512
+
+
+def test_pair_capture_parser_defaults_trigger_delay_to_zero():
+    args = build_parser().parse_args(["--dry-run-timing"])
+
+    assert args.trigger_out_2_delay_fraction == 0.0
+
+
+def test_pair_capture_parser_does_not_reset_camera_usb_by_default():
+    args = build_parser().parse_args(["--dry-run-timing"])
+    enabled = build_parser().parse_args(["--dry-run-timing", "--camera-usb-reset"])
+    disabled = build_parser().parse_args(["--dry-run-timing", "--no-camera-usb-reset"])
+
+    assert args.camera_usb_reset is False
+    assert enabled.camera_usb_reset is True
+    assert disabled.camera_usb_reset is False
+
+
+def test_pair_capture_parser_uses_mentor_style_camera_lifecycle_by_default():
+    args = build_parser().parse_args(["--dry-run-timing"])
+
+    assert args.camera_stream_rearm is False
+    assert args.camera_shutdown_streams is False
+    assert args.camera_flush_reads == 1
+
+
+def test_pair_capture_parser_accepts_power_cycle_command():
+    args = build_parser().parse_args([
+        "--dry-run-timing",
+        "--camera-power-cycle-command",
+        "uhubctl -l 1-2 -p 3 -a cycle -d 2",
+    ])
+
+    assert args.camera_power_cycle_command == "uhubctl -l 1-2 -p 3 -a cycle -d 2"
 
 
 def test_pair_capture_dry_run_creates_run_artifacts(tmp_path):

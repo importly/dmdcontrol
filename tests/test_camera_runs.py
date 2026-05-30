@@ -76,6 +76,14 @@ def test_write_capture_artifacts_saves_rising_trigger_accumulations(tmp_path):
     assert summary_json == summary
     assert summary["actual_trigger_count"] == 1
     assert summary["accumulated_shape"] == [1, 3, 4]
+    assert summary["event_time_range_us"] == [105, 210]
+    assert summary["accumulation_event_time_range_us"] == [105, 210]
+    assert summary["rising_trigger_time_range_us"] == [100, 100]
+    assert summary["events_per_accumulation_window"] == [2]
+    assert summary["events_per_pre_trigger_window"] == [0]
+    assert summary["events_per_post_window"] == [0]
+    assert summary["accumulated_nonzero_pixels"] == [1]
+    assert summary["accumulated_abs_sums"] == [2.0]
 
 
 def test_write_capture_artifacts_filters_events_before_accumulation(tmp_path):
