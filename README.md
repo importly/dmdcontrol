@@ -5,6 +5,8 @@ as the pattern source, then plays back up to 24 bit-planes per VSYNC frame.
 
 This is a incomplete README.
 
+Currently working on camera timing issue. not sure if root cause is timing.
+
 ## Prerequisites
 
 - Linux + Xorg (tested on Fedora 43, kernel 7.0.8, X.Org 21.1.22)
