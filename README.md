@@ -250,7 +250,7 @@ python -m dmdcontrol single run --dry-run-timing --test kernel --kernel-exposure
 | `kernel`                 | 3x3 convolution kernel rotation — cycles through 512 kernel masks. Configurable via `--kernel-px`, `--kernel-exposure-us`, `--kernel-single-shot`, `--kernel-blank-end-frame`, `--invert-dmd`. |
 
 `--trigger` only supports patterns with a static frame (anything except `numbers` / `calibr-square` / `snake` /
-`clock` / `kernel`). Dynamic modes fall back to `checkerboard` when used with `--trigger`.
+`clock` / `kernel`). Dynamic modes fall back to `checkerboard` when used with `--trigger`. Basically never used
 
 `--kernel-exposure-us` is a uniform exposure for the kernel sequence. The fast Video Pattern Mode path uses a static LUT
 that repeats every VSYNC, so arbitrary exposure values per individual kernel index would require a different playback
