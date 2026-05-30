@@ -1,12 +1,7 @@
 """
 DLPC900 USB HID driver — pycrafter6500 protocol.
 
-Key protocol change vs prior implementation:
-  Write flag 0x40 (ACK requested) instead of 0x00 (fire-and-forget).
-  Every command drains the firmware response before returning, giving
-  implicit flow control identical to pycrafter6500_modified.py.
-
-Packet layout (DLPU018J §1.2):
+Packet layout:
   Byte 0      flag   0x40 = write+ACK, 0xC0 = read+reply
   Byte 1      seq    auto-incrementing counter
   Bytes 2-3   plen   2 (cmd bytes) + len(data), little-endian
@@ -22,12 +17,13 @@ from typing import cast
 import usb.core
 import usb.util
 
+from dmdcontrol.support.constants import DLPC900_PID, DLPC900_VID
 from dmdcontrol.support.logging import logger
 
 
 class DLPC900:
-    VID = 0x0451
-    PID = 0xC900
+    VID = DLPC900_VID
+    PID = DLPC900_PID
 
     def __init__(self, usb_id_path=None, usb_devpath_contains=None):
         try:
@@ -63,7 +59,7 @@ class DLPC900:
 
         self.dev.set_configuration()
 
-        # Dynamic HID interface enum (Finding 47): DLPC900 is composite USB.
+        # Dynamic HID interface enum, DLPC900 is composite USB.
         # Linux frequently puts HID on intf 1; Windows on intf 0. Hard-coded 0
         # caused silent endpoint mismatch on Linux. Find first intf with class=3.
         cfg = self.dev.get_active_configuration()
@@ -85,13 +81,7 @@ class DLPC900:
         return v
 
     def _command(self, read: bool, cmd_id: int, data: bytes = b""):
-        """Send a command and drain the response.
-
-        Uses flag 0x40 for writes (ACK requested) and 0xC0 for reads,
-        matching the pycrafter6500_modified.py protocol exactly.  The
-        firmware ACK/response is always consumed before returning so the
-        IN endpoint never accumulates stale packets.
-        """
+        """Send a command and drain the response."""
         flag = 0xC0 if read else 0x40
         seq = self._seq_next()
         plen = 2 + len(data)
@@ -113,13 +103,6 @@ class DLPC900:
                 time.sleep(0.1)
                 self.dev.write(0x01, chunk)
 
-        # Drain the firmware response (ACK for writes, payload for reads).
-        # Poll up to 6 packets; match on sequence byte.
-        # Timeout 2000ms (Finding 48): 500ms too short for multi-packet ACKs.
-        #
-        # Report-ID detection: some USB HID stacks prepend a 0x00 byte.
-        # With our flag values (0x40 write-ACK, 0xC0 read-reply), the real
-        # flag byte is never 0x00, so r[0]==0x00 reliably signals a prefix.
         resp = None
         last_resp = None
         for _ in range(6):
@@ -135,19 +118,12 @@ class DLPC900:
                     resp = stripped
                     break
 
-        # NACK detection (TI: hidMessageStruct.head.flags.nack = bit 5).
-        # Firmware sets this when the command fails validation. Surfacing the
-        # error makes silent spec-violation NACKs visible in logs instead of
-        # being treated as success — matches TI's LCR_Write(ackRequired) check.
+        # NACK detection.
         if resp is not None and (resp[0] & 0x20):
             logger.warning(
                 f"[NACK] Firmware rejected cmd 0x{cmd_id:04X} (flags=0x{resp[0]:02X}). "
                 "Check command validity for current display mode."
             )
-
-        # Fall back to last received packet if seq never matched
-        # (mirrors old send_read behaviour — prevents None from propagating
-        # into _payload when the firmware is slightly slow).
         return resp if resp is not None else last_resp
 
     def _write(self, cmd_id: int, data: bytes = b""):
@@ -168,12 +144,10 @@ class DLPC900:
         plen = resp[2] | (resp[3] << 8)
         if plen == 0:
             return b""
-        # With command echo: data starts at byte 6, length = plen - 2.
         if len(resp) >= 7 and plen >= 2:
             d = resp[6: 6 + (plen - 2)]
             if len(d) >= min_len:
                 return d
-        # Without command echo: data starts at byte 4, length = plen.
         d = resp[4: 4 + plen]
         return d if len(d) >= min_len else None
 
@@ -195,8 +169,6 @@ class DLPC900:
         return p[0] if p else None
 
     def get_error_description(self):
-        # DLPU018J Table 2-17: 0x0101 returns ASCII null-terminated error string
-        # from the firmware's last failed command. Empty when last error is 0.
         resp = self._read(0x0101)
         p = self._payload(resp)
         if not p:
@@ -223,11 +195,7 @@ class DLPC900:
         return None
 
     def get_firmware_version(self):
-        """0x0205: 16-byte response. Returns dict with app/api/swcfg/seqcfg versions.
-
-        Per DLPU018J Table 2-12, each version is 4 bytes:
-          [patch_lo, patch_hi, minor, major]
-        """
+        """0x0205: 16-byte response. Returns dict with app/api/swcfg/seqcfg versions."""
         resp = self._read(0x0205)
         p = self._payload(resp, min_len=16)
         if not p or len(p) < 16:
@@ -423,11 +391,6 @@ class DLPC900:
 
         entry = (idx, exp_us, clear, depth, led, dark_us, trig2_disable, bit_pos)
         optional 9th element: image_index (default 0, unused in Video Pattern Mode)
-
-        Finding 42: Send 24 separate 12-byte 0x1A34 commands (one per entry),
-        matching TI's LCR_SendPatLut(). Old code concatenated all entries into
-        one 288-byte payload spanning 5 HID packets — protocol-divergent and
-        relied on firmware to correctly buffer fragmented mega-payload.
         """
         for entry in entries:
             if len(entry) == 8:

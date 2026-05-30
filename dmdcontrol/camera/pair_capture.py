@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import gc
+import os
 import sys
 from dataclasses import asdict, is_dataclass
 from importlib import import_module
@@ -16,7 +18,8 @@ from dmdcontrol.camera.capture import (
 from dmdcontrol.camera.discovery import (
     configure_camera_performance,
     configure_rising_edge_triggers,
-    import_dv_processing,
+    rearm_camera_streams,
+    shutdown_camera_streams,
 )
 from dmdcontrol.camera.local_support_filter import (
     add_event_noise_filter_arguments,
@@ -29,6 +32,7 @@ from dmdcontrol.camera.runs import (
     write_json,
     write_run_metadata,
 )
+from dmdcontrol.camera.usb_reset import reset_camera_usb, run_power_cycle_command
 
 
 def positive_int(value: str) -> int:
@@ -38,6 +42,16 @@ def positive_int(value: str) -> int:
         raise argparse.ArgumentTypeError("value must be positive") from exc
     if number <= 0:
         raise argparse.ArgumentTypeError("value must be positive")
+    return number
+
+
+def nonnegative_int(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be non-negative") from exc
+    if number < 0:
+        raise argparse.ArgumentTypeError("value must be non-negative")
     return number
 
 
@@ -57,13 +71,53 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--kernel-px", type=positive_int, default=129)
     parser.add_argument("--kernel-exposure-us", type=positive_int, default=None)
     parser.add_argument("--runtime-seconds", type=positive_int, default=999)
-    parser.add_argument("--trigger-out-2-delay-fraction", type=float, default=0.03)
+    parser.add_argument("--trigger-out-2-delay-fraction", type=float, default=0.00)
     parser.add_argument("--dmd-config", default=None)
     parser.add_argument("--hz", type=positive_int, default=None)
     parser.add_argument("--bias-sensitivity", default="default", choices=["default", "verylow", "low", "high", "veryhigh"])
     parser.add_argument("--efps", default="default", choices=["default", "variable", "variable_5000", "constant_1000", "constant_100"])
     parser.add_argument("--polarity-mode", default="positive", choices=["positive", "signed", "ignore"])
     parser.add_argument("--dark-time-us", type=int, default=None)
+    parser.add_argument(
+        "--camera-usb-reset",
+        dest="camera_usb_reset",
+        action="store_true",
+        default=False,
+        help="Diagnostic: run a Linux USB device reset before opening the camera. Disabled by default.",
+    )
+    parser.add_argument(
+        "--no-camera-usb-reset",
+        dest="camera_usb_reset",
+        action="store_false",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--camera-power-cycle-command",
+        default=None,
+        help=(
+            "Optional command run before camera open to power-cycle the USB port, "
+            "for example: \"uhubctl -l 1-2 -p 3 -a cycle -d 2\". "
+            "Defaults to DMD_CAMERA_POWER_CYCLE_COMMAND when set."
+        ),
+    )
+    parser.add_argument(
+        "--camera-flush-reads",
+        type=nonnegative_int,
+        default=1,
+        help="Number of stale event/trigger batch reads to discard after opening the camera.",
+    )
+    parser.add_argument(
+        "--camera-stream-rearm",
+        action="store_true",
+        default=False,
+        help="Diagnostic: cycle camera streams off/on before capture. Disabled by default.",
+    )
+    parser.add_argument(
+        "--camera-shutdown-streams",
+        action="store_true",
+        default=False,
+        help="Diagnostic: stop camera streams before releasing the capture object. Disabled by default.",
+    )
     parser.add_argument(
         "--max-accumulation-triggers",
         type=positive_int,
@@ -142,6 +196,11 @@ def dry_run(args: argparse.Namespace):
         "efps": args.efps,
         "polarity_mode": args.polarity_mode,
         "dark_time_us": args.dark_time_us,
+        "camera_usb_reset": args.camera_usb_reset,
+        "camera_power_cycle_command": args.camera_power_cycle_command,
+        "camera_flush_reads": args.camera_flush_reads,
+        "camera_stream_rearm": args.camera_stream_rearm,
+        "camera_shutdown_streams": args.camera_shutdown_streams,
         "max_accumulation_triggers": args.max_accumulation_triggers,
         "event_noise_filter": event_noise_filter_metadata(event_filter),
         "save_filtered_events": args.save_filtered_events,
@@ -167,16 +226,35 @@ def _asdict(value):
 
 
 def _open_ready_camera(run, args):
-    dv = import_dv_processing()
+    import dv_processing as dv
+    power_cycle_command = args.camera_power_cycle_command or os.environ.get("DMD_CAMERA_POWER_CYCLE_COMMAND")
+    power_cycle_info = run_power_cycle_command(power_cycle_command)
+    usb_reset_info = reset_camera_usb(dv, enabled=args.camera_usb_reset)
     capture = dv.io.camera.open()
+    writer = None
     try:
+        rearm_info = (
+            rearm_camera_streams(capture)
+            if getattr(args, "camera_stream_rearm", False)
+            else None
+        )
         configure_camera_performance(capture, bias_sensitivity=args.bias_sensitivity, efps=args.efps)
         configure_rising_edge_triggers(capture)
-        ready = validate_camera_ready(capture)
-        flush_stale_batches(capture)
+        ready = validate_camera_ready(
+            capture,
+            stream_rearm=rearm_info,
+            usb_reset=usb_reset_info,
+            power_cycle=power_cycle_info,
+        )
         writer = dv.io.MonoCameraWriter(str(run.raw_recording_path), capture)
+        flush_stale_batches(capture, reads=args.camera_flush_reads)
     except Exception:
+        if writer is not None:
+            del writer
+        if getattr(args, "camera_shutdown_streams", False):
+            shutdown_camera_streams(capture)
         del capture
+        gc.collect()
         raise
     return capture, writer, ready
 
@@ -296,9 +374,9 @@ def _event_records_from_batch(batch):
     if batch is None:
         return []
     if hasattr(batch, "numpy"):
-        return batch.numpy()
+        return np.array(batch.numpy(), copy=True)
     if isinstance(batch, np.ndarray):
-        return batch
+        return np.array(batch, copy=True)
     try:
         return list(batch)
     except TypeError:
@@ -378,6 +456,11 @@ def live(args: argparse.Namespace) -> int:
         "efps": args.efps,
         "polarity_mode": args.polarity_mode,
         "dark_time_us": args.dark_time_us,
+        "camera_usb_reset": args.camera_usb_reset,
+        "camera_power_cycle_command": args.camera_power_cycle_command,
+        "camera_flush_reads": args.camera_flush_reads,
+        "camera_stream_rearm": args.camera_stream_rearm,
+        "camera_shutdown_streams": args.camera_shutdown_streams,
         "max_accumulation_triggers": args.max_accumulation_triggers,
         "event_noise_filter": event_noise_filter_metadata(event_filter),
         "save_filtered_events": args.save_filtered_events,
@@ -468,10 +551,17 @@ def live(args: argparse.Namespace) -> int:
                 metadata,
                 artifacts=artifacts,
             )
+        if recording is not None:
+            recording = None
         if writer is not None:
             del writer
+            writer = None
         if capture is not None:
+            if args.camera_shutdown_streams:
+                shutdown_camera_streams(capture)
             del capture
+            capture = None
+        gc.collect()
 
 
 def main(argv: list[str] | None = None) -> int:

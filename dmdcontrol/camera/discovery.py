@@ -1,16 +1,11 @@
 from __future__ import annotations
 
+import time
 
-def import_dv_processing():
-    try:
-        import dv_processing as dv
-    except ImportError as exc:
-        raise RuntimeError(
-            "dv_processing is required for camera commands. Install it on the DMD box with: "
-            "python3 -m pip install dv-processing"
-        ) from exc
-    return dv
-
+from dmdcontrol.support.constants import (
+    DVXPLORER_CONTRAST_THRESHOLDS,
+    DVXPLORER_READOUT_FPS_NAMES,
+)
 
 def descriptor_to_dict(index, descriptor):
     return {
@@ -25,12 +20,63 @@ def descriptor_to_dict(index, descriptor):
 
 
 def discover_cameras():
-    dv = import_dv_processing()
+    import dv_processing as dv
     cameras = dv.io.camera.discover()
     return [
         descriptor_to_dict(index, descriptor)
         for index, descriptor in enumerate(cameras)
     ]
+
+
+def _call_if_available(capture, method_name, *args):
+    method = getattr(capture, method_name, None)
+    if not callable(method):
+        return False
+    method(*args)
+    return True
+
+
+def _drain_camera_batches(capture, reads):
+    for _ in range(max(0, int(reads))):
+        if hasattr(capture, "getNextEventBatch"):
+            capture.getNextEventBatch()
+        if hasattr(capture, "getNextTriggerBatch"):
+            capture.getNextTriggerBatch()
+
+
+def rearm_camera_streams(capture, settle_s=0.05, drain_reads=10):
+    stopped_events = _call_if_available(capture, "setEventsRunning", False)
+    stopped_detector = _call_if_available(capture, "setDetectorRunning", False)
+    stopped_generator = _call_if_available(capture, "setGeneratorRunning", False)
+    if settle_s > 0:
+        time.sleep(settle_s)
+    started_events = _call_if_available(capture, "setEventsRunning", True)
+    _drain_camera_batches(capture, drain_reads)
+    return {
+        "stopped_events": stopped_events,
+        "stopped_detector": stopped_detector,
+        "stopped_generator": stopped_generator,
+        "started_events": started_events,
+        "drain_reads": int(drain_reads),
+    }
+
+
+def shutdown_camera_streams(capture):
+    errors = []
+
+    def _stop(method_name):
+        try:
+            return _call_if_available(capture, method_name, False)
+        except Exception as exc:
+            errors.append(f"{method_name}: {exc!r}")
+            return False
+
+    return {
+        "stopped_events": _stop("setEventsRunning"),
+        "stopped_detector": _stop("setDetectorRunning"),
+        "stopped_generator": _stop("setGeneratorRunning"),
+        "errors": errors,
+    }
 
 
 def configure_rising_edge_triggers(capture):
@@ -40,21 +86,6 @@ def configure_rising_edge_triggers(capture):
         capture.setDetectorFallingEdges(False)
     if hasattr(capture, "setDetectorRunning"):
         capture.setDetectorRunning(True)
-
-
-DVXPLORER_CONTRAST_THRESHOLDS = {
-    "verylow": 15,
-    "low": 12,
-    "high": 6,
-    "veryhigh": 3,
-}
-
-DVXPLORER_READOUT_FPS_NAMES = {
-    "variable": "VARIABLE",
-    "variable_5000": "VARIABLE_5000",
-    "constant_1000": "CONSTANT_1000",
-    "constant_100": "CONSTANT_100",
-}
 
 
 def configure_camera_performance(capture, bias_sensitivity=None, efps=None):
@@ -89,7 +120,7 @@ def _configure_dvxplorer_readout_fps(capture, efps):
     readout_name = DVXPLORER_READOUT_FPS_NAMES.get(efps.lower())
     if readout_name is None:
         return False
-    dv = import_dv_processing()
+    import dv_processing as dv
     readout_fps = getattr(getattr(dv.io.camera, "DVXplorer", None), "ReadoutFPS", None)
     value = getattr(readout_fps, readout_name, None) if readout_fps is not None else None
     if value is None:
@@ -101,7 +132,7 @@ def _configure_dvxplorer_readout_fps(capture, efps):
 def _configure_legacy_dvs_bias_sensitivity(capture, bias_sensitivity):
     if not hasattr(capture, "setDVSBiasSensitivity"):
         return False
-    dv = import_dv_processing()
+    import dv_processing as dv
     bias = getattr(getattr(dv.io, "CameraCapture", None), "BiasSensitivity", None)
     mapping = {
         "verylow": getattr(bias, "VeryLow", None),
@@ -119,7 +150,7 @@ def _configure_legacy_dvs_bias_sensitivity(capture, bias_sensitivity):
 def _configure_legacy_dvxplorer_efps(capture, efps):
     if not hasattr(capture, "setDVXplorerEFPS"):
         return False
-    dv = import_dv_processing()
+    import dv_processing as dv
     efps_enum = getattr(getattr(dv.io, "CameraCapture", None), "DVXeFPS", None)
     mapping = {
         "variable": getattr(efps_enum, "EFPS_VARIABLE", None),
@@ -157,7 +188,7 @@ def capability_dict(capture):
 
 
 def camera_status():
-    dv = import_dv_processing()
+    import dv_processing as dv
     discovered = discover_cameras()
     capture = dv.io.camera.open()
     try:

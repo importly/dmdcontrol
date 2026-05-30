@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import numpy as np
 
-DEFAULT_COARSE_GRID_SPACING = 75
-DEFAULT_COARSE_GRID_THICKNESS = 8
-DEFAULT_COARSE_LINE_SPACING = 150
-DEFAULT_COARSE_LINE_THICKNESS = 24
-DEFAULT_ROUTE_MARKER_SIZE = 168
+from dmdcontrol.support.constants import (
+    DEFAULT_COARSE_GRID_SPACING,
+    DEFAULT_COARSE_GRID_THICKNESS,
+    DEFAULT_COARSE_LINE_SPACING,
+    DEFAULT_COARSE_LINE_THICKNESS,
+    DEFAULT_ROUTE_MARKER_SIZE,
+    DMD_HEIGHT,
+    DMD_WIDTH,
+)
 
 
 def _blank_rgb(width, height):
@@ -41,8 +45,8 @@ def _paint_horizontal_bands(frame, spacing, thickness, offset):
 
 
 def generate_coarse_grid_rgb(
-        width=1920,
-        height=1080,
+        width=DMD_WIDTH,
+        height=DMD_HEIGHT,
         spacing=DEFAULT_COARSE_GRID_SPACING,
         thickness=DEFAULT_COARSE_GRID_THICKNESS,
         offset_x=0,
@@ -57,8 +61,8 @@ def generate_coarse_grid_rgb(
 
 
 def generate_coarse_lines_rgb(
-        width=1920,
-        height=1080,
+        width=DMD_WIDTH,
+        height=DMD_HEIGHT,
         spacing=DEFAULT_COARSE_LINE_SPACING,
         thickness=DEFAULT_COARSE_LINE_THICKNESS,
         orientation="vertical",

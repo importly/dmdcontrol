@@ -23,8 +23,6 @@ from dmdcontrol.patterns.paired import (
     A_NUMBERS_B_STATIC_PAIR_TEST,
     CALIBRATION_DOT_PAIR_TEST,
     CalibrationSquareDotPairFrameProvider,
-    DMD_HEIGHT,
-    DMD_WIDTH,
     DynamicAStaticBPairFrameProvider,
     KERNEL_STATIC_PAIR_TEST,
     NUMBER_PAIR_TEST,
@@ -47,7 +45,13 @@ from dmdcontrol.runtime.lifecycle import (
     prepare_dlpc900_for_video_pattern,
     start_loaded_pattern_sequences,
 )
-from dmdcontrol.support.constants import BITPLANES, DEFAULT_SEQUENCE_UTILIZATION
+from dmdcontrol.support.constants import (
+    BITPLANES,
+    DEFAULT_HZ,
+    DEFAULT_SEQUENCE_UTILIZATION,
+    DMD_HEIGHT,
+    DMD_WIDTH,
+)
 from dmdcontrol.support.logging import logger, setup_logger
 
 
@@ -59,7 +63,7 @@ class PairConfig:
     desktop_height: int = PAIR_HEIGHT
     offset_b: tuple[int, int] = OFFSET_B
     offset_a: tuple[int, int] = OFFSET_A
-    target_hz: int = 60
+    target_hz: int = DEFAULT_HZ
 
 
 class _DryRunDLPC:
@@ -113,7 +117,7 @@ def resolve_pair_config(config_path=None, target_hz=None):
         raise ValueError(
             f"Paired DMD target_hz values must match, got {sorted(configured_hz)}"
         )
-    resolved_hz = int(target_hz or next(iter(configured_hz), 60))
+    resolved_hz = int(target_hz or next(iter(configured_hz), DEFAULT_HZ))
     return PairConfig(dmd_a=dmd_a, dmd_b=dmd_b, target_hz=resolved_hz)
 
 
@@ -121,7 +125,7 @@ def _build_parser():
     parser = argparse.ArgumentParser(
         description="Dual DLPC900 paired Video Pattern Mode runtime"
     )
-    parser.add_argument("--hz", type=int, default=None, help="Target Hz, default from dmd_devices.json or 60")
+    parser.add_argument("--hz", type=int, default=None, help=f"Target Hz, default from dmd_devices.json or {DEFAULT_HZ}")
     parser.add_argument("--dmd-config", default=None, help="Path to DMD mapping config")
     parser.add_argument("--test", choices=PAIR_TESTS, default="checkerboard")
     parser.add_argument(
@@ -225,8 +229,8 @@ def _build_parser():
     parser.add_argument(
         "--trigger-out-2-delay-fraction",
         type=float,
-        default=0.03,
-        help="Fraction of LUT exposure used as TRIG_OUT_2 rising-edge delay. Default: 0.03.",
+        default=0.00,
+        help="Fraction of LUT exposure used as TRIG_OUT_2 rising-edge delay. Default: 0.",
     )
     parser.add_argument(
         "--dark-time-us",

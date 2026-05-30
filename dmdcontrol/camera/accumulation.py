@@ -23,6 +23,7 @@ def filter_rising_triggers(triggers):
     return [trigger for trigger in triggers if _trigger_edge(trigger) == "rising"]
 
 
+# becoming suspect of this function now
 def accumulate_events_for_triggers(
     events,
     triggers,

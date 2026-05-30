@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from dmdcontrol.support.constants import BITPLANES, INTER_PATTERN_DARK_US, SAFE_MARGIN_US
+from dmdcontrol.support.constants import (
+    BITPLANES,
+    DMD_HEIGHT,
+    DMD_WIDTH,
+    INTER_PATTERN_DARK_US,
+    SAFE_MARGIN_US,
+)
 
 
 def compute_kernel_lut_override(
@@ -24,7 +30,7 @@ def compute_kernel_lut_override(
     return entries_count, kernel_exposure_us
 
 
-def generate_kernel_masks(width=1920, height=1080, kernel_px=30):
+def generate_kernel_masks(width=DMD_WIDTH, height=DMD_HEIGHT, kernel_px=30):
     """Generate 512 binary masks, one per 3x3 binary kernel variation."""
     if kernel_px % 3 != 0:
         raise ValueError(f"kernel_px ({kernel_px}) must be a multiple of 3")

@@ -1,7 +1,9 @@
 # dmdcontrol
 
 DLPC900 1080p Video Pattern Mode runtime. Drives a TI DLP6500 / DLP9000 evaluation module over USB HID with DisplayPort
-as the pattern source, then plays back up to 24 bit-planes per VSYNC frame. This is a incomplete README.
+as the pattern source, then plays back up to 24 bit-planes per VSYNC frame. 
+
+This is a incomplete README.
 
 ## Prerequisites
 
@@ -116,7 +118,7 @@ python -m dmdcontrol config show --dmd B
 requires that DMD's configured `xrandr_output` be connected; leave it blank only when you want explicit dual-DMD
 launches to fail closed until the DisplayPort mapping is filled in.
 
-Current validated dual-DMD mapping:
+Current dual-DMD mapping:
 
 | DMD | USB identity                   | Physical USB path | DisplayPort output | GLFW monitor |
 |-----|--------------------------------|-------------------|--------------------|--------------|
@@ -290,7 +292,7 @@ DLPC900 in Video Pattern Mode drives two GPIO trigger outputs. Their on-scope be
 - **TRIG_OUT_1 is advisory in our current hardware path.** TI documents it as the pattern-exposure gate, and without
   programmed dark time it may remain high for a whole pattern sequence. Empirically on the current setup it has also
   been observed staying low for the whole run. Do not use TRIG_OUT_1 for kernel indexing or acquisition truth; use
-  `TRIG_OUT_2`.
+  `TRIG_OUT_2`. Been having problems with this trigger, not sure why.
 - **TRIG_OUT_2 fires per bitplane** (or once per frame on bitplane 0 with `--trig2-frame-zero`). Default pulse width =
   20 µs. With 24 entries × 615 µs and dark=0, you get 24 pulses spaced 615 µs apart, then a ~1907 µs idle gap, then the
   next burst. **Scope auto-Hz reads ~1.63 kHz** because it windows over the dense burst region (1/615 µs ≈ 1626 Hz). *
@@ -304,7 +306,7 @@ DLPC900 in Video Pattern Mode drives two GPIO trigger outputs. Their on-scope be
 
 The DLPC900 hardware status register (read via cmd 0x1A0A) exposes status flags. Two are easy to misread:
 
-- **Bit 6 ("Sequence Abort Status Flag" per DLPU018J Table 2-21)** behaves in our setup as a state-machine flag rather
+- **Bit 6** behaves in our setup as a state-machine flag rather
   than a fault indicator. It is set after every `start_pattern_display(0)` (Pattern Stop) and persists until the next
   `start_pattern_display(2)` completes a clean handoff. It is also set at boot and persists across barrel power cycles.
   Treat as cosmetic when `sequencer_running`, `external_source_locked`, and `port1_syncs_valid` are all true and
@@ -313,7 +315,7 @@ The DLPC900 hardware status register (read via cmd 0x1A0A) exposes status flags.
 - **Bit 7 ("Sequence Error Flag")** is the real runtime-error signal. If you see this set, investigate.
 
 The runtime watchdog logs `hw=0x61` continuously when bit 0 (init_ok), bit 5 (reserved, commonly reads 1), and bit 6 (
-cosmetic ABORT) are set. That is the healthy steady-state pattern.
+cosmetic ABORT) are set. I think its a fine pattern
 
 ## Layout
 

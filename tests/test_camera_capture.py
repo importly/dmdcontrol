@@ -1,8 +1,11 @@
 from threading import Event
 
+import numpy as np
+
 from dmdcontrol.camera.capture import (
     CameraReadyState,
     CaptureResult,
+    append_batch_records,
     flush_stale_batches,
     record_until_trigger_count,
     validate_camera_ready,
@@ -48,6 +51,35 @@ def test_flush_stale_batches_reads_events_and_triggers():
 
     assert capture.event_reads == 2
     assert capture.trigger_reads == 2
+
+
+class FakeNumpyBatch:
+    def __init__(self, array):
+        self.array = array
+
+    def numpy(self):
+        return self.array
+
+
+def test_append_batch_records_snapshots_numpy_batches():
+    source = np.array(
+        [(100, 2, 1, True)],
+        dtype=[
+            ("timestamp", np.int64),
+            ("x", np.int16),
+            ("y", np.int16),
+            ("polarity", np.bool_),
+        ],
+    )
+    destination = []
+
+    append_batch_records(destination, FakeNumpyBatch(source), as_numpy=True)
+    source["timestamp"][0] = 999
+    source["x"][0] = 9
+
+    assert destination[0]["timestamp"][0] == 100
+    assert destination[0]["x"][0] == 2
+    assert not np.shares_memory(destination[0], source)
 
 
 class FakeWriter:
@@ -100,6 +132,36 @@ def test_record_until_trigger_count_writes_events_and_triggers():
     assert result.timed_out is False
     assert len(writer.events) == 2
     assert len(writer.triggers) == 2
+
+
+def test_record_until_trigger_count_reports_capture_time_ranges():
+    capture = FakeLiveCapture()
+    capture.event_batches = [
+        [
+            {"timestamp": 100, "x": 1, "y": 1, "polarity": True},
+            {"timestamp": 120, "x": 2, "y": 1, "polarity": True},
+        ],
+        [
+            {"timestamp": 250, "x": 3, "y": 1, "polarity": False},
+        ],
+    ]
+    capture.trigger_batches = [
+        [{"timestamp": 110, "edge": "rising"}],
+        [{"timestamp": 260, "edge": "rising"}],
+    ]
+    writer = FakeWriter()
+
+    result = record_until_trigger_count(
+        capture,
+        writer,
+        expected_trigger_count=2,
+        timeout_s=1.0,
+        idle_sleep_s=0.0,
+    )
+
+    assert result.event_count == 3
+    assert result.event_time_range_us == (100, 250)
+    assert result.trigger_time_range_us == (110, 260)
 
 
 def test_record_until_trigger_count_stops_when_stop_event_is_set():

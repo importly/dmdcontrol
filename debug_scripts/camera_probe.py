@@ -6,8 +6,7 @@ Purpose:
 - No DMD.
 - No triggers.
 - No AEDAT writer.
-- No dmdcontrol imports.
-- Only reads live event batches from dv_processing.
+- Uses dmdcontrol camera USB reset helper, then reads live event batches from dv_processing.
 - Accumulates ON / positive polarity events into one PNG.
 
 Expected result:
@@ -16,25 +15,21 @@ Expected result:
 """
 
 import argparse
+import gc
 import json
 import math
+import os
 import struct
+import sys
 import time
 import zlib
 from pathlib import Path
 
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-def import_dv_processing():
-    try:
-        import dv_processing as dv
-    except ModuleNotFoundError as exc:
-        raise RuntimeError(
-            "dv_processing is required for live camera probing. Install it on the DMD box "
-            "with the iniVation packages before running a real capture."
-        ) from exc
-    return dv
+from dmdcontrol.camera.usb_reset import reset_camera_usb, run_power_cycle_command
 
 
 def positive_float(value: str) -> float:
@@ -101,6 +96,34 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=99.5,
         help="Percentile used for image normalization.",
+    )
+    parser.add_argument(
+        "--usb-reset",
+        dest="usb_reset",
+        action="store_true",
+        default=False,
+        help="Diagnostic: run a Linux USB device reset before opening the camera. Disabled by default.",
+    )
+    parser.add_argument(
+        "--no-usb-reset",
+        dest="usb_reset",
+        action="store_false",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--power-cycle-command",
+        default=None,
+        help=(
+            "Optional command run before camera open to power-cycle the USB port, "
+            "for example: \"uhubctl -l 1-2 -p 3 -a cycle -d 2\". "
+            "Defaults to DMD_CAMERA_POWER_CYCLE_COMMAND when set."
+        ),
+    )
+    parser.add_argument(
+        "--stream-rearm",
+        action="store_true",
+        default=False,
+        help="Diagnostic: cycle the event stream off/on before capture. Disabled by default.",
     )
     return parser
 
@@ -181,6 +204,16 @@ def try_call(obj, name: str, *args):
         return None
 
 
+def rearm_event_stream(capture, settle_s=0.05, drain_reads=10) -> None:
+    try_call(capture, "setEventsRunning", False)
+    if settle_s > 0:
+        time.sleep(settle_s)
+    try_call(capture, "setEventsRunning", True)
+    for _ in range(max(0, int(drain_reads))):
+        if hasattr(capture, "getNextEventBatch"):
+            capture.getNextEventBatch()
+
+
 def drain_events(capture, seconds: float) -> tuple[int, int]:
     deadline = time.time() + seconds
     batches = 0
@@ -203,7 +236,7 @@ def drain_events(capture, seconds: float) -> tuple[int, int]:
 
 def run() -> int:
     args = build_parser().parse_args()
-    dv = import_dv_processing()
+    import dv_processing as dv
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -213,6 +246,9 @@ def run() -> int:
 
     print("[probe] dv_processing:", dv)
     print("[probe] dv_processing version:", getattr(dv, "__version__", "unknown"))
+    power_cycle_command = args.power_cycle_command or os.environ.get("DMD_CAMERA_POWER_CYCLE_COMMAND")
+    print("[probe] power cycle:", run_power_cycle_command(power_cycle_command))
+    print("[probe] usb reset:", reset_camera_usb(dv, enabled=args.usb_reset))
 
     descs = dv.io.camera.discover()
     print(f"[probe] discovered {len(descs)} camera(s)")
@@ -246,7 +282,8 @@ def run() -> int:
     # Conservative baseline. Lower this to 6 only if the trail is too weak.
     try_call(capture, "setContrastThresholdOn", args.threshold)
     try_call(capture, "setContrastThresholdOff", args.threshold)
-    try_call(capture, "setEventsRunning", True)
+    if args.stream_rearm:
+        rearm_event_stream(capture)
 
     try:
         print("[probe] getContrastThresholdOn:", capture.getContrastThresholdOn())
@@ -408,6 +445,7 @@ def run() -> int:
         del capture
     except Exception:
         pass
+    gc.collect()
 
     return 0
 

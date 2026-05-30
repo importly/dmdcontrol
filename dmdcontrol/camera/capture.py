@@ -3,6 +3,9 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from threading import Event, Thread
+from typing import Any
+
+import numpy as np
 
 
 @dataclass(frozen=True)
@@ -10,6 +13,9 @@ class CameraReadyState:
     event_stream_available: bool
     trigger_stream_available: bool
     event_resolution: tuple[int, int]
+    stream_rearm: dict | None = None
+    usb_reset: dict | None = None
+    power_cycle: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -19,6 +25,9 @@ class CaptureResult:
     trigger_batch_count: int
     timed_out: bool
     stopped: bool = False
+    event_count: int = 0
+    event_time_range_us: tuple[int, int] | None = None
+    trigger_time_range_us: tuple[int, int] | None = None
 
 
 class AsyncCapture:
@@ -74,7 +83,7 @@ class AsyncCapture:
             self.error = exc
 
 
-def validate_camera_ready(capture) -> CameraReadyState:
+def validate_camera_ready(capture, stream_rearm=None, usb_reset=None, power_cycle=None) -> CameraReadyState:
     event_available = bool(capture.isEventStreamAvailable())
     trigger_available = bool(capture.isTriggerStreamAvailable())
     if not event_available:
@@ -85,6 +94,9 @@ def validate_camera_ready(capture) -> CameraReadyState:
         event_stream_available=event_available,
         trigger_stream_available=trigger_available,
         event_resolution=tuple(capture.getEventResolution()),
+        stream_rearm=stream_rearm,
+        usb_reset=usb_reset,
+        power_cycle=power_cycle,
     )
 
 
@@ -100,7 +112,8 @@ def append_batch_records(destination, batch, as_numpy=False) -> None:
     if batch is None:
         return
     if as_numpy and hasattr(batch, "numpy"):
-        destination.append(batch.numpy())
+        records = batch.numpy()
+        destination.append(records.copy() if hasattr(records, "copy") else records)
     else:
         try:
             destination.extend(list(batch))
@@ -113,6 +126,54 @@ def _batch_len(batch) -> int:
         return len(batch)
     except TypeError:
         return 0
+
+
+def _merge_time_range(current, update):
+    if update is None:
+        return current
+    if current is None:
+        return update
+    return min(current[0], update[0]), max(current[1], update[1])
+
+
+def _batch_time_range_us(batch):
+    if batch is None or _batch_len(batch) == 0:
+        return None
+    if hasattr(batch, "getLowestTime") and hasattr(batch, "getHighestTime"):
+        return int(batch.getLowestTime()), int(batch.getHighestTime())
+    if isinstance(batch, np.ndarray):
+        field_names = batch.dtype.names or ()
+        timestamp_field = "timestamp" if "timestamp" in field_names else "t"
+        if timestamp_field not in field_names:
+            return None
+        timestamps = batch[timestamp_field]
+        if len(timestamps) == 0:
+            return None
+        return int(np.min(timestamps)), int(np.max(timestamps))
+    try:
+        records = list(batch)
+    except TypeError:
+        records = [batch]
+    timestamps = []
+    for record in records:
+        timestamp = _record_timestamp_or_none(record)
+        if timestamp is not None:
+            timestamps.append(timestamp)
+    if not timestamps:
+        return None
+    return min(timestamps), max(timestamps)
+
+
+def _record_timestamp_or_none(record):
+    for name in ("timestamp", "t"):
+        if hasattr(record, name):
+            value: Any = getattr(record, name)
+            return int(value() if callable(value) else value)
+        if isinstance(record, dict) and name in record:
+            return int(record[name])
+        if isinstance(record, np.void) and record.dtype.names and name in record.dtype.names:
+            return int(record[name])
+    return None
 
 
 def record_until_trigger_count(
@@ -131,8 +192,11 @@ def record_until_trigger_count(
         else None
     )
     trigger_count = 0
+    event_count = 0
     event_batch_count = 0
     trigger_batch_count = 0
+    event_time_range_us = None
+    trigger_time_range_us = None
     timed_out = False
     stopped = False
 
@@ -156,6 +220,11 @@ def record_until_trigger_count(
             writer.writeEvents(events, streamName="events")
             if on_events is not None:
                 on_events(events)
+            event_count += _batch_len(events)
+            event_time_range_us = _merge_time_range(
+                event_time_range_us,
+                _batch_time_range_us(events),
+            )
             event_batch_count += 1
             did_work = True
 
@@ -170,6 +239,10 @@ def record_until_trigger_count(
                 on_triggers(triggers)
             trigger_batch_count += 1
             trigger_count += _batch_len(triggers)
+            trigger_time_range_us = _merge_time_range(
+                trigger_time_range_us,
+                _batch_time_range_us(triggers),
+            )
             did_work = True
 
         if expected_trigger_count is not None and trigger_count >= expected_trigger_count:
@@ -183,4 +256,7 @@ def record_until_trigger_count(
         trigger_batch_count=trigger_batch_count,
         timed_out=timed_out,
         stopped=stopped,
+        event_count=event_count,
+        event_time_range_us=event_time_range_us,
+        trigger_time_range_us=trigger_time_range_us,
     )

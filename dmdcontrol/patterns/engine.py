@@ -4,11 +4,12 @@ import glfw
 import numpy as np
 from OpenGL.GL import *
 
+from dmdcontrol.support.constants import DMD_HEIGHT, DMD_WIDTH, TARGET_HZ
 from dmdcontrol.support.logging import logger
 
 
 class PatternEngine:
-    def __init__(self, width=1920, height=1080, monitor_index=0, fps=60):
+    def __init__(self, width=DMD_WIDTH, height=DMD_HEIGHT, monitor_index=0, fps=TARGET_HZ):
         self.width = width
         self.height = height
         self.fps = fps
@@ -42,7 +43,6 @@ class PatternEngine:
                 f"[WARNING] Monitor {monitor_index} not found, using primary."
             )
 
-        # Create a borderless window
         glfw.window_hint(glfw.DECORATED, glfw.FALSE)
         glfw.window_hint(glfw.RESIZABLE, glfw.FALSE)
         glfw.window_hint(glfw.AUTO_ICONIFY, glfw.FALSE)
@@ -88,7 +88,7 @@ class PatternEngine:
     def pack_patterns(self, binary_images):
         """
         Packs 24 independent binary masks into a single 24-bit RGB frame.
-        WARNING: This requires RGB 4:4:4 video without YCbCr chroma subsampling.
+        WARNING: This requires RGB 4:4:4 video without YCbCr chroma subsampling. make sure nvidia or opensource drivers support it
         """
         r = np.zeros((self.height, self.width), dtype=np.uint8)
         g = np.zeros((self.height, self.width), dtype=np.uint8)
@@ -101,9 +101,10 @@ class PatternEngine:
 
     def pack_patterns_safe_8bit(self, binary_images):
         """
-        Future-proof wrapper that packs up to 8 independent binary masks into a pure grayscale frame.
-        Because R=G=B, this perfectly bypasses Linux YCbCr chroma subsampling and dithering natively.
-        The 8 bitplanes are duplicated across Green, Red, and Blue channels for a total of 24 planes.
+        Future-proof wrapper that packs up to 8 independent binary masks into a pure grayscale frame. 
+        can be bad, lose alot of detail Because R=G=B, this perfectly bypasses Linux YCbCr chroma subsampling 
+        and dithering natively. The 8 bitplanes are duplicated across Green, Red, and Blue channels for a total
+        of 24 planes.
 
         Args:
             binary_images: List of up to 8 binary numpy arrays (0 or 1)

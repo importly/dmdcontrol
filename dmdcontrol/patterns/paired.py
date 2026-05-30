@@ -16,11 +16,9 @@ from dmdcontrol.patterns.visual import (
     generate_coarse_grid_rgb,
     generate_coarse_lines_rgb,
 )
-from dmdcontrol.support.constants import BITPLANES
+from dmdcontrol.support.constants import BITPLANES, DMD_HEIGHT, DMD_WIDTH, TARGET_HZ
 from dmdcontrol.support.logging import logger
 
-DMD_WIDTH = 1920
-DMD_HEIGHT = 1080
 PAIR_WIDTH = DMD_WIDTH * 2
 PAIR_HEIGHT = DMD_HEIGHT
 OFFSET_B = (0, 0)
@@ -551,7 +549,7 @@ def _load_gl_modules():
 
 
 class PairedPatternEngine:
-    def __init__(self, width=PAIR_WIDTH, height=PAIR_HEIGHT, fps=60, x=0, y=0):
+    def __init__(self, width=PAIR_WIDTH, height=PAIR_HEIGHT, fps=TARGET_HZ, x=0, y=0):
         self.width = width
         self.height = height
         self.fps = fps
