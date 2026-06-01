@@ -12,6 +12,10 @@ def _sync_check_module():
     return import_module("dmdcontrol.camera.sync_check")
 
 
+def _sync_sweep_module():
+    return import_module("dmdcontrol.camera.sync_sweep")
+
+
 def _pair_capture_module():
     return import_module("dmdcontrol.camera.pair_capture")
 
@@ -30,6 +34,10 @@ def status(argv):
 
 def sync_check(argv):
     return _sync_check_module().main(argv)
+
+
+def sync_sweep(argv):
+    return _sync_sweep_module().main(argv)
 
 
 def pair_capture(argv):

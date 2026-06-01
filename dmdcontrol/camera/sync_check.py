@@ -276,11 +276,15 @@ def dry_run(args: argparse.Namespace):
     return run
 
 
-def live(args: argparse.Namespace) -> int:
-    run = create_run_directory("sync-check", args.output_root, timestamp=args.timestamp)
+def live_capture(
+        args: argparse.Namespace,
+        run,
+        capture,
+        writer,
+        ready,
+        command_argv: list[str] | None = None,
+) -> int:
     event_filter = event_noise_filter_config_from_args(args)
-    capture = None
-    writer = None
     recording = None
     capture_result = None
     artifact_summary = None
@@ -295,7 +299,7 @@ def live(args: argparse.Namespace) -> int:
     metadata = {
         "mode": "sync-check",
         "dry_run": False,
-        "command": sys.argv,
+        "command": command_argv or sys.argv,
         "number_sequence": list(args.numbers),
         "number_size_px": args.number_size_px,
         "numbers_exposure_us": args.numbers_exposure_us,
@@ -321,11 +325,21 @@ def live(args: argparse.Namespace) -> int:
         "event_noise_filter": event_noise_filter_metadata(event_filter),
         "save_filtered_events": args.save_filtered_events,
     }
+    for source_name, metadata_name in (
+        ("sweep_id", "sweep_id"),
+        ("sweep_index", "sweep_index"),
+        ("sweep_repeat", "sweep_repeat"),
+        ("sweep_manifest", "sweep_manifest"),
+    ):
+        if hasattr(args, source_name):
+            metadata[metadata_name] = getattr(args, source_name)
 
     try:
-        capture, writer, ready = _open_ready_camera(run, args)
         write_json(run.timing_path, trigger_policy)
-        run.command_path.write_text(" ".join(sys.argv) + "\n", encoding="utf-8")
+        run.command_path.write_text(
+            " ".join(command_argv or sys.argv) + "\n",
+            encoding="utf-8",
+        )
         run.log_path.write_text("live\n", encoding="utf-8")
 
         def before_start(context):
@@ -412,9 +426,17 @@ def live(args: argparse.Namespace) -> int:
             )
         if recording is not None:
             recording = None
+
+
+def live(args: argparse.Namespace) -> int:
+    run = create_run_directory("sync-check", args.output_root, timestamp=args.timestamp)
+    capture = None
+    writer = None
+    try:
+        capture, writer, ready = _open_ready_camera(run, args)
+        return live_capture(args, run, capture, writer, ready)
+    finally:
         resources = {"writer": writer, "capture": capture}
-        writer = None
-        capture = None
         close_camera_resources(
             resources,
             shutdown_streams=args.camera_shutdown_streams,

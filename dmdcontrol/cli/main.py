@@ -39,6 +39,7 @@ def _build_parser() -> argparse.ArgumentParser:
     camera_actions.add_parser("discover", add_help=False)
     camera_actions.add_parser("status", add_help=False)
     camera_actions.add_parser("sync-check", add_help=False)
+    camera_actions.add_parser("sync-sweep", add_help=False)
     camera_actions.add_parser("pair-capture", add_help=False)
 
     return parser
@@ -79,6 +80,9 @@ def main(argv: list[str] | None = None) -> int | None:
     if args.area == "camera" and args.command == "sync-check":
         camera = import_module("dmdcontrol.cli.camera")
         return camera.sync_check(passthrough)
+    if args.area == "camera" and args.command == "sync-sweep":
+        camera = import_module("dmdcontrol.cli.camera")
+        return camera.sync_sweep(passthrough)
     if args.area == "camera" and args.command == "pair-capture":
         camera = import_module("dmdcontrol.cli.camera")
         return camera.pair_capture(passthrough)

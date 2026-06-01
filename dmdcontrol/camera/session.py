@@ -14,7 +14,7 @@ from dmdcontrol.camera.discovery import (
 from dmdcontrol.camera.usb_reset import reset_camera_usb, run_power_cycle_command
 
 
-def open_ready_camera(run, args):
+def _open_configured_camera_capture(args):
     import dv_processing as dv
 
     power_cycle_command = args.camera_power_cycle_command or os.environ.get("DMD_CAMERA_POWER_CYCLE_COMMAND")
@@ -42,14 +42,50 @@ def open_ready_camera(run, args):
             usb_reset=usb_reset_info,
             power_cycle=power_cycle_info,
         )
-        writer = dv.io.MonoCameraWriter(str(run.raw_recording_path), capture)
+    except Exception:
+        if getattr(args, "camera_shutdown_streams", False):
+            shutdown_camera_streams(capture)
+        del capture
+        gc.collect()
+        raise
+    return capture, ready
+
+
+def open_ready_camera_capture(args):
+    capture = None
+    try:
+        capture, ready = _open_configured_camera_capture(args)
+        flush_stale_batches(capture, reads=args.camera_flush_reads)
+    except Exception:
+        if capture is not None:
+            if getattr(args, "camera_shutdown_streams", False):
+                shutdown_camera_streams(capture)
+            del capture
+        gc.collect()
+        raise
+    return capture, ready
+
+
+def open_camera_writer(run, capture):
+    import dv_processing as dv
+
+    return dv.io.MonoCameraWriter(str(run.raw_recording_path), capture)
+
+
+def open_ready_camera(run, args):
+    capture = None
+    writer = None
+    try:
+        capture, ready = _open_configured_camera_capture(args)
+        writer = open_camera_writer(run, capture)
         flush_stale_batches(capture, reads=args.camera_flush_reads)
     except Exception:
         if writer is not None:
             del writer
-        if getattr(args, "camera_shutdown_streams", False):
-            shutdown_camera_streams(capture)
-        del capture
+        if capture is not None:
+            if getattr(args, "camera_shutdown_streams", False):
+                shutdown_camera_streams(capture)
+            del capture
         gc.collect()
         raise
     return capture, writer, ready
