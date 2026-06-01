@@ -14,6 +14,10 @@ def test_sync_check_parser_defaults_to_digits_one_through_five():
     args = build_parser().parse_args(["--dry-run"])
 
     assert args.numbers == [1, 2, 3, 4, 5]
+    assert args.test == "a-numbers-b-static"
+    assert args.test_b == "dot"
+    assert args.number_size_px == 100
+    assert args.b_dot_radius == 20
 
 
 @pytest.mark.parametrize("value", ["", ",", "0", "1,10", "-1", "x"])
@@ -44,11 +48,12 @@ def test_sync_check_runtime_args_use_requested_number_sequence():
 
     pair_args = _to_pair_runtime_args(args)
 
-    assert pair_args[:2] == ["--test", "numbers"]
+    assert pair_args[:4] == ["--test", "a-numbers-b-static", "--test-b", "dot"]
     assert "--checkerboard" not in pair_args
     assert "--trig2-frame-zero" not in pair_args
     assert pair_args[pair_args.index("--numbers") + 1] == "2,4,6"
     assert pair_args[pair_args.index("--numbers-size-px") + 1] == "123"
+    assert pair_args[pair_args.index("--b-dot-radius") + 1] == "20"
     assert "--numbers-exposure-us" not in pair_args
 
 
@@ -124,6 +129,7 @@ def test_sync_check_parser_uses_mentor_style_camera_lifecycle_by_default():
     assert args.camera_stream_rearm is False
     assert args.camera_shutdown_streams is False
     assert args.camera_flush_reads == 1
+    assert args.camera_post_trigger_event_batches == 0
 
 
 def test_sync_check_parser_accepts_power_cycle_command():
@@ -134,6 +140,16 @@ def test_sync_check_parser_accepts_power_cycle_command():
     ])
 
     assert args.camera_power_cycle_command == "uhubctl -l 1-2 -p 3 -a cycle -d 2"
+
+
+def test_sync_check_parser_accepts_name_override_alias():
+    args = build_parser().parse_args([
+        "--dry-run",
+        "--name-override",
+        "first-run",
+    ])
+
+    assert args.timestamp == "first-run"
 
 
 def test_sync_check_dry_run_creates_run_artifacts(tmp_path):
@@ -163,6 +179,7 @@ def test_sync_check_dry_run_creates_run_artifacts(tmp_path):
     assert metadata["dry_run"] is True
     assert metadata["number_sequence"] == [1, 2, 3, 4, 5]
     assert metadata["number_size_px"] == 420
+    assert metadata["b_dot_radius"] == 20
     assert metadata["numbers_exposure_us"] is None
     assert metadata["expected_trigger_count"] == 5
     assert metadata["trigger_policy"] == {

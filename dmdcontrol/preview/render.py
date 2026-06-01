@@ -21,17 +21,20 @@ from dmdcontrol.patterns.modes import (
     generate_number_rgb,
 )
 from dmdcontrol.patterns.paired import (
+    A_NUMBERS_B_STATIC_PAIR_TEST,
     CALIBRATION_DOT_PAIR_TEST,
     DMD_HEIGHT,
     DMD_WIDTH,
     DynamicGradientPairFrameProvider,
     DynamicSnakePairFrameProvider,
     KERNEL_STATIC_PAIR_TEST,
+    NUMBER_PAIR_TEST,
     PAIR_TESTS,
     STATIC_PAIR_TESTS,
     compose_pair_frame,
     generate_dot_frame,
     generate_static_frame,
+    make_pair_frame_provider,
 )
 from dmdcontrol.support.constants import BITPLANES
 
@@ -265,6 +268,10 @@ def render_pair_frame(test="coarse-grid", test_a=None, test_b=None, frame_index=
         return compose_pair_frame(frame_a, frame_b)
     if test == "snake":
         frame_a, frame_b = DynamicSnakePairFrameProvider()._frame_for_index(frame_index)
+        return compose_pair_frame(frame_a, frame_b)
+    if test in (NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST):
+        frame_provider = make_pair_frame_provider(test, test_b=test_b)
+        frame_a, frame_b = frame_provider.initial_pair()
         return compose_pair_frame(frame_a, frame_b)
     if test == CALIBRATION_DOT_PAIR_TEST:
         engine = PreviewEngine()

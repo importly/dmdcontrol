@@ -1,6 +1,7 @@
 import sys
 import types
 import unittest
+import builtins
 from unittest import mock
 
 import numpy as np
@@ -8,6 +9,7 @@ import numpy as np
 from dmdcontrol.runtime import single
 from dmdcontrol.patterns.modes import (
     NUMBER_SEQUENCE,
+    build_patterns,
     generate_number_rgb,
     number_index_for_elapsed,
 )
@@ -89,6 +91,33 @@ class NumbersModeTests(unittest.TestCase):
     def test_invalid_number_is_rejected(self):
         with self.assertRaises(ValueError):
             generate_number_rgb(0, width=120, height=160)
+
+    def test_numbered_region_generator_returns_rgb_grid(self):
+        from dmdcontrol.patterns.numbered_regions import generate_numbered_regions
+
+        grid = generate_numbered_regions(120, 80, grid_cols=3, grid_rows=2)
+
+        self.assertEqual(grid.shape, (80, 120, 3))
+        self.assertEqual(grid.dtype, np.uint8)
+        self.assertGreater(np.count_nonzero(grid), 0)
+
+    def test_numbered_mode_uses_packaged_generator_not_debug_scripts(self):
+        original_import = builtins.__import__
+
+        def reject_debug_scripts(name, *args, **kwargs):
+            if name == "debug_scripts" or name.startswith("debug_scripts."):
+                raise AssertionError("numbered mode should not import debug_scripts")
+            return original_import(name, *args, **kwargs)
+
+        engine = mock.Mock()
+        engine.rgb_to_binary_patterns.return_value = "packed"
+
+        with mock.patch.object(builtins, "__import__", side_effect=reject_debug_scripts):
+            label, patterns, dynamic_kind = build_patterns(engine, "numbered")
+
+        self.assertEqual(label, "Numbered Regions (6x4 grid)")
+        self.assertEqual(patterns, "packed")
+        self.assertIsNone(dynamic_kind)
 
     def test_dry_run_warns_when_number_size_is_ignored(self):
         args = single._build_parser().parse_args(

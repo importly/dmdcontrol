@@ -3,6 +3,7 @@
 __pycache__
 .env
 .env_pass
+.venv/
 server_backup/
 documentation/
 .ruff_cache

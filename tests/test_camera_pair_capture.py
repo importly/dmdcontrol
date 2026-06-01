@@ -118,6 +118,7 @@ def test_pair_capture_parser_uses_mentor_style_camera_lifecycle_by_default():
     assert args.camera_stream_rearm is False
     assert args.camera_shutdown_streams is False
     assert args.camera_flush_reads == 1
+    assert args.camera_post_trigger_event_batches == 0
 
 
 def test_pair_capture_parser_accepts_power_cycle_command():
@@ -128,6 +129,16 @@ def test_pair_capture_parser_accepts_power_cycle_command():
     ])
 
     assert args.camera_power_cycle_command == "uhubctl -l 1-2 -p 3 -a cycle -d 2"
+
+
+def test_pair_capture_parser_accepts_name_override_alias():
+    args = build_parser().parse_args([
+        "--dry-run-timing",
+        "--name-override",
+        "pair-test-run",
+    ])
+
+    assert args.timestamp == "pair-test-run"
 
 
 def test_pair_capture_dry_run_creates_run_artifacts(tmp_path):

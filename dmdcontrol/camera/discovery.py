@@ -28,6 +28,22 @@ def discover_cameras():
     ]
 
 
+def open_camera_capture(dv, *, method="modern", descriptor=None):
+    if method == "legacy":
+        camera_capture = getattr(dv.io, "CameraCapture", None)
+        if camera_capture is None:
+            raise RuntimeError(
+                "dv.io.CameraCapture is not available in this dv_processing build; "
+                "use --camera-open-method modern or run in an environment with the legacy API."
+            )
+        return camera_capture()
+    if method != "modern":
+        raise ValueError(f"Unsupported camera open method: {method}")
+    if descriptor is not None:
+        return dv.io.camera.open(descriptor)
+    return dv.io.camera.open()
+
+
 def _call_if_available(capture, method_name, *args):
     method = getattr(capture, method_name, None)
     if not callable(method):
@@ -88,16 +104,30 @@ def configure_rising_edge_triggers(capture):
         capture.setDetectorRunning(True)
 
 
-def configure_camera_performance(capture, bias_sensitivity=None, efps=None):
+def configure_camera_performance(capture, bias_sensitivity=None, efps=None, prefer_legacy=False):
     if bias_sensitivity is not None and bias_sensitivity != "default":
-        configured = _configure_dvxplorer_contrast_thresholds(capture, bias_sensitivity)
-        if not configured:
+        configured = (
             _configure_legacy_dvs_bias_sensitivity(capture, bias_sensitivity)
+            if prefer_legacy
+            else _configure_dvxplorer_contrast_thresholds(capture, bias_sensitivity)
+        )
+        if not configured:
+            if prefer_legacy:
+                _configure_dvxplorer_contrast_thresholds(capture, bias_sensitivity)
+            else:
+                _configure_legacy_dvs_bias_sensitivity(capture, bias_sensitivity)
 
     if efps is not None and efps != "default":
-        configured = _configure_dvxplorer_readout_fps(capture, efps)
-        if not configured:
+        configured = (
             _configure_legacy_dvxplorer_efps(capture, efps)
+            if prefer_legacy
+            else _configure_dvxplorer_readout_fps(capture, efps)
+        )
+        if not configured:
+            if prefer_legacy:
+                _configure_dvxplorer_readout_fps(capture, efps)
+            else:
+                _configure_legacy_dvxplorer_efps(capture, efps)
 
 
 def _configure_dvxplorer_contrast_thresholds(capture, bias_sensitivity):

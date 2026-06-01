@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from dmdcontrol.patterns.numbered_regions import generate_numbered_regions
 from dmdcontrol.patterns.visual import generate_coarse_grid_rgb, generate_coarse_lines_rgb
 from dmdcontrol.support.constants import (
     DEFAULT_CALIBRATION_SQUARE_FRACTION,
@@ -232,7 +233,6 @@ def generate_number_rgb(number, width=DMD_WIDTH, height=DMD_HEIGHT, size_px=None
 
 
 def _numbered(engine):
-    from debug_scripts.debug_numbered_regions import generate_numbered_regions
     rgb = generate_numbered_regions(DMD_WIDTH, DMD_HEIGHT, grid_cols=6, grid_rows=4)
     return engine.rgb_to_binary_patterns(rgb), None
 

@@ -1,0 +1,30 @@
+[project]
+name = "dmdcontrol"
+version = "0.1.0"
+description = "DLPC900 DMD control and camera sync-check tooling."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "glfw",
+    "numpy",
+    "opencv-python",
+    "pillow",
+    "pyopengl",
+    "pyusb",
+    "rich",
+]
+
+[project.optional-dependencies]
+camera = [
+    "dv-processing",
+    "pyyaml",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
+
+[tool.uv]
+package = false
+default-groups = ["dev"]

@@ -59,9 +59,8 @@ python -m dmdcontrol config show --dmd A
 ```
 
 Compatibility shims such as `compat/legacy/main.py`, `compat/legacy/main_pair.py`, `compat/legacy/wake_dp.py`, and the
-USB/debug helper scripts now live under `compat/legacy/` or `scripts/debug/`. `dmd_preview_server.py` remains at the repository root for
-older preview-server workflows, but new automation should prefer `python -m dmdcontrol` or the shell launcher that wraps
-it.
+USB/debug helper scripts now live under `compat/legacy/` or `scripts/debug/`. Use `run_dmd_preview_server.sh` for the
+preview server default bind, or `python -m dmdcontrol` directly for custom preview-server workflows.
 
 ## Essential Linux DMD workflows
 
@@ -92,7 +91,7 @@ python -m dmdcontrol pair calibrate --b-dot-x 960 --b-dot-y 540 --b-dot-radius 4
 Run the preview server separately before using a `--preview-url`:
 
 ```bash
-python -m dmdcontrol preview serve --host 0.0.0.0 --port 8080
+./run_dmd_preview_server.sh
 # open http://127.0.0.1:8080/
 ```
 
@@ -100,7 +99,7 @@ Linux DMD verification checklist:
 
 - `python -m dmdcontrol usb discover` sees both DLPC900 boards.
 - `python -m dmdcontrol config show --dmd A` and `--dmd B` resolve the expected USB and DisplayPort mappings.
-- `python -m dmdcontrol preview serve --host 0.0.0.0 --port 8080` serves `http://127.0.0.1:8080/`.
+- `./run_dmd_preview_server.sh` serves `http://127.0.0.1:8080/`.
 - The paired kernel shell command above starts both DMDs, shows B's dot, and runs A's kernel sequence.
 - The paired calibration shell command above keeps B's dot static, shows the interactive A square, and updates
   `http://127.0.0.1:8080/api/live-frame`.
@@ -162,7 +161,7 @@ B dot does not flicker.
 Preview packed frames and individual DLPC900 bitplanes in a browser:
 
 ```bash
-python -m dmdcontrol preview serve --host 0.0.0.0 --port 8080
+./run_dmd_preview_server.sh
 # open http://127.0.0.1:8080/
 ./run_dmd_pair.sh --test coarse-grid --runtime-seconds 300 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
 ```
@@ -287,6 +286,59 @@ python -m dmdcontrol flood run --yes   # USB-only internal test-pattern flood
 python debug_scripts/usb_sanity.py     # USB connectivity smoke test
 ```
 
+## Camera sync-check notes
+
+The normal camera entrypoints are:
+
+```bash
+./run_camera_sync_check.sh [flags]
+./run_dmd_pair_capture.sh [flags]
+python debug_scripts/camera_probe.py [flags]
+```
+
+Current default camera behavior is intended to match the original modern `dv_processing` path:
+
+- Camera open defaults to `dv.io.camera.open()`.
+- The open-time stale batch flush uses `--camera-flush-reads`, default `1`.
+- No legacy `dv.io.CameraCapture()` path is used unless `--camera-open-method legacy` is passed.
+- No post-trigger grace reads are used unless `--camera-post-trigger-event-batches N` is passed. The default is `0`.
+- No USB reset, stream rearm, shutdown, or power-cycle command runs unless the corresponding flag/env option is passed.
+
+The extra camera flags are diagnostic switches, not normal-run requirements:
+
+| Flag | Default | Use |
+|------|---------|-----|
+| `--camera-open-method modern|legacy` | `modern` | Compare current `dv.io.camera.open()` against the mentor/Hannah legacy `dv.io.CameraCapture()` path. |
+| `--camera-post-trigger-event-batches N` | `0` | Keep reading up to `N` event batches after the expected trigger count. This did not fix the current no-optical-response state. |
+| `--camera-usb-reset` | off | Try Linux USBDEVFS reset before open. On the current DVXplorer issue this succeeded at the OS level but did not behave like a physical unplug/replug. |
+| `--camera-stream-rearm` | off | Toggle event/trigger running state after open, when the API exposes those controls. |
+| `--bias-sensitivity` / `--efps` | `default` | Camera performance configuration. In the modern DVXplorer API, `--bias-sensitivity low` maps through contrast-threshold APIs and is not guaranteed to mean the same thing as mentor's legacy `BiasSensitivity.Low`. |
+
+Current DVXplorer investigation state:
+
+- Event counts alone are not enough evidence. A bad camera state can still stream background-like events while the spatial PNG looks like the no-stimulus noise image.
+- Physical unplug/replug has restored stimulus-correlated optical response. Software open/close, stream rearm, threshold changes, and Linux USB reset have not reliably restored it.
+- Under user `main` on `eodla`, `dv_processing` was observed as version `2.0.3`, with `dv.io.camera.open()` present and `dv.io.CameraCapture` absent. Mentor backup code uses `dv.io.CameraCapture()`, so that exact path cannot run in the observed `main` environment.
+- If Hannah's separate Linux user does not show this issue, first compare her Python/dv environment before changing sync-check logic.
+
+Environment comparison command for each Linux user:
+
+```bash
+whoami
+which python
+python - <<'PY'
+import dv_processing as dv
+print(getattr(dv, "__version__", "unknown"))
+print(getattr(dv, "__file__", None))
+print("has CameraCapture", hasattr(dv.io, "CameraCapture"))
+print("has camera.open", hasattr(dv.io, "camera") and hasattr(dv.io.camera, "open"))
+PY
+```
+
+If a physical replug makes `camera_probe.py` images show the stimulus but `--camera-usb-reset` does not, treat the root
+cause as device/libcaer/dv-processing state that needs a fuller hardware or driver-level reinitialization, not as a DMD
+timing or accumulation-window-only bug.
+
 ## Trigger output behavior
 
 DLPC900 in Video Pattern Mode drives two GPIO trigger outputs. Their on-scope behavior surprises people, so:
@@ -328,7 +380,7 @@ run_dmd_pair.sh     Paired Linux DMD launcher
 run_dmd_pair_calibr_square.sh  Paired calibration launcher with terminal input
 run_camera_sync_check.sh       Camera sync-check launcher
 run_dmd_pair_capture.sh        Paired DMD + camera capture launcher
-dmd_preview_server.py          Legacy root preview-server entrypoint
+run_dmd_preview_server.sh      Preview server launcher, defaults to 0.0.0.0:8080
 scripts/lib/       Shared shell helpers for DMD launchers
 scripts/xinit/     X session wrappers (xrandr modeset + MetaMode validation + python launch)
 scripts/debug/     Deprecated/debug USB helper scripts

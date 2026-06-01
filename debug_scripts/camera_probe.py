@@ -29,6 +29,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from dmdcontrol.camera.discovery import configure_camera_performance, open_camera_capture
 from dmdcontrol.camera.usb_reset import reset_camera_usb, run_power_cycle_command
 
 
@@ -61,6 +62,30 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=9,
         help="Contrast threshold for ON/OFF, usually 0-17. Lower is more sensitive/noisier.",
+    )
+    parser.add_argument(
+        "--skip-threshold",
+        action="store_true",
+        default=False,
+        help="Do not call setContrastThresholdOn/Off directly.",
+    )
+    parser.add_argument(
+        "--camera-open-method",
+        default="modern",
+        choices=["modern", "legacy"],
+        help="Camera API used to open the device. Use legacy to mirror mentor CameraCapture code.",
+    )
+    parser.add_argument(
+        "--bias-sensitivity",
+        default="default",
+        choices=["default", "verylow", "low", "high", "veryhigh"],
+        help="Optional camera bias/sensitivity preset.",
+    )
+    parser.add_argument(
+        "--efps",
+        default="default",
+        choices=["default", "variable", "variable_5000", "constant_1000", "constant_100"],
+        help="Optional DVXplorer readout/eFPS preset.",
     )
     parser.add_argument(
         "--drain-seconds",
@@ -260,11 +285,15 @@ def run() -> int:
             f"devAddress={getattr(d, 'devAddress', None)}"
         )
 
-    if not descs:
+    if not descs and args.camera_open_method == "modern":
         raise RuntimeError("No camera discovered")
 
-    print("[probe] opening first camera")
-    capture = dv.io.camera.open(descs[0])
+    print(f"[probe] opening camera with {args.camera_open_method} API")
+    capture = open_camera_capture(
+        dv,
+        method=args.camera_open_method,
+        descriptor=descs[0] if descs else None,
+    )
 
     print("[probe] capture type:", type(capture))
     print("[probe] name:", capture.getCameraName() if hasattr(capture, "getCameraName") else "unknown")
@@ -279,9 +308,17 @@ def run() -> int:
     width, height = resolution
     print("[probe] event resolution:", resolution)
 
+    configure_camera_performance(
+        capture,
+        bias_sensitivity=args.bias_sensitivity,
+        efps=args.efps,
+        prefer_legacy=(args.camera_open_method == "legacy"),
+    )
+
     # Conservative baseline. Lower this to 6 only if the trail is too weak.
-    try_call(capture, "setContrastThresholdOn", args.threshold)
-    try_call(capture, "setContrastThresholdOff", args.threshold)
+    if not args.skip_threshold:
+        try_call(capture, "setContrastThresholdOn", args.threshold)
+        try_call(capture, "setContrastThresholdOff", args.threshold)
     if args.stream_rearm:
         rearm_event_stream(capture)
 
@@ -405,7 +442,11 @@ def run() -> int:
         "duration_seconds_requested": args.duration_seconds,
         "duration_seconds_elapsed": elapsed,
         "resolution": [width, height],
+        "camera_open_method": args.camera_open_method,
         "threshold": args.threshold,
+        "threshold_applied": not args.skip_threshold,
+        "bias_sensitivity": args.bias_sensitivity,
+        "efps": args.efps,
         "total_events": int(total_events),
         "positive_events": int(positive_events),
         "negative_events": int(negative_events),

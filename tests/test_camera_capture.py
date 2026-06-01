@@ -134,6 +134,28 @@ def test_record_until_trigger_count_writes_events_and_triggers():
     assert len(writer.triggers) == 2
 
 
+def test_record_until_trigger_count_reads_post_trigger_event_batches():
+    capture = FakeLiveCapture()
+    capture.event_batches = [None, ["tail1"], ["tail2"]]
+    capture.trigger_batches = [[object(), object()], None, None]
+    writer = FakeWriter()
+
+    result = record_until_trigger_count(
+        capture,
+        writer,
+        expected_trigger_count=2,
+        timeout_s=1.0,
+        idle_sleep_s=0.0,
+        post_trigger_event_batches=2,
+    )
+
+    assert result.trigger_count == 2
+    assert result.event_batch_count == 2
+    assert len(writer.events) == 2
+    assert writer.events[0][1] == ["tail1"]
+    assert writer.events[1][1] == ["tail2"]
+
+
 def test_record_until_trigger_count_reports_capture_time_ranges():
     capture = FakeLiveCapture()
     capture.event_batches = [

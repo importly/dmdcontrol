@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import argparse
-import gc
 import math
-import os
 import sys
 from dataclasses import asdict, is_dataclass
 from importlib import import_module
@@ -13,13 +11,6 @@ from dmdcontrol.camera.capture import (
     append_batch_records,
     flush_stale_batches,
     record_until_trigger_count,
-    validate_camera_ready,
-)
-from dmdcontrol.camera.discovery import (
-    configure_camera_performance,
-    configure_rising_edge_triggers,
-    rearm_camera_streams,
-    shutdown_camera_streams,
 )
 from dmdcontrol.camera.local_support_filter import (
     add_event_noise_filter_arguments,
@@ -32,7 +23,10 @@ from dmdcontrol.camera.runs import (
     write_json,
     write_run_metadata,
 )
-from dmdcontrol.camera.usb_reset import reset_camera_usb, run_power_cycle_command
+from dmdcontrol.camera.session import (
+    close_camera_resources,
+    open_ready_camera as _open_ready_camera,
+)
 
 
 def parse_numbers(value: str) -> list[int]:
@@ -76,6 +70,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--output-root", default=None)
+    parser.add_argument(
+        "--name-override",
+        dest="timestamp",
+        default=None,
+        help="Override the generated run directory name prefix.",
+    )
     parser.add_argument("--timestamp", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--number-size-px", type=positive_int, default=100)
     parser.add_argument("--numbers", type=parse_numbers, default=parse_numbers("1,2,3,4,5"))
@@ -97,15 +97,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dmd-config", default=None)
     parser.add_argument("--hz", type=int, default=None)
-    parser.add_argument("--test", default="numbers")
+    parser.add_argument("--test", default="a-numbers-b-static")
     parser.add_argument("--test-b", default="dot")
     parser.add_argument("--b-dot-x", type=int, default=960)
     parser.add_argument("--b-dot-y", type=int, default=540)
-    parser.add_argument("--b-dot-radius", type=positive_int, default=40)
+    parser.add_argument("--b-dot-radius", type=positive_int, default=20)
     parser.add_argument("--bias-sensitivity", default="default", choices=["default", "verylow", "low", "high", "veryhigh"])
     parser.add_argument("--efps", default="default", choices=["default", "variable", "variable_5000", "constant_1000", "constant_100"])
     parser.add_argument("--polarity-mode", default="positive", choices=["positive", "signed", "ignore"])
     parser.add_argument("--dark-time-us", type=int, default=None)
+    parser.add_argument(
+        "--camera-open-method",
+        default="modern",
+        choices=["modern", "legacy"],
+        help="Camera API used to open the device. Use legacy to mirror mentor CameraCapture code.",
+    )
     parser.add_argument(
         "--camera-usb-reset",
         dest="camera_usb_reset",
@@ -135,6 +141,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of stale event/trigger batch reads to discard after opening the camera.",
     )
     parser.add_argument(
+        "--camera-post-trigger-event-batches",
+        type=nonnegative_int,
+        default=0,
+        help="Number of extra event batches to read after the expected trigger count is reached.",
+    )
+    parser.add_argument(
         "--camera-stream-rearm",
         action="store_true",
         default=False,
@@ -159,40 +171,6 @@ def _asdict(value):
     if is_dataclass(value):
         return asdict(value)
     return dict(getattr(value, "__dict__", {}))
-
-
-def _open_ready_camera(run, args):
-    import dv_processing as dv
-    power_cycle_command = args.camera_power_cycle_command or os.environ.get("DMD_CAMERA_POWER_CYCLE_COMMAND")
-    power_cycle_info = run_power_cycle_command(power_cycle_command)
-    usb_reset_info = reset_camera_usb(dv, enabled=args.camera_usb_reset)
-    capture = dv.io.camera.open()
-    writer = None
-    try:
-        rearm_info = (
-            rearm_camera_streams(capture)
-            if getattr(args, "camera_stream_rearm", False)
-            else None
-        )
-        configure_camera_performance(capture, bias_sensitivity=args.bias_sensitivity, efps=args.efps)
-        configure_rising_edge_triggers(capture)
-        ready = validate_camera_ready(
-            capture,
-            stream_rearm=rearm_info,
-            usb_reset=usb_reset_info,
-            power_cycle=power_cycle_info,
-        )
-        writer = dv.io.MonoCameraWriter(str(run.raw_recording_path), capture)
-        flush_stale_batches(capture, reads=args.camera_flush_reads)
-    except Exception:
-        if writer is not None:
-            del writer
-        if getattr(args, "camera_shutdown_streams", False):
-            shutdown_camera_streams(capture)
-        del capture
-        gc.collect()
-        raise
-    return capture, writer, ready
 
 
 def _pair_runtime_seconds(args: argparse.Namespace) -> int:
@@ -276,7 +254,9 @@ def dry_run(args: argparse.Namespace):
         "dark_time_us": args.dark_time_us,
         "camera_usb_reset": args.camera_usb_reset,
         "camera_power_cycle_command": args.camera_power_cycle_command,
+        "camera_open_method": args.camera_open_method,
         "camera_flush_reads": args.camera_flush_reads,
+        "camera_post_trigger_event_batches": args.camera_post_trigger_event_batches,
         "camera_stream_rearm": args.camera_stream_rearm,
         "camera_shutdown_streams": args.camera_shutdown_streams,
         "event_noise_filter": event_noise_filter_metadata(event_filter),
@@ -330,9 +310,11 @@ def live(args: argparse.Namespace) -> int:
         "polarity_mode": args.polarity_mode,
         "dark_time_us": args.dark_time_us,
         
-        "camera_usb_reset": args.camera_usb_reset, # tried added usb reset for camera, was useless, will remove soon
+        "camera_usb_reset": args.camera_usb_reset,
         "camera_power_cycle_command": args.camera_power_cycle_command,
+        "camera_open_method": args.camera_open_method,
         "camera_flush_reads": args.camera_flush_reads,
+        "camera_post_trigger_event_batches": args.camera_post_trigger_event_batches,
         "camera_stream_rearm": args.camera_stream_rearm,
         "camera_shutdown_streams": args.camera_shutdown_streams,
         
@@ -367,6 +349,7 @@ def live(args: argparse.Namespace) -> int:
                     on_events=lambda batch: append_batch_records(event_records, batch, as_numpy=True),
                     on_triggers=lambda batch: append_batch_records(trigger_records, batch),
                     record_fn=record_until_trigger_count,
+                    post_trigger_event_batches=args.camera_post_trigger_event_batches,
                 )
                 recording.start()
             write_run_metadata(
@@ -429,15 +412,13 @@ def live(args: argparse.Namespace) -> int:
             )
         if recording is not None:
             recording = None
-        if writer is not None:
-            del writer
-            writer = None
-        if capture is not None:
-            if args.camera_shutdown_streams:
-                shutdown_camera_streams(capture)
-            del capture
-            capture = None
-        gc.collect()
+        resources = {"writer": writer, "capture": capture}
+        writer = None
+        capture = None
+        close_camera_resources(
+            resources,
+            shutdown_streams=args.camera_shutdown_streams,
+        )
 
 
 def main(argv: list[str] | None = None) -> int:

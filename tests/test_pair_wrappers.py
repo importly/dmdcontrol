@@ -51,6 +51,16 @@ class PairWrapperTests(unittest.TestCase):
             script,
         )
 
+    def test_preview_server_runner_uses_package_cli_with_default_bind(self):
+        script = (ROOT / "run_dmd_preview_server.sh").read_text(encoding="utf-8")
+
+        self.assertIn('source "$SCRIPT_DIR/scripts/lib/dmd_shell_common.sh"', script)
+        self.assertIn(
+            'dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol preview serve '
+            '--host 0.0.0.0 --port 8080 "$@"',
+            script,
+        )
+
     def test_xinit_pair_uses_configured_target_hz_when_hz_omitted(self):
         script = (XINIT / "xinitrc_dmd_pair.sh").read_text(encoding="utf-8")
 

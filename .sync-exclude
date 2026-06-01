@@ -11,3 +11,4 @@ search_pdf.py
 .ssh/
 server_backup/
 runs
+.venv/

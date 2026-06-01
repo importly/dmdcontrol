@@ -41,6 +41,7 @@ class AsyncCapture:
             on_events=None,
             on_triggers=None,
             record_fn=None,
+            post_trigger_event_batches=0,
     ):
         self.capture = capture
         self.writer = writer
@@ -50,6 +51,7 @@ class AsyncCapture:
         self.on_events = on_events
         self.on_triggers = on_triggers
         self.record_fn = record_fn or record_until_trigger_count
+        self.post_trigger_event_batches = int(post_trigger_event_batches or 0)
         self.result = None
         self.error = None
         self._stop_event = Event()
@@ -78,6 +80,7 @@ class AsyncCapture:
                 on_events=self.on_events,
                 on_triggers=self.on_triggers,
                 stop_event=self._stop_event,
+                post_trigger_event_batches=self.post_trigger_event_batches,
             )
         except BaseException as exc:
             self.error = exc
@@ -185,6 +188,7 @@ def record_until_trigger_count(
         on_events=None,
         on_triggers=None,
         stop_event=None,
+        post_trigger_event_batches=0,
 ) -> CaptureResult:
     deadline = (
         time.time() + timeout_s
@@ -246,6 +250,37 @@ def record_until_trigger_count(
             did_work = True
 
         if expected_trigger_count is not None and trigger_count >= expected_trigger_count:
+            post_batches_remaining = max(0, int(post_trigger_event_batches or 0))
+            while post_batches_remaining > 0:
+                if stop_event is not None and stop_event.is_set():
+                    stopped = True
+                    break
+                if hasattr(capture, "isRunning") and not capture.isRunning():
+                    break
+                if deadline is not None and time.time() >= deadline:
+                    timed_out = True
+                    break
+
+                events = (
+                    capture.getNextEventBatch()
+                    if hasattr(capture, "getNextEventBatch")
+                    else None
+                )
+                if events is None:
+                    if idle_sleep_s > 0:
+                        time.sleep(idle_sleep_s)
+                    continue
+
+                writer.writeEvents(events, streamName="events")
+                if on_events is not None:
+                    on_events(events)
+                event_count += _batch_len(events)
+                event_time_range_us = _merge_time_range(
+                    event_time_range_us,
+                    _batch_time_range_us(events),
+                )
+                event_batch_count += 1
+                post_batches_remaining -= 1
             break
         if not did_work and idle_sleep_s > 0:
             time.sleep(idle_sleep_s)

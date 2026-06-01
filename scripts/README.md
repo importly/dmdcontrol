@@ -1,6 +1,6 @@
 # Scripts
 
-The repository-root `run_*.sh` files are the public hardware launch commands.
+The repository-root `run_*.sh` files are the public launch commands.
 This directory holds their implementation details:
 
 - `lib/`: shared shell helpers for wake, config lookup, xinit, and Python module execution.
