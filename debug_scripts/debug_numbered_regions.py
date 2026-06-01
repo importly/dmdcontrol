@@ -9,77 +9,7 @@ import os
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-
-def generate_numbered_regions(width, height, grid_cols=6, grid_rows=4):
-    """
-    Generate a diagnostic pattern with numbered regions.
-
-    Args:
-        width, height: Output dimensions (1920x1080)
-        grid_cols, grid_rows: Grid division (default 6x4 = 24 regions)
-
-    Returns:
-        RGB numpy array with numbered regions
-    """
-    img = Image.new("RGB", (width, height), color="black")
-    draw = ImageDraw.Draw(img)
-
-    # Try to use a large font, fallback to default if not available
-    try:
-        font = ImageFont.truetype("arial.ttf", 80)
-    except:
-        font = ImageFont.load_default()
-
-    cell_width = width // grid_cols
-    cell_height = height // grid_rows
-
-    # Grayscale colors to cycle through (pure R=G=B prevents Linux YCbCr chroma subsampling)
-    colors = [
-        (255, 255, 255),  # White
-        (128, 128, 128),  # Gray
-        (64, 64, 64),  # Dark Gray
-        (192, 192, 192),  # Light Gray
-        (32, 32, 32),  # Very Dark Gray
-        (96, 96, 96),  # Medium Dark Gray
-    ]
-
-    region_num = 1
-    for row in range(grid_rows):
-        for col in range(grid_cols):
-            x1 = col * cell_width
-            y1 = row * cell_height
-            x2 = x1 + cell_width
-            y2 = y1 + cell_height
-
-            # Alternate colors
-            color = colors[(row + col) % len(colors)]
-
-            # Draw filled rectangle
-            draw.rectangle([x1, y1, x2, y2], fill=color, outline="white", width=3)
-
-            # Draw region number in center
-            text = str(region_num)
-            bbox = draw.textbbox((0, 0), text, font=font)
-            text_width = bbox[2] - bbox[0]
-            text_height = bbox[3] - bbox[1]
-
-            text_x = x1 + (cell_width - text_width) // 2
-            text_y = y1 + (cell_height - text_height) // 2
-
-            # Draw text with black outline for visibility
-            for offset_x in [-2, 0, 2]:
-                for offset_y in [-2, 0, 2]:
-                    draw.text(
-                        (text_x + offset_x, text_y + offset_y),
-                        text,
-                        fill="black",
-                        font=font,
-                    )
-            draw.text((text_x, text_y), text, fill="white", font=font)
-
-            region_num += 1
-
-    return np.array(img)
+from dmdcontrol.patterns.numbered_regions import generate_numbered_regions
 
 
 def generate_crop_visualization(width, height, crop_x, crop_y, crop_w, crop_h):
