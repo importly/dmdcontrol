@@ -47,6 +47,19 @@ class DmdPreviewRenderTests(unittest.TestCase):
             generate_static_frame("coarse-grid", route_label="A"),
         )
 
+    def test_offline_a_numbers_b_static_preview_uses_static_b_left(self):
+        from dmdcontrol.patterns.paired import DMD_HEIGHT, DMD_WIDTH, generate_static_frame
+        from dmdcontrol.preview.render import render_offline_frame
+
+        frame = render_offline_frame(layout="pair", test="a-numbers-b-static")
+
+        self.assertEqual(frame.shape, (DMD_HEIGHT, DMD_WIDTH * 2, 3))
+        np.testing.assert_array_equal(
+            frame[:, :DMD_WIDTH, :],
+            generate_static_frame("dot", route_label="B"),
+        )
+        self.assertGreater(np.count_nonzero(frame[:, DMD_WIDTH:, :]), 0)
+
     def test_bitplane_render_is_binary_grayscale(self):
         from dmdcontrol.preview.render import render_bitplane_image, render_offline_frame
 

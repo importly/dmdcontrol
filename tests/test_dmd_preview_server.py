@@ -11,7 +11,7 @@ from PIL import Image
 
 class DmdPreviewServerTests(unittest.TestCase):
     def setUp(self):
-        from dmd_preview_server import create_server
+        from dmdcontrol.preview.server import create_server
 
         self.server = create_server("127.0.0.1", 0)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -31,7 +31,7 @@ class DmdPreviewServerTests(unittest.TestCase):
         for module_name in ("glfw", "OpenGL.GL", "dlpc900_hid"):
             sys.modules.pop(module_name, None)
 
-        import dmd_preview_server  # noqa: F401
+        import dmdcontrol.preview.server  # noqa: F401
 
         self.assertFalse({"glfw", "OpenGL.GL", "dlpc900_hid"} & set(sys.modules))
 
@@ -94,6 +94,7 @@ class DmdPreviewServerTests(unittest.TestCase):
         for path in (
                 "/api/frame.png?layout=pair&test=coarse-grid&view=packed",
                 "/api/frame.png?layout=pair&test=coarse-grid&view=bitplane&plane=0",
+                "/api/frame.png?layout=pair&test=a-numbers-b-static&view=packed",
         ):
             with self.subTest(path=path):
                 with self._get(path) as response:
