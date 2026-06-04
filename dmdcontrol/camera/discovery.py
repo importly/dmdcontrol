@@ -95,13 +95,50 @@ def shutdown_camera_streams(capture):
     }
 
 
+def _json_safe_call_result(value):
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    return repr(value)
+
+
+def _detector_call_key(method_name, value):
+    value_name = "true" if value is True else "false" if value is False else str(value)
+    return f"{method_name}_{value_name}"
+
+
 def configure_rising_edge_triggers(capture):
-    if hasattr(capture, "setDetectorRisingEdges"):
-        capture.setDetectorRisingEdges(True)
-    if hasattr(capture, "setDetectorFallingEdges"):
-        capture.setDetectorFallingEdges(False)
-    if hasattr(capture, "setDetectorRunning"):
-        capture.setDetectorRunning(True)
+    calls = [
+        ("setDetectorRunning", False),
+        ("setDetectorRisingEdges", True),
+        ("setDetectorFallingEdges", False),
+        ("setDetectorRunning", True),
+    ]
+    result = {
+        "has_setDetectorRisingEdges": callable(getattr(capture, "setDetectorRisingEdges", None)),
+        "has_setDetectorFallingEdges": callable(getattr(capture, "setDetectorFallingEdges", None)),
+        "has_setDetectorRunning": callable(getattr(capture, "setDetectorRunning", None)),
+        "call_order": [],
+        "errors": [],
+    }
+    for method_name, value in calls:
+        key = _detector_call_key(method_name, value)
+        result[f"{key}_result"] = None
+        result[f"{key}_error"] = None
+
+    for method_name, value in calls:
+        method = getattr(capture, method_name, None)
+        if not callable(method):
+            continue
+        key = _detector_call_key(method_name, value)
+        call_label = f"{method_name}({value})"
+        result["call_order"].append(call_label)
+        try:
+            result[f"{key}_result"] = _json_safe_call_result(method(value))
+        except Exception as exc:
+            error = repr(exc)
+            result[f"{key}_error"] = error
+            result["errors"].append(f"{call_label}: {error}")
+    return result
 
 
 def configure_camera_performance(capture, bias_sensitivity=None, efps=None, prefer_legacy=False):

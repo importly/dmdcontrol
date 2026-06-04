@@ -2,7 +2,7 @@ import types
 
 import pytest
 
-from dmdcontrol.patterns.paired import A_NUMBERS_B_STATIC_PAIR_TEST
+from dmdcontrol.patterns.paired import A_COUNT_B_STATIC_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST
 from dmdcontrol.runtime.pair import _lut_override, main
 
 
@@ -36,6 +36,19 @@ def test_lut_override_a_numbers_b_static_returns_digit_count():
     assert exposure_2 is None
 
 
+def test_lut_override_a_count_b_static_returns_count_slots():
+    args = types.SimpleNamespace(
+        test=A_COUNT_B_STATIC_PAIR_TEST,
+        count_slots_per_frame=2,
+        count_exposure_us=7000,
+    )
+
+    entries_count, exposure = _lut_override(args, target_hz=60)
+
+    assert entries_count == 2
+    assert exposure == 7000
+
+
 def test_lut_override_non_numbers_test_delegates_to_kernel():
     args = types.SimpleNamespace(
         test="some-other-test",
@@ -50,6 +63,56 @@ def test_lut_override_non_numbers_test_delegates_to_kernel():
     # The kernel override should return (None, None) when not enabled, which the runtime treats as default BITPLANES (24)
     assert entries_count is None
     assert exposure is None
+
+
+def test_pair_runtime_parser_accepts_count_mode_options():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args([
+        "--dry-run-timing",
+        "--test",
+        A_COUNT_B_STATIC_PAIR_TEST,
+        "--test-b",
+        "dot",
+        "--count-start",
+        "1",
+        "--count-end",
+        "100",
+        "--count-slots-per-frame",
+        "2",
+        "--count-exposure-us",
+        "7000",
+    ])
+
+    assert args.count_start == 1
+    assert args.count_end == 100
+    assert args.count_slots_per_frame == 2
+    assert args.count_exposure_us == 7000
+
+
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (["--test", A_COUNT_B_STATIC_PAIR_TEST, "--count-start", "5", "--count-end", "4"], "--count-start must be <= --count-end"),
+        (["--test", A_COUNT_B_STATIC_PAIR_TEST, "--count-slots-per-frame", "0"], "--count-slots-per-frame must be in the range"),
+        (["--test", A_COUNT_B_STATIC_PAIR_TEST, "--test-a", "dot"], "--test-a is not valid for a-count-b-static"),
+        (
+            ["--test", A_COUNT_B_STATIC_PAIR_TEST, "--count-start", "1", "--count-end", "5", "--count-slots-per-frame", "2"],
+            "divisible by --count-slots-per-frame",
+        ),
+        (
+            ["--test", A_COUNT_B_STATIC_PAIR_TEST, "--count-end", "130", "--count-slots-per-frame", "2"],
+            "at most 64 VSYNC frames",
+        ),
+    ],
+)
+def test_pair_runtime_validates_count_mode_options(argv, message):
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args(argv)
+
+    with pytest.raises(SystemExit, match=message):
+        pair._validate_pair_args(args)
 
 
 def test_a_numbers_b_static_runtime_forwards_b_static_geometry(monkeypatch):
@@ -92,6 +155,79 @@ def test_a_numbers_b_static_runtime_forwards_b_static_geometry(monkeypatch):
     assert captured["kwargs"]["b_dot_invert"] is False
 
 
+def test_a_count_b_static_runtime_forwards_count_geometry(monkeypatch):
+    from dmdcontrol.runtime import pair
+
+    captured = {}
+    provider = object()
+
+    def fake_make_pair_frame_provider(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return provider
+
+    monkeypatch.setattr(pair, "make_pair_frame_provider", fake_make_pair_frame_provider)
+
+    args = types.SimpleNamespace(
+        test=A_COUNT_B_STATIC_PAIR_TEST,
+        test_b="dot",
+        count_start=1,
+        count_end=100,
+        count_slots_per_frame=2,
+        numbers_size_px=123,
+        b_dot_x=955,
+        b_dot_y=535,
+        b_dot_radius=12,
+        b_dot_shape="circle",
+        b_dot_invert=False,
+    )
+
+    result = pair._make_runtime_pair_frame_provider(args, engine=types.SimpleNamespace(window=None), target_hz=60)
+
+    assert result is provider
+    assert captured["args"] == (A_COUNT_B_STATIC_PAIR_TEST,)
+    assert captured["kwargs"]["test_b"] == "dot"
+    assert captured["kwargs"]["count_start"] == 1
+    assert captured["kwargs"]["count_end"] == 100
+    assert captured["kwargs"]["count_slots_per_frame"] == 2
+    assert captured["kwargs"]["numbers_size_px"] == 123
+    assert captured["kwargs"]["b_dot_x"] == 955
+    assert captured["kwargs"]["b_dot_y"] == 535
+    assert captured["kwargs"]["b_dot_radius"] == 12
+    assert captured["kwargs"]["b_dot_shape"] == "circle"
+    assert captured["kwargs"]["b_dot_invert"] is False
+
+
+def test_pair_live_preview_metadata_includes_count_mode():
+    from dmdcontrol.runtime import pair
+
+    args = types.SimpleNamespace(
+        test=A_COUNT_B_STATIC_PAIR_TEST,
+        test_a=None,
+        test_b="dot",
+        count_start=1,
+        count_end=100,
+        count_slots_per_frame=2,
+        count_exposure_us=7000,
+    )
+    pair_config = types.SimpleNamespace(
+        dmd_a=types.SimpleNamespace(xrandr_output="DP-2"),
+        dmd_b=types.SimpleNamespace(xrandr_output="DP-0"),
+        offset_a=(1920, 0),
+        offset_b=(0, 0),
+        target_hz=60,
+    )
+
+    metadata = pair._build_live_preview_metadata(args, pair_config, state_a=None, state_b=None)
+
+    assert metadata["count"] == {
+        "start": 1,
+        "end": 100,
+        "slots_per_frame": 2,
+        "exposure_us": 7000,
+    }
+
+
 def test_pair_dry_run_timing_rejects_numbers_sequence_when_dark_time_exceeds_budget():
     with pytest.raises(ValueError, match="need .* usable"):
         main([
@@ -113,10 +249,12 @@ def test_run_prepared_pair_starts_rendering_without_post_start_sleep(monkeypatch
     import dmdcontrol.patterns.paired as paired_module
 
     calls = {}
+    dlpcs = []
 
     class FakeDLPC:
         def __init__(self, **kwargs):
-            pass
+            self.closed = False
+            dlpcs.append(self)
 
         def start_pattern_display(self, value):
             pass
@@ -126,6 +264,9 @@ def test_run_prepared_pair_starts_rendering_without_post_start_sleep(monkeypatch
 
         def apply_block_lock_workaround(self):
             pass
+
+        def close(self):
+            self.closed = True
 
     class FakeEngine:
         def __init__(self, fps):
@@ -186,3 +327,4 @@ def test_run_prepared_pair_starts_rendering_without_post_start_sleep(monkeypatch
 
     assert pair._run_prepared_pair(args, pair_config) == 0
     assert calls == {"post_start_delay_s": 0.0, "verify": True}
+    assert [dlpc.closed for dlpc in dlpcs] == [True, True]

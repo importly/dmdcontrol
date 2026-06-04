@@ -508,6 +508,7 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
     from dmdcontrol.camera import sync_check
 
     artifact_call = {}
+    record_kwargs = {}
     ready = SimpleNamespace(
         event_resolution=(320, 240),
         event_stream_available=True,
@@ -531,6 +532,7 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
     monkeypatch.setattr(sync_check, "_run_pair_with_callback", fake_run)
 
     def fake_record(*args, **kwargs):
+        record_kwargs.update(kwargs)
         kwargs["on_events"]([{"timestamp": 105, "x": 2, "y": 1, "polarity": True}])
         kwargs["on_triggers"]([{"timestamp": 100, "edge": "rising"}])
         return SimpleNamespace(
@@ -571,6 +573,7 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
     ])
 
     assert sync_check.live(args) == 0
+    assert record_kwargs["expected_trigger_count"] is None
     assert artifact_call["events"] == [{"timestamp": 105, "x": 2, "y": 1, "polarity": True}]
     assert artifact_call["triggers"] == [{"timestamp": 100, "edge": "rising"}]
     assert artifact_call["resolution"] == (320, 240)
@@ -580,3 +583,83 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
     assert artifact_call["event_noise_filter"].window_px == 3
     assert artifact_call["event_noise_filter"].threshold == 2
     assert artifact_call["event_noise_filter"].polarity == "same"
+
+
+def test_sync_check_live_capture_flushes_stale_batches_immediately_before_recording(monkeypatch, tmp_path):
+    from dmdcontrol.camera import sync_check
+
+    events = []
+    record_started = Event()
+    ready = SimpleNamespace(
+        event_resolution=(320, 240),
+        event_stream_available=True,
+        trigger_stream_available=True,
+    )
+    capture = Mock()
+    writer = Mock()
+
+    def fake_flush(opened_capture, reads, include_triggers=True):
+        assert opened_capture is capture
+        events.append(("flush", reads, include_triggers))
+        return {
+            "requested_reads": reads,
+            "event_reads": 1,
+            "trigger_reads": 0,
+            "event_batches_discarded": 0,
+            "trigger_batches_discarded": 0,
+            "event_count_discarded": 0,
+            "trigger_count_discarded": 0,
+            "stopped_early": True,
+        }
+
+    monkeypatch.setattr(sync_check, "flush_stale_batches", fake_flush)
+
+    def fake_record(*args, **kwargs):
+        events.append("record_start")
+        record_started.set()
+        return SimpleNamespace(
+            trigger_count=0,
+            event_batch_count=0,
+            trigger_batch_count=0,
+            timed_out=False,
+        )
+
+    monkeypatch.setattr(sync_check, "record_until_trigger_count", fake_record)
+
+    def fake_run(pair_args, before_start):
+        events.append("before_start")
+        before_start({"state_a": {"timing": {}}, "state_b": {"timing": {}}})
+        assert record_started.wait(timeout=1.0)
+        events.append("sequencer_start_continued")
+
+    monkeypatch.setattr(sync_check, "_run_pair_with_callback", fake_run)
+    monkeypatch.setattr(sync_check, "write_capture_artifacts", lambda *args, **kwargs: {})
+
+    args = sync_check.build_parser().parse_args([
+        "--output-root",
+        str(tmp_path),
+        "--runtime-seconds",
+        "1",
+        "--camera-flush-reads",
+        "7",
+    ])
+    run = _fake_run_directory(tmp_path)
+
+    assert sync_check.live_capture(args, run, capture, writer, ready) == 0
+    assert events == [
+        "before_start",
+        ("flush", 7, False),
+        "record_start",
+        "sequencer_start_continued",
+    ]
+    metadata = __import__("json").loads(run.metadata_path.read_text(encoding="utf-8"))
+    assert metadata["camera_pre_capture_flush"] == {
+        "requested_reads": 7,
+        "event_reads": 1,
+        "trigger_reads": 0,
+        "event_batches_discarded": 0,
+        "trigger_batches_discarded": 0,
+        "event_count_discarded": 0,
+        "trigger_count_discarded": 0,
+        "stopped_early": True,
+    }

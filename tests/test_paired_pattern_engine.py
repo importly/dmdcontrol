@@ -114,6 +114,98 @@ class PairedPatternEngineTests(unittest.TestCase):
         )
         self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame_a, 3))), 0)
 
+    def test_decimal_number_renderer_supports_multi_digit_labels(self):
+        from dmdcontrol.patterns.modes import generate_decimal_number_rgb
+
+        for number in (1, 10, 100):
+            with self.subTest(number=number):
+                frame = generate_decimal_number_rgb(number, width=160, height=160, size_px=90)
+
+                self.assertEqual(frame.shape, (160, 160, 3))
+                self.assertEqual(frame.dtype, np.uint8)
+                self.assertGreater(int(np.count_nonzero(frame[:, :, 0])), 0)
+                np.testing.assert_array_equal(frame[:, :, 0], frame[:, :, 1])
+                np.testing.assert_array_equal(frame[:, :, 1], frame[:, :, 2])
+
+        with self.assertRaises(ValueError):
+            generate_number_rgb(10, width=160, height=160, size_px=90)
+
+    def test_generate_number_rgb_keeps_legacy_minimum_stroke_width(self):
+        frame = generate_number_rgb(1, width=20, height=20, size_px=10)
+
+        self.assertEqual(int(frame[9, 13, 0]), 0)
+        np.testing.assert_array_equal(frame[9, 14:18, 0], np.full(4, 255, dtype=np.uint8))
+
+    def test_count_a_static_b_provider_packs_counts_across_vsync_frames(self):
+        from dmdcontrol.patterns.modes import generate_decimal_number_rgb
+        from dmdcontrol.patterns.paired import A_COUNT_B_STATIC_PAIR_TEST, make_pair_frame_provider
+
+        provider = make_pair_frame_provider(
+            A_COUNT_B_STATIC_PAIR_TEST,
+            test_b="dot",
+            count_start=1,
+            count_end=4,
+            count_slots_per_frame=2,
+            width=120,
+            height=160,
+            numbers_size_px=80,
+            b_dot_x=60,
+            b_dot_y=80,
+            b_dot_radius=3,
+        )
+
+        frame0_a, frame0_b = provider.initial_pair()
+        frame1_a, frame1_b = provider.next_pair()
+        frame0_again_a, frame0_again_b = provider.next_pair()
+
+        np.testing.assert_array_equal(
+            _extract_packed_bitplane(frame0_a, 0),
+            generate_decimal_number_rgb(1, width=120, height=160, size_px=80)[:, :, 0],
+        )
+        np.testing.assert_array_equal(
+            _extract_packed_bitplane(frame0_a, 1),
+            generate_decimal_number_rgb(2, width=120, height=160, size_px=80)[:, :, 0],
+        )
+        np.testing.assert_array_equal(
+            _extract_packed_bitplane(frame1_a, 0),
+            generate_decimal_number_rgb(3, width=120, height=160, size_px=80)[:, :, 0],
+        )
+        np.testing.assert_array_equal(
+            _extract_packed_bitplane(frame1_a, 1),
+            generate_decimal_number_rgb(4, width=120, height=160, size_px=80)[:, :, 0],
+        )
+        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame0_a, 2))), 0)
+        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame1_a, 2))), 0)
+        np.testing.assert_array_equal(frame0_a, frame0_again_a)
+        np.testing.assert_array_equal(frame0_b, frame1_b)
+        np.testing.assert_array_equal(frame0_b, frame0_again_b)
+
+    def test_count_a_static_b_provider_rejects_partial_final_vsync(self):
+        from dmdcontrol.patterns.paired import A_COUNT_B_STATIC_PAIR_TEST, make_pair_frame_provider
+
+        with self.assertRaisesRegex(ValueError, "divisible by count_slots_per_frame"):
+            make_pair_frame_provider(
+                A_COUNT_B_STATIC_PAIR_TEST,
+                count_start=1,
+                count_end=5,
+                count_slots_per_frame=2,
+                width=120,
+                height=160,
+            )
+
+    def test_count_a_static_b_provider_rejects_excessive_frame_count(self):
+        from dmdcontrol.patterns.paired import A_COUNT_B_STATIC_PAIR_TEST, make_pair_frame_provider
+
+        with self.assertRaisesRegex(ValueError, "at most 64 VSYNC frames"):
+            make_pair_frame_provider(
+                A_COUNT_B_STATIC_PAIR_TEST,
+                count_start=1,
+                count_end=130,
+                count_slots_per_frame=2,
+                width=120,
+                height=160,
+            )
+
     def test_a_numbers_b_static_provider_applies_requested_b_dot_geometry(self):
         from dmdcontrol.patterns.paired import A_NUMBERS_B_STATIC_PAIR_TEST, make_pair_frame_provider
 

@@ -26,6 +26,8 @@ class DLPC900:
     PID = DLPC900_PID
 
     def __init__(self, usb_id_path=None, usb_devpath_contains=None):
+        self._hid_intf = None
+        self._closed = False
         try:
             if usb_id_path:
                 from dmdcontrol.hardware.usb import select_pyusb_device_for_mapping
@@ -74,6 +76,21 @@ class DLPC900:
         logger.debug(f"[DLPC900] Claiming HID interface {hid_intf}")
         usb.util.claim_interface(self.dev, hid_intf)
         self._seq = 0
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        hid_intf = self._hid_intf
+        if hid_intf is not None:
+            try:
+                usb.util.release_interface(self.dev, hid_intf)
+            except Exception as exc:
+                logger.debug(f"[DLPC900] USB release_interface warning: {exc}")
+        try:
+            usb.util.dispose_resources(self.dev)
+        except Exception as exc:
+            logger.debug(f"[DLPC900] USB dispose_resources warning: {exc}")
 
     def _seq_next(self):
         v = self._seq & 0xFF

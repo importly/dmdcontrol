@@ -8,7 +8,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from dmdcontrol.patterns.modes import NUMBER_SEQUENCE, generate_number_rgb
+from dmdcontrol.patterns.modes import (
+    NUMBER_SEQUENCE,
+    generate_decimal_number_rgb,
+    generate_number_rgb,
+)
 from dmdcontrol.patterns.visual import (
     DEFAULT_COARSE_GRID_SPACING,
     DEFAULT_COARSE_LINE_SPACING,
@@ -28,11 +32,13 @@ HUMAN_VISIBLE_PAIR_TESTS = ("coarse-grid", "grid", "coarse-lines", "bands")
 STATIC_PAIR_TESTS = ("checkerboard", "lines", "colors", "dot") + HUMAN_VISIBLE_PAIR_TESTS
 NUMBER_PAIR_TEST = "numbers"
 A_NUMBERS_B_STATIC_PAIR_TEST = "a-numbers-b-static"
+A_COUNT_B_STATIC_PAIR_TEST = "a-count-b-static"
 DYNAMIC_PAIR_TESTS = ("gradient", "snake", NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST)
 CALIBRATION_DOT_PAIR_TEST = "a-calibr-square-b-dot"
 KERNEL_STATIC_PAIR_TEST = "a-kernel-b-static"
-RECIPE_PAIR_TESTS = (CALIBRATION_DOT_PAIR_TEST, KERNEL_STATIC_PAIR_TEST)
+RECIPE_PAIR_TESTS = (CALIBRATION_DOT_PAIR_TEST, KERNEL_STATIC_PAIR_TEST, A_COUNT_B_STATIC_PAIR_TEST)
 PAIR_TESTS = STATIC_PAIR_TESTS + DYNAMIC_PAIR_TESTS + RECIPE_PAIR_TESTS
+MAX_COUNT_SEQUENCE_FRAMES = 64
 
 
 def _validate_rgb_frame(frame, label):
@@ -466,8 +472,98 @@ class NumberSequenceAStaticBPairFrameProvider(PairFrameProvider):
         return self._frame_a, self._frame_b
 
 
+class CountSequenceAStaticBPairFrameProvider(PairFrameProvider):
+    def __init__(
+            self,
+            mode_b="dot",
+            count_start=1,
+            count_end=100,
+            count_slots_per_frame=2,
+            width=DMD_WIDTH,
+            height=DMD_HEIGHT,
+            size_px=None,
+            b_dot_x=None,
+            b_dot_y=None,
+            b_dot_radius=40,
+            b_dot_shape="circle",
+            b_dot_invert=False,
+    ):
+        _validate_count_sequence_args(count_start, count_end, count_slots_per_frame)
+        self.width = width
+        self.height = height
+        self.frame_index = 0
+        self._frames_a = _pack_count_sequence_frames(
+            count_start,
+            count_end,
+            count_slots_per_frame,
+            width=width,
+            height=height,
+            size_px=size_px,
+        )
+        self._frame_b = generate_static_frame(
+            mode_b,
+            width=width,
+            height=height,
+            route_label="B",
+            dot_x=b_dot_x,
+            dot_y=b_dot_y,
+            dot_radius=b_dot_radius,
+            dot_shape=b_dot_shape,
+            dot_invert=b_dot_invert,
+        )
+
+    def initial_pair(self):
+        return self._frames_a[self.frame_index], self._frame_b
+
+    def next_pair(self):
+        self.frame_index = (self.frame_index + 1) % len(self._frames_a)
+        return self._frames_a[self.frame_index], self._frame_b
+
+
 def _pack_number_sequence_bitplanes(numbers, width, height, size_px=None):
-    masks = [
+    masks = _number_bitplane_masks(numbers, width=width, height=height, size_px=size_px)
+    return _pack_binary_masks_bitplanes(masks, width, height)
+
+
+def _pack_count_sequence_frames(count_start, count_end, count_slots_per_frame, width, height, size_px=None):
+    _validate_count_sequence_args(count_start, count_end, count_slots_per_frame)
+    frames = []
+    counts = _count_sequence_values(count_start, count_end)
+    for offset in range(0, len(counts), count_slots_per_frame):
+        chunk = counts[offset: offset + count_slots_per_frame]
+        masks = _decimal_number_bitplane_masks(chunk, width=width, height=height, size_px=size_px)
+        frames.append(_pack_binary_masks_bitplanes(masks, width, height))
+    return tuple(frames)
+
+
+def _validate_count_sequence_args(count_start, count_end, count_slots_per_frame):
+    if count_start <= 0 or count_end <= 0:
+        raise ValueError("count range values must be positive")
+    if count_start > count_end:
+        raise ValueError("count_start must be <= count_end")
+    if count_slots_per_frame <= 0 or count_slots_per_frame > BITPLANES:
+        raise ValueError(f"count_slots_per_frame must be in the range 1..{BITPLANES}")
+    count_total = count_end - count_start + 1
+    if count_total % count_slots_per_frame != 0:
+        raise ValueError("count range length must be divisible by count_slots_per_frame")
+    frame_count = count_total // count_slots_per_frame
+    if frame_count > MAX_COUNT_SEQUENCE_FRAMES:
+        raise ValueError(
+            f"count sequence can span at most {MAX_COUNT_SEQUENCE_FRAMES} VSYNC frames"
+        )
+
+
+def count_sequence_frame_count(count_start, count_end, count_slots_per_frame):
+    _validate_count_sequence_args(count_start, count_end, count_slots_per_frame)
+    return (count_end - count_start + 1) // count_slots_per_frame
+
+
+def _count_sequence_values(count_start, count_end):
+    return tuple(range(count_start, count_end + 1))
+
+
+def _number_bitplane_masks(numbers, *, width, height, size_px=None):
+    return [
         (
             generate_number_rgb(
                 number,
@@ -478,6 +574,26 @@ def _pack_number_sequence_bitplanes(numbers, width, height, size_px=None):
         ).astype(np.uint8)
         for number in numbers
     ]
+
+
+def _decimal_number_bitplane_masks(numbers, *, width, height, size_px=None):
+    return [
+        (
+            generate_decimal_number_rgb(
+                number,
+                width=width,
+                height=height,
+                size_px=size_px,
+            )[:, :, 0] > 0
+        ).astype(np.uint8)
+        for number in numbers
+    ]
+
+
+def _pack_binary_masks_bitplanes(masks, width, height):
+    masks = list(masks)
+    if len(masks) > BITPLANES:
+        raise ValueError(f"masks can contain at most {BITPLANES} entries")
     masks.extend(
         np.zeros((height, width), dtype=np.uint8)
         for _ in range(BITPLANES - len(masks))
@@ -502,6 +618,9 @@ def make_pair_frame_provider(
         numbers=None,
         numbers_size_px=None,
         numbers_exposure_us=None,
+        count_start=1,
+        count_end=100,
+        count_slots_per_frame=2,
         b_dot_x=None,
         b_dot_y=None,
         b_dot_radius=40,
@@ -530,6 +649,21 @@ def make_pair_frame_provider(
         return NumberSequenceAStaticBPairFrameProvider(
             mode_b=test_b or "dot",
             numbers=numbers or NUMBER_SEQUENCE,
+            width=width,
+            height=height,
+            size_px=numbers_size_px,
+            b_dot_x=b_dot_x,
+            b_dot_y=b_dot_y,
+            b_dot_radius=b_dot_radius,
+            b_dot_shape=b_dot_shape,
+            b_dot_invert=b_dot_invert,
+        )
+    if test == A_COUNT_B_STATIC_PAIR_TEST:
+        return CountSequenceAStaticBPairFrameProvider(
+            mode_b=test_b or "dot",
+            count_start=count_start,
+            count_end=count_end,
+            count_slots_per_frame=count_slots_per_frame,
             width=width,
             height=height,
             size_px=numbers_size_px,

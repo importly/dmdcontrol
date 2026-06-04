@@ -76,6 +76,19 @@ def test_camera_sync_sweep_cli_dry_run_creates_artifacts(tmp_path):
     assert metadata["numbers_exposure_us"] == 600
 
 
+def test_sync_sweep_forwards_accumulation_cycle_options_from_manifest(tmp_path):
+    argv = sync_sweep._row_sync_check_argv({
+        **_row(tmp_path, "sweep-000", 600, 0.0),
+        "accumulation_cycles": "2",
+        "trigger_cluster_us": "0",
+        "cycle_selection": "strongest",
+    })
+
+    assert argv[argv.index("--accumulation-cycles") + 1] == "2"
+    assert argv[argv.index("--trigger-cluster-us") + 1] == "0"
+    assert argv[argv.index("--cycle-selection") + 1] == "strongest"
+
+
 def test_sync_sweep_live_opens_camera_once_for_all_rows(tmp_path, monkeypatch):
     manifest = tmp_path / "sweep.csv"
     _write_manifest(
@@ -91,6 +104,7 @@ def test_sync_sweep_live_opens_camera_once_for_all_rows(tmp_path, monkeypatch):
         "writers": [],
         "closed_writers": 0,
         "closed_captures": 0,
+        "flushes": [],
     }
     capture = object()
     ready = SimpleNamespace(event_resolution=(346, 260))
@@ -117,8 +131,14 @@ def test_sync_sweep_live_opens_camera_once_for_all_rows(tmp_path, monkeypatch):
         if resources.get("capture") is not None:
             calls["closed_captures"] += 1
 
+    def fake_flush_stale_batches(opened_capture, *, reads, include_triggers=True):
+        assert opened_capture is capture
+        calls["flushes"].append((reads, include_triggers))
+        return {}
+
     monkeypatch.setattr(sync_sweep, "open_ready_camera_capture", fake_open_ready_camera_capture)
     monkeypatch.setattr(sync_sweep, "open_camera_writer", fake_open_camera_writer)
+    monkeypatch.setattr(sync_sweep, "flush_stale_batches", fake_flush_stale_batches)
     monkeypatch.setattr(sync_sweep.sync_check, "live_capture", fake_live_capture)
     monkeypatch.setattr(sync_sweep, "close_camera_resources", fake_close_camera_resources)
 
@@ -132,3 +152,4 @@ def test_sync_sweep_live_opens_camera_once_for_all_rows(tmp_path, monkeypatch):
     ]
     assert calls["closed_writers"] == 2
     assert calls["closed_captures"] == 1
+    assert calls["flushes"] == [(32, True), (32, True)]

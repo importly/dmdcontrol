@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import is_dataclass, replace
 import gc
 import os
 
@@ -12,6 +13,16 @@ from dmdcontrol.camera.discovery import (
     shutdown_camera_streams,
 )
 from dmdcontrol.camera.usb_reset import reset_camera_usb, run_power_cycle_command
+
+
+def _ready_with_initial_flush(ready, initial_flush):
+    if is_dataclass(ready):
+        return replace(ready, initial_flush=initial_flush)
+    try:
+        setattr(ready, "initial_flush", initial_flush)
+    except Exception:
+        pass
+    return ready
 
 
 def _open_configured_camera_capture(args):
@@ -35,12 +46,13 @@ def _open_configured_camera_capture(args):
             efps=args.efps,
             prefer_legacy=(camera_open_method == "legacy"),
         )
-        configure_rising_edge_triggers(capture)
+        trigger_configuration = configure_rising_edge_triggers(capture)
         ready = validate_camera_ready(
             capture,
             stream_rearm=rearm_info,
             usb_reset=usb_reset_info,
             power_cycle=power_cycle_info,
+            trigger_configuration=trigger_configuration,
         )
     except Exception:
         if getattr(args, "camera_shutdown_streams", False):
@@ -55,7 +67,8 @@ def open_ready_camera_capture(args):
     capture = None
     try:
         capture, ready = _open_configured_camera_capture(args)
-        flush_stale_batches(capture, reads=args.camera_flush_reads)
+        initial_flush = flush_stale_batches(capture, reads=args.camera_flush_reads)
+        ready = _ready_with_initial_flush(ready, initial_flush)
     except Exception:
         if capture is not None:
             if getattr(args, "camera_shutdown_streams", False):
@@ -78,7 +91,8 @@ def open_ready_camera(run, args):
     try:
         capture, ready = _open_configured_camera_capture(args)
         writer = open_camera_writer(run, capture)
-        flush_stale_batches(capture, reads=args.camera_flush_reads)
+        initial_flush = flush_stale_batches(capture, reads=args.camera_flush_reads)
+        ready = _ready_with_initial_flush(ready, initial_flush)
     except Exception:
         if writer is not None:
             del writer

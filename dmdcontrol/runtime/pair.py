@@ -20,11 +20,13 @@ from dmdcontrol.patterns.kernel import (
 )
 from dmdcontrol.patterns.modes import default_calibration_square_state
 from dmdcontrol.patterns.paired import (
+    A_COUNT_B_STATIC_PAIR_TEST,
     A_NUMBERS_B_STATIC_PAIR_TEST,
     CALIBRATION_DOT_PAIR_TEST,
     CalibrationSquareDotPairFrameProvider,
     DynamicAStaticBPairFrameProvider,
     KERNEL_STATIC_PAIR_TEST,
+    MAX_COUNT_SEQUENCE_FRAMES,
     NUMBER_PAIR_TEST,
     OFFSET_A,
     OFFSET_B,
@@ -33,6 +35,7 @@ from dmdcontrol.patterns.paired import (
     PAIR_WIDTH,
     STATIC_PAIR_TESTS,
     SingleDmdFrameAdapter,
+    count_sequence_frame_count,
     generate_dot_frame,
     generate_static_frame,
     make_pair_frame_provider,
@@ -209,6 +212,30 @@ def _build_parser():
         default=None,
         help="Numbers paired recipe: seven-segment digit height in pixels",
     )
+    parser.add_argument(
+        "--count-start",
+        type=_positive_int,
+        default=1,
+        help="A-count paired recipe: first integer label to display",
+    )
+    parser.add_argument(
+        "--count-end",
+        type=_positive_int,
+        default=100,
+        help="A-count paired recipe: final integer label to display, inclusive",
+    )
+    parser.add_argument(
+        "--count-slots-per-frame",
+        type=int,
+        default=2,
+        help="A-count paired recipe: count labels packed into bitplanes per VSYNC frame",
+    )
+    parser.add_argument(
+        "--count-exposure-us",
+        type=_positive_int,
+        default=None,
+        help="A-count paired recipe: optional per-count LUT exposure override",
+    )
     parser.add_argument("--wake-dp", action="store_true", help="Wake both DP receivers before runtime")
     parser.add_argument(
         "--dual-pixel",
@@ -269,7 +296,10 @@ def _validate_pair_args(args):
         if args.test_a:
             raise SystemExit("--test-a is not valid for a-kernel-b-static; A is the kernel stream")
         return
-    if args.test in (NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST):
+    if _is_count_recipe(args.test):
+        _validate_count_recipe_args(args)
+        return
+    if _is_numbers_recipe(args.test):
         if args.test == A_NUMBERS_B_STATIC_PAIR_TEST and args.test_a:
             raise SystemExit("--test-a is not valid for a-numbers-b-static; A is the numbers stream")
         if len(args.numbers) > BITPLANES:
@@ -277,6 +307,31 @@ def _validate_pair_args(args):
         return
     if args.test not in STATIC_PAIR_TESTS and (args.test_a or args.test_b):
         raise SystemExit("--test-a/--test-b are only valid for static paired tests")
+
+
+def _is_numbers_recipe(test):
+    return test in (NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST)
+
+
+def _is_count_recipe(test):
+    return test == A_COUNT_B_STATIC_PAIR_TEST
+
+
+def _validate_count_recipe_args(args):
+    if args.test_a:
+        raise SystemExit("--test-a is not valid for a-count-b-static; A is the count stream")
+    if args.count_start > args.count_end:
+        raise SystemExit("--count-start must be <= --count-end")
+    if args.count_slots_per_frame <= 0 or args.count_slots_per_frame > BITPLANES:
+        raise SystemExit(f"--count-slots-per-frame must be in the range 1..{BITPLANES}")
+    count_total = args.count_end - args.count_start + 1
+    if count_total % args.count_slots_per_frame != 0:
+        raise SystemExit("count range length must be divisible by --count-slots-per-frame")
+    frame_count = count_total // args.count_slots_per_frame
+    if frame_count > MAX_COUNT_SEQUENCE_FRAMES:
+        raise SystemExit(
+            f"a-count-b-static can span at most {MAX_COUNT_SEQUENCE_FRAMES} VSYNC frames"
+        )
 
 
 def _kernel_lut_override(args, target_hz):
@@ -290,13 +345,48 @@ def _kernel_lut_override(args, target_hz):
 
 
 def _lut_override(args, target_hz):
-    if args.test in (NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST):
+    if _is_numbers_recipe(args.test):
         # The numbers recipe packs only the requested digits into the first N
         # video bitplanes. The LUT must expose exactly those N bitplanes, not
         # all 24 possible RGB bitplanes. Forcing BITPLANES makes long exposures
         # impossible at 60 Hz; e.g. 24 * 3000 us.
         return len(args.numbers), args.numbers_exposure_us
+    if _is_count_recipe(args.test):
+        return args.count_slots_per_frame, args.count_exposure_us
     return _kernel_lut_override(args, target_hz)
+
+
+def _numbers_provider_kwargs(args):
+    return {
+        "test_b": args.test_b,
+        "numbers": args.numbers,
+        "numbers_size_px": args.numbers_size_px,
+        "numbers_exposure_us": args.numbers_exposure_us,
+        "b_dot_x": args.b_dot_x,
+        "b_dot_y": args.b_dot_y,
+        "b_dot_radius": args.b_dot_radius,
+        "b_dot_shape": args.b_dot_shape,
+        "b_dot_invert": args.b_dot_invert,
+        "width": DMD_WIDTH,
+        "height": DMD_HEIGHT,
+    }
+
+
+def _count_provider_kwargs(args):
+    return {
+        "test_b": args.test_b,
+        "count_start": args.count_start,
+        "count_end": args.count_end,
+        "count_slots_per_frame": args.count_slots_per_frame,
+        "numbers_size_px": args.numbers_size_px,
+        "b_dot_x": args.b_dot_x,
+        "b_dot_y": args.b_dot_y,
+        "b_dot_radius": args.b_dot_radius,
+        "b_dot_shape": args.b_dot_shape,
+        "b_dot_invert": args.b_dot_invert,
+        "width": DMD_WIDTH,
+        "height": DMD_HEIGHT,
+    }
 
 
 def _make_runtime_pair_frame_provider(args, engine, target_hz):
@@ -380,21 +470,10 @@ def _make_runtime_pair_frame_provider(args, engine, target_hz):
             width=DMD_WIDTH,
             height=DMD_HEIGHT,
         )
-    if args.test in (NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST):
-        return make_pair_frame_provider(
-            args.test,
-            test_b=args.test_b,
-            numbers=args.numbers,
-            numbers_size_px=args.numbers_size_px,
-            numbers_exposure_us=args.numbers_exposure_us,
-            b_dot_x=args.b_dot_x,
-            b_dot_y=args.b_dot_y,
-            b_dot_radius=args.b_dot_radius,
-            b_dot_shape=args.b_dot_shape,
-            b_dot_invert=args.b_dot_invert,
-            width=DMD_WIDTH,
-            height=DMD_HEIGHT,
-        )
+    if _is_numbers_recipe(args.test):
+        return make_pair_frame_provider(args.test, **_numbers_provider_kwargs(args))
+    if _is_count_recipe(args.test):
+        return make_pair_frame_provider(args.test, **_count_provider_kwargs(args))
     return make_pair_frame_provider(args.test, width=DMD_WIDTH, height=DMD_HEIGHT)
 
 
@@ -443,11 +522,23 @@ def _dry_run_timing(args, pair_config):
             f"{args.kernel_leader_frames * slots} leader fires, 512 kernels, {pad} pad fires"
             f"{', ' + str(slots) + ' end-marker fires' if args.kernel_blank_end_frame else ''}."
         )
-    elif args.test in (NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST):
+    elif _is_numbers_recipe(args.test):
         logger.info(
             f"[DRY RUN] Pair content: numbers={','.join(str(n) for n in args.numbers)}, "
             f"per-bitplane exposure={args.numbers_exposure_us or timing['exposure_us']}us, "
             f"size_px={args.numbers_size_px or 'default'} on both DMDs."
+        )
+    elif _is_count_recipe(args.test):
+        payload_vsyncs = count_sequence_frame_count(
+            args.count_start,
+            args.count_end,
+            args.count_slots_per_frame,
+        )
+        logger.info(
+            f"[DRY RUN] Pair content: A=count {args.count_start}..{args.count_end}, "
+            f"slots_per_frame={args.count_slots_per_frame}, "
+            f"per-count exposure={args.count_exposure_us or timing['exposure_us']}us, "
+            f"payload_vsyncs={payload_vsyncs}; B={args.test_b or 'dot'} static."
         )
     elif args.test in STATIC_PAIR_TESTS:
         logger.info(
@@ -509,11 +600,18 @@ def _build_live_preview_metadata(args, pair_config, state_a, state_b):
         },
         "target_hz": pair_config.target_hz,
     }
-    if args.test in (NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST):
+    if _is_numbers_recipe(args.test):
         metadata["numbers"] = {
             "sequence": list(args.numbers),
             "exposure_us": args.numbers_exposure_us,
             "size_px": args.numbers_size_px,
+        }
+    if _is_count_recipe(args.test):
+        metadata["count"] = {
+            "start": args.count_start,
+            "end": args.count_end,
+            "slots_per_frame": args.count_slots_per_frame,
+            "exposure_us": args.count_exposure_us,
         }
     if lut_state:
         metadata["lut"] = build_lut_preview_metadata(lut_state["entries"], lut_state["timing"])
@@ -696,6 +794,12 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
                 dlpc.apply_block_lock_workaround()
             except Exception as cleanup_exc:
                 logger.warning(f"DMD {label} cleanup warning: {cleanup_exc}")
+            close = getattr(dlpc, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception as close_exc:
+                    logger.warning(f"DMD {label} close warning: {close_exc}")
         if engine is not None:
             engine.cleanup()
 

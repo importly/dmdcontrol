@@ -6,6 +6,7 @@ from dmdcontrol.camera.sync_check import (
     _to_pair_runtime_args,
     build_parser,
     dry_run,
+    expected_trigger_count,
     parse_numbers,
 )
 
@@ -18,6 +19,42 @@ def test_sync_check_parser_defaults_to_digits_one_through_five():
     assert args.test_b == "dot"
     assert args.number_size_px == 100
     assert args.b_dot_radius == 20
+    assert args.accumulation_cycles is None
+    assert args.trigger_cluster_us == 250
+    assert args.cycle_selection == "first"
+
+
+def test_sync_check_numbers_mode_defaults_to_one_accumulation_cycle():
+    args = build_parser().parse_args(["--dry-run"])
+
+    assert args.requested_accumulation_cycles == 1
+
+
+def test_sync_check_count_mode_does_not_limit_accumulation_cycles_by_default():
+    args = build_parser().parse_args([
+        "--dry-run",
+        "--test",
+        "a-count-b-static",
+    ])
+
+    assert args.requested_accumulation_cycles is None
+
+
+def test_sync_check_parser_accepts_accumulation_cycle_options():
+    args = build_parser().parse_args([
+        "--dry-run",
+        "--accumulation-cycles",
+        "2",
+        "--trigger-cluster-us",
+        "0",
+        "--cycle-selection",
+        "strongest",
+    ])
+
+    assert args.accumulation_cycles == 2
+    assert args.requested_accumulation_cycles == 2
+    assert args.trigger_cluster_us == 0
+    assert args.cycle_selection == "strongest"
 
 
 @pytest.mark.parametrize("value", ["", ",", "0", "1,10", "-1", "x"])
@@ -89,6 +126,86 @@ def test_sync_check_runtime_args_allow_explicit_bitplane_exposure_override():
     assert pair_args[pair_args.index("--numbers-exposure-us") + 1] == "600"
 
 
+def test_sync_check_parser_accepts_count_mode_options():
+    args = build_parser().parse_args([
+        "--dry-run",
+        "--test",
+        "a-count-b-static",
+        "--count-start",
+        "1",
+        "--count-end",
+        "100",
+        "--count-slots-per-frame",
+        "2",
+        "--count-exposure-us",
+        "7000",
+    ])
+
+    assert args.count_start == 1
+    assert args.count_end == 100
+    assert args.count_slots_per_frame == 2
+    assert args.count_exposure_us == 7000
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--test", "a-count-b-static", "--count-start", "5", "--count-end", "4"],
+        ["--test", "a-count-b-static", "--count-start", "1", "--count-end", "5", "--count-slots-per-frame", "2"],
+        ["--test", "a-count-b-static", "--count-end", "130", "--count-slots-per-frame", "2"],
+        ["--test", "a-count-b-static", "--count-slots-per-frame", "25"],
+    ],
+)
+def test_sync_check_parser_rejects_invalid_count_mode_options(argv):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--dry-run", *argv])
+
+
+def test_sync_check_count_mode_expects_one_trigger_per_count():
+    args = build_parser().parse_args([
+        "--test",
+        "a-count-b-static",
+        "--count-start",
+        "1",
+        "--count-end",
+        "100",
+    ])
+
+    assert expected_trigger_count(args) == 100
+
+
+def test_sync_check_runtime_args_forward_count_options_without_numbers():
+    args = build_parser().parse_args([
+        "--test",
+        "a-count-b-static",
+        "--test-b",
+        "dot",
+        "--count-start",
+        "1",
+        "--count-end",
+        "100",
+        "--count-slots-per-frame",
+        "2",
+        "--count-exposure-us",
+        "7000",
+        "--number-size-px",
+        "123",
+        "--runtime-seconds",
+        "2",
+    ])
+
+    pair_args = _to_pair_runtime_args(args)
+
+    assert pair_args[:4] == ["--test", "a-count-b-static", "--test-b", "dot"]
+    assert "--numbers" not in pair_args
+    assert "--numbers-exposure-us" not in pair_args
+    assert pair_args[pair_args.index("--count-start") + 1] == "1"
+    assert pair_args[pair_args.index("--count-end") + 1] == "100"
+    assert pair_args[pair_args.index("--count-slots-per-frame") + 1] == "2"
+    assert pair_args[pair_args.index("--count-exposure-us") + 1] == "7000"
+    assert pair_args[pair_args.index("--numbers-size-px") + 1] == "123"
+
+
 def test_sync_check_parser_accepts_event_noise_filter_options():
     args = build_parser().parse_args([
         "--dry-run",
@@ -128,7 +245,7 @@ def test_sync_check_parser_uses_mentor_style_camera_lifecycle_by_default():
 
     assert args.camera_stream_rearm is False
     assert args.camera_shutdown_streams is False
-    assert args.camera_flush_reads == 1
+    assert args.camera_flush_reads == 32
     assert args.camera_post_trigger_event_batches == 0
 
 
@@ -227,6 +344,37 @@ def test_sync_check_dry_run_records_event_filter_config(tmp_path):
         "threshold": 2,
         "window_px": 3,
     }
+
+
+def test_sync_check_count_mode_dry_run_records_count_metadata(tmp_path):
+    args = build_parser().parse_args([
+        "--dry-run",
+        "--output-root",
+        str(tmp_path),
+        "--timestamp",
+        "20260602-120100",
+        "--test",
+        "a-count-b-static",
+        "--count-start",
+        "1",
+        "--count-end",
+        "100",
+        "--count-slots-per-frame",
+        "2",
+        "--count-exposure-us",
+        "7000",
+    ])
+
+    run = dry_run(args)
+
+    metadata = json.loads(run.metadata_path.read_text(encoding="utf-8"))
+    assert metadata["test"] == "a-count-b-static"
+    assert metadata["count_start"] == 1
+    assert metadata["count_end"] == 100
+    assert metadata["count_slots_per_frame"] == 2
+    assert metadata["count_exposure_us"] == 7000
+    assert metadata["expected_trigger_count"] == 100
+    assert metadata["accumulation_window_us"] == 7000
 
 
 def test_camera_sync_check_cli_dry_run_creates_artifacts(tmp_path):

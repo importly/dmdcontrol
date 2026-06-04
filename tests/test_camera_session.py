@@ -87,18 +87,19 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
     monkeypatch.setattr(
         session,
         "configure_rising_edge_triggers",
-        lambda opened_capture: calls.append(("triggers", opened_capture is capture)),
+        lambda opened_capture: calls.append(("triggers", opened_capture is capture)) or {"configured": True},
     )
     monkeypatch.setattr(
         session,
         "validate_camera_ready",
-        lambda opened_capture, stream_rearm, usb_reset, power_cycle: calls.append(
+        lambda opened_capture, stream_rearm, usb_reset, power_cycle, trigger_configuration: calls.append(
             (
                 "ready",
                 opened_capture is capture,
                 stream_rearm,
                 usb_reset,
                 power_cycle,
+                trigger_configuration,
             )
         ) or ready,
     )
@@ -119,8 +120,8 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
     assert writer.path == str(run.raw_recording_path)
     assert writer.capture is capture
     assert opened_ready is ready
-    assert capture.event_reads == 2
-    assert capture.trigger_reads == 2
+    assert capture.event_reads == 1
+    assert capture.trigger_reads == 1
     assert calls == [
         ("power", "cycle-camera"),
         ("reset", True, True),
@@ -134,6 +135,7 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
             {"rearmed": True},
             {"enabled": True},
             {"command": "cycle-camera"},
+            {"configured": True},
         ),
     ]
 

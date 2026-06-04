@@ -32,6 +32,11 @@ _DIGIT_SEGMENTS = {
     9: ("a", "b", "c", "d", "f", "g"),
 }
 
+_DECIMAL_DIGIT_SEGMENTS = {
+    0: ("a", "b", "c", "d", "e", "f"),
+    **_DIGIT_SEGMENTS,
+}
+
 
 @dataclass(frozen=True)
 class CalibrationSquareState:
@@ -196,6 +201,26 @@ def _fill_rect(img, x0, y0, x1, y1):
         img[y0:y1, x0:x1, :] = 255
 
 
+def _draw_digit_segments(img, segments, x0, y0, digit_w, digit_h, min_stroke_px=1):
+    x1 = x0 + digit_w
+    y1 = y0 + digit_h
+    mid = (y0 + y1) // 2
+    thickness = max(min_stroke_px, int(min(digit_w, digit_h) * 0.16))
+    half_t = max(max(1, min_stroke_px // 2), thickness // 2)
+
+    boxes = {
+        "a": (x0 + thickness, y0, x1 - thickness, y0 + thickness),
+        "b": (x1 - thickness, y0 + thickness, x1, mid),
+        "c": (x1 - thickness, mid, x1, y1 - thickness),
+        "d": (x0 + thickness, y1 - thickness, x1 - thickness, y1),
+        "e": (x0, mid, x0 + thickness, y1 - thickness),
+        "f": (x0, y0 + thickness, x0 + thickness, mid),
+        "g": (x0 + thickness, mid - half_t, x1 - thickness, mid + half_t),
+    }
+    for segment in segments:
+        _fill_rect(img, *boxes[segment])
+
+
 def generate_number_rgb(number, width=DMD_WIDTH, height=DMD_HEIGHT, size_px=None):
     """Generate a binary RGB seven-segment digit frame for number mode."""
     if number not in _DIGIT_SEGMENTS:
@@ -210,25 +235,56 @@ def generate_number_rgb(number, width=DMD_WIDTH, height=DMD_HEIGHT, size_px=None
     else:
         digit_h = max(24, int(height * 0.78))
         digit_w = min(max(16, int(width * 0.46)), max(16, int(digit_h * 0.62)))
-    thickness = max(4, int(min(digit_w, digit_h) * 0.16))
     x0 = (width - digit_w) // 2
-    x1 = x0 + digit_w
     y0 = (height - digit_h) // 2
-    y1 = y0 + digit_h
-    mid = (y0 + y1) // 2
-    half_t = max(2, thickness // 2)
+    _draw_digit_segments(
+        img,
+        _DIGIT_SEGMENTS[number],
+        x0,
+        y0,
+        digit_w,
+        digit_h,
+        min_stroke_px=4,
+    )
+    return img
 
-    boxes = {
-        "a": (x0 + thickness, y0, x1 - thickness, y0 + thickness),
-        "b": (x1 - thickness, y0 + thickness, x1, mid),
-        "c": (x1 - thickness, mid, x1, y1 - thickness),
-        "d": (x0 + thickness, y1 - thickness, x1 - thickness, y1),
-        "e": (x0, mid, x0 + thickness, y1 - thickness),
-        "f": (x0, y0 + thickness, x0 + thickness, mid),
-        "g": (x0 + thickness, mid - half_t, x1 - thickness, mid + half_t),
-    }
-    for segment in _DIGIT_SEGMENTS[number]:
-        _fill_rect(img, *boxes[segment])
+
+def generate_decimal_number_rgb(number, width=DMD_WIDTH, height=DMD_HEIGHT, size_px=None):
+    """Generate a binary RGB seven-segment decimal label frame."""
+    if number < 0:
+        raise ValueError("number must be non-negative")
+
+    img = np.zeros((height, width, 3), dtype=np.uint8)
+    if size_px is not None:
+        if size_px <= 0:
+            raise ValueError("size_px must be positive")
+        digit_h = min(int(size_px), height)
+    else:
+        digit_h = max(24, int(height * 0.78))
+
+    digits = [int(char) for char in str(int(number))]
+    digit_w = max(1, int(digit_h * 0.62))
+    gap = max(1, int(digit_w * 0.18)) if len(digits) > 1 else 0
+    group_w = len(digits) * digit_w + (len(digits) - 1) * gap
+    if group_w > width:
+        scale = width / max(1, group_w)
+        digit_w = max(1, int(digit_w * scale))
+        digit_h = max(1, min(height, int(digit_h * scale)))
+        gap = max(1, int(gap * scale)) if len(digits) > 1 else 0
+        group_w = len(digits) * digit_w + (len(digits) - 1) * gap
+
+    x = max(0, (width - group_w) // 2)
+    y = max(0, (height - digit_h) // 2)
+    for digit in digits:
+        _draw_digit_segments(
+            img,
+            _DECIMAL_DIGIT_SEGMENTS[digit],
+            x,
+            y,
+            digit_w,
+            digit_h,
+        )
+        x += digit_w + gap
     return img
 
 

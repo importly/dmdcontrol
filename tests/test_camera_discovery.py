@@ -110,6 +110,63 @@ def test_shutdown_camera_streams_reports_stop_errors_without_raising():
     assert "camera gone" in result["errors"][0]
 
 
+def test_configure_rising_edge_triggers_restarts_detector_and_reports_calls():
+    class Capture:
+        def __init__(self):
+            self.calls = []
+
+        def setDetectorRunning(self, value):
+            self.calls.append(("running", value))
+
+        def setDetectorRisingEdges(self, value):
+            self.calls.append(("rising", value))
+
+        def setDetectorFallingEdges(self, value):
+            self.calls.append(("falling", value))
+
+    capture = Capture()
+
+    result = discovery.configure_rising_edge_triggers(capture)
+
+    assert capture.calls == [
+        ("running", False),
+        ("rising", True),
+        ("falling", False),
+        ("running", True),
+    ]
+    assert result["has_setDetectorRunning"] is True
+    assert result["has_setDetectorRisingEdges"] is True
+    assert result["has_setDetectorFallingEdges"] is True
+    assert result["call_order"] == [
+        "setDetectorRunning(False)",
+        "setDetectorRisingEdges(True)",
+        "setDetectorFallingEdges(False)",
+        "setDetectorRunning(True)",
+    ]
+    assert result["setDetectorRunning_false_error"] is None
+    assert result["setDetectorRunning_true_error"] is None
+    assert result["errors"] == []
+
+
+def test_configure_rising_edge_triggers_records_errors_without_raising():
+    class Capture:
+        def setDetectorRunning(self, value):
+            if value is True:
+                raise RuntimeError("detector would not start")
+
+        def setDetectorRisingEdges(self, value):
+            return None
+
+    result = discovery.configure_rising_edge_triggers(Capture())
+
+    assert result["has_setDetectorRunning"] is True
+    assert result["has_setDetectorRisingEdges"] is True
+    assert result["has_setDetectorFallingEdges"] is False
+    assert result["setDetectorRunning_true_result"] is None
+    assert "detector would not start" in result["setDetectorRunning_true_error"]
+    assert result["errors"] == ["setDetectorRunning(True): RuntimeError('detector would not start')"]
+
+
 def test_configure_camera_performance_uses_dvxplorer_contrast_thresholds(monkeypatch):
     capture = ModernDVXplorerCapture()
     import builtins
