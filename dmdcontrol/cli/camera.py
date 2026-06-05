@@ -20,6 +20,10 @@ def _pair_capture_module():
     return import_module("dmdcontrol.camera.pair_capture")
 
 
+def _reprocess_aedat4_module():
+    return import_module("dmdcontrol.camera.reprocess_aedat4")
+
+
 def discover(argv):
     cameras = _discovery_module().discover_cameras()
     print(json.dumps(cameras, indent=2, sort_keys=True))
@@ -42,3 +46,7 @@ def sync_sweep(argv):
 
 def pair_capture(argv):
     return _pair_capture_module().main(argv)
+
+
+def reprocess_aedat4(argv):
+    return _reprocess_aedat4_module().main(argv)

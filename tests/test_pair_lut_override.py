@@ -1,5 +1,6 @@
 import types
 
+import numpy as np
 import pytest
 
 from dmdcontrol.patterns.paired import A_COUNT_B_STATIC_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST
@@ -88,6 +89,50 @@ def test_pair_runtime_parser_accepts_count_mode_options():
     assert args.count_end == 100
     assert args.count_slots_per_frame == 2
     assert args.count_exposure_us == 7000
+
+
+def test_pair_runtime_parser_accepts_numbers_bitplane_order():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args([
+        "--dry-run-timing",
+        "--test",
+        A_NUMBERS_B_STATIC_PAIR_TEST,
+        "--numbers",
+        "1,2,3,4,5",
+        "--numbers-bitplane-order",
+        "1,2,3,4,0",
+    ])
+
+    assert args.numbers == [1, 2, 3, 4, 5]
+    assert args.numbers_bitplane_order == [1, 2, 3, 4, 0]
+
+
+def test_pair_runtime_parser_accepts_static_dot_radius():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args([
+        "--dry-run-timing",
+        "--test",
+        "dot",
+        "--dot-radius",
+        "17",
+    ])
+
+    assert args.dot_radius == 17
+
+
+def test_static_dot_radius_applies_to_both_dmds():
+    from dmdcontrol.patterns.paired import make_pair_frame_provider
+
+    provider = make_pair_frame_provider("dot", width=21, height=21, dot_radius=3)
+
+    frame_a, frame_b = provider.initial_pair()
+
+    assert frame_a[10, 10, 0] == 255
+    assert frame_a[10, 13, 0] == 255
+    assert frame_a[10, 14, 0] == 0
+    assert np.array_equal(frame_a, frame_b)
 
 
 @pytest.mark.parametrize(

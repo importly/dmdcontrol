@@ -41,6 +41,7 @@ def _build_parser() -> argparse.ArgumentParser:
     camera_actions.add_parser("sync-check", add_help=False)
     camera_actions.add_parser("sync-sweep", add_help=False)
     camera_actions.add_parser("pair-capture", add_help=False)
+    camera_actions.add_parser("reprocess-aedat4", add_help=False)
 
     return parser
 
@@ -86,4 +87,7 @@ def main(argv: list[str] | None = None) -> int | None:
     if args.area == "camera" and args.command == "pair-capture":
         camera = import_module("dmdcontrol.cli.camera")
         return camera.pair_capture(passthrough)
+    if args.area == "camera" and args.command == "reprocess-aedat4":
+        camera = import_module("dmdcontrol.cli.camera")
+        return camera.reprocess_aedat4(passthrough)
     raise SystemExit(f"Unsupported command: {args.area} {args.command}")

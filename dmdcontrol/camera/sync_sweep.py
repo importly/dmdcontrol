@@ -43,8 +43,6 @@ ROW_OPTION_MAP = [
     ("camera_flush_reads", "--camera-flush-reads"),
     ("camera_post_trigger_event_batches", "--camera-post-trigger-event-batches"),
     ("accumulation_cycles", "--accumulation-cycles"),
-    ("trigger_cluster_us", "--trigger-cluster-us"),
-    ("cycle_selection", "--cycle-selection"),
     ("bias_sensitivity", "--bias-sensitivity"),
     ("efps", "--efps"),
 ]

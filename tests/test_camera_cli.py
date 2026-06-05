@@ -25,7 +25,7 @@ def test_camera_help_import_does_not_load_dv_processing():
     assert "dv_processing" not in sys.modules
 
 
-@pytest.mark.parametrize("command", ["sync-check", "pair-capture"])
+@pytest.mark.parametrize("command", ["sync-check", "pair-capture", "reprocess-aedat4"])
 def test_camera_subcommand_help_exits_zero_without_dv_processing(command):
     sys.modules.pop("dv_processing", None)
 

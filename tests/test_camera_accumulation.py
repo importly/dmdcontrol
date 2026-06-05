@@ -18,6 +18,26 @@ def test_filter_rising_triggers_keeps_rising_only():
     assert [t.timestamp for t in filter_rising_triggers(triggers)] == [10, 30]
 
 
+def test_filter_rising_triggers_understands_dv_trigger_type():
+    class Trigger:
+        def __init__(self, timestamp, trigger_type):
+            self._timestamp = timestamp
+            self._trigger_type = trigger_type
+
+        def timestamp(self):
+            return self._timestamp
+
+        def type(self):
+            return self._trigger_type
+
+    triggers = [
+        Trigger(10, "TriggerType.EXTERNAL_SIGNAL_RISING_EDGE"),
+        Trigger(20, "TriggerType.EXTERNAL_SIGNAL_FALLING_EDGE"),
+    ]
+
+    assert [trigger.timestamp() for trigger in filter_rising_triggers(triggers)] == [10]
+
+
 def test_linear_accumulation_counts_positive_events_by_trigger_window():
     triggers = [
         TriggerRecord(timestamp=100, edge="rising"),
@@ -106,6 +126,26 @@ def test_window_boundary_one_tick_before_start():
         events, triggers, resolution=(3, 3), window_us=100, polarity_mode="positive"
     )
     assert frames[0, 1, 1] == 0.0
+
+
+def test_accumulation_window_can_start_after_trigger():
+    triggers = [TriggerRecord(timestamp=1000, edge="rising")]
+    events = [
+        EventRecord(timestamp=1005, x=1, y=1, polarity=True),
+        EventRecord(timestamp=1025, x=2, y=1, polarity=True),
+    ]
+
+    frames = accumulate_events_for_triggers(
+        events,
+        triggers,
+        resolution=(3, 3),
+        window_us=20,
+        polarity_mode="positive",
+        window_start_offset_us=20,
+    )
+
+    assert frames[0, 1, 1] == 0.0
+    assert frames[0, 1, 2] == 1.0
 
 
 def test_events_between_triggers_are_discarded():

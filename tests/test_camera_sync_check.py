@@ -20,8 +20,7 @@ def test_sync_check_parser_defaults_to_digits_one_through_five():
     assert args.number_size_px == 100
     assert args.b_dot_radius == 20
     assert args.accumulation_cycles is None
-    assert args.trigger_cluster_us == 250
-    assert args.cycle_selection == "first"
+    assert args.accumulation_start_offset_us == 0
 
 
 def test_sync_check_numbers_mode_defaults_to_one_accumulation_cycle():
@@ -45,16 +44,19 @@ def test_sync_check_parser_accepts_accumulation_cycle_options():
         "--dry-run",
         "--accumulation-cycles",
         "2",
-        "--trigger-cluster-us",
-        "0",
-        "--cycle-selection",
-        "strongest",
+        "--accumulation-start-offset-us",
+        "-50",
     ])
 
     assert args.accumulation_cycles == 2
     assert args.requested_accumulation_cycles == 2
-    assert args.trigger_cluster_us == 0
-    assert args.cycle_selection == "strongest"
+    assert args.accumulation_start_offset_us == -50
+
+
+@pytest.mark.parametrize("flag", ["--trigger-cluster-us", "--cycle-selection"])
+def test_sync_check_parser_rejects_removed_trigger_selection_options(flag):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--dry-run", flag, "1"])
 
 
 @pytest.mark.parametrize("value", ["", ",", "0", "1,10", "-1", "x"])
@@ -92,6 +94,31 @@ def test_sync_check_runtime_args_use_requested_number_sequence():
     assert pair_args[pair_args.index("--numbers-size-px") + 1] == "123"
     assert pair_args[pair_args.index("--b-dot-radius") + 1] == "20"
     assert "--numbers-exposure-us" not in pair_args
+
+
+def test_sync_check_runtime_args_forward_numbers_bitplane_order():
+    args = build_parser().parse_args([
+        "--numbers",
+        "1,2,3,4,5",
+        "--numbers-bitplane-order",
+        "1,2,3,4,0",
+    ])
+
+    pair_args = _to_pair_runtime_args(args)
+
+    assert args.numbers_bitplane_order == [1, 2, 3, 4, 0]
+    assert pair_args[pair_args.index("--numbers-bitplane-order") + 1] == "1,2,3,4,0"
+
+
+@pytest.mark.parametrize("value", ["4,2,3,1", "4,2,2,1,0", "5,2,3,1,0"])
+def test_sync_check_numbers_bitplane_order_must_match_numbers_slots(value):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args([
+            "--numbers",
+            "1,2,3,4,5",
+            "--numbers-bitplane-order",
+            value,
+        ])
 
 
 def test_sync_check_runtime_args_pass_b_dot_geometry():
@@ -392,3 +419,63 @@ def test_camera_sync_check_cli_dry_run_creates_artifacts(tmp_path):
 
     metadata = json.loads((tmp_path / "20260527-120103-sync-check" / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["number_sequence"] == [1, 2, 3, 4, 5]
+
+
+def test_live_capture_flushes_queued_triggers_before_recording(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from dmdcontrol.camera.capture import CaptureResult
+    from dmdcontrol.camera.runs import create_run_directory
+    from dmdcontrol.camera import sync_check
+
+    args = build_parser().parse_args([
+        "--output-root",
+        str(tmp_path),
+        "--timestamp",
+        "20260604-120116",
+        "--camera-flush-reads",
+        "3",
+    ])
+    run = create_run_directory("sync-check", tmp_path, timestamp="20260604-120116")
+    flush_calls = []
+
+    monkeypatch.setattr(
+        sync_check,
+        "flush_stale_batches",
+        lambda capture, reads, include_triggers=True: flush_calls.append(
+            {"reads": reads, "include_triggers": include_triggers}
+        ) or {"requested_reads": reads},
+    )
+
+    def fake_run_pair(_pair_args, before_start):
+        before_start({
+            "state_a": {"timing": {"exposure_us": 1500}},
+            "state_b": {"timing": {"exposure_us": 1500}},
+        })
+        return 0
+
+    class FakeRecording:
+        def stop(self):
+            pass
+
+        def join(self):
+            return CaptureResult(
+                trigger_count=0,
+                event_batch_count=0,
+                trigger_batch_count=0,
+                timed_out=False,
+            )
+
+    monkeypatch.setattr(sync_check, "_run_pair_with_callback", fake_run_pair)
+    monkeypatch.setattr(sync_check, "_start_recording", lambda *args, **kwargs: FakeRecording())
+    monkeypatch.setattr(sync_check, "_write_capture_artifacts_for_sync_check", lambda *args, **kwargs: {
+        "frame_artifacts": [],
+        "filtered_frame_artifacts": [],
+        "filtered_contact_sheet_artifact": None,
+        "event_noise_filter": {"enabled": False},
+    })
+
+    ready = SimpleNamespace(event_resolution=(320, 240))
+
+    assert sync_check.live_capture(args, run, object(), object(), ready) == 0
+    assert flush_calls == [{"reads": 3, "include_triggers": True}]

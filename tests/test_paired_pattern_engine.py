@@ -114,6 +114,32 @@ class PairedPatternEngineTests(unittest.TestCase):
         )
         self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame_a, 3))), 0)
 
+    def test_number_sequence_provider_can_pack_digits_for_observed_bitplane_order(self):
+        provider = NumberSequencePairFrameProvider(
+            numbers=(1, 2, 3, 4, 5),
+            numbers_bitplane_order=(1, 2, 3, 4, 0),
+            width=120,
+            height=160,
+            size_px=80,
+        )
+
+        frame_a, frame_b = provider.initial_pair()
+
+        np.testing.assert_array_equal(frame_a, frame_b)
+        expected_by_bitplane = {
+            0: 5,
+            1: 1,
+            2: 2,
+            3: 3,
+            4: 4,
+        }
+        for bitplane, number in expected_by_bitplane.items():
+            np.testing.assert_array_equal(
+                _extract_packed_bitplane(frame_a, bitplane),
+                generate_number_rgb(number, width=120, height=160, size_px=80)[:, :, 0],
+            )
+        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame_a, 5))), 0)
+
     def test_decimal_number_renderer_supports_multi_digit_labels(self):
         from dmdcontrol.patterns.modes import generate_decimal_number_rgb
 

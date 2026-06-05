@@ -85,8 +85,8 @@ def test_sync_sweep_forwards_accumulation_cycle_options_from_manifest(tmp_path):
     })
 
     assert argv[argv.index("--accumulation-cycles") + 1] == "2"
-    assert argv[argv.index("--trigger-cluster-us") + 1] == "0"
-    assert argv[argv.index("--cycle-selection") + 1] == "strongest"
+    assert "--trigger-cluster-us" not in argv
+    assert "--cycle-selection" not in argv
 
 
 def test_sync_sweep_live_opens_camera_once_for_all_rows(tmp_path, monkeypatch):

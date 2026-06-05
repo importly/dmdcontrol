@@ -100,6 +100,18 @@ def _parse_numbers(value):
     return numbers
 
 
+def _parse_numbers_bitplane_order(value):
+    try:
+        order = [int(part.strip()) for part in value.split(",") if part.strip()]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("numbers bitplane order must be decimal indexes") from exc
+    if not order:
+        raise argparse.ArgumentTypeError("numbers bitplane order must not be empty")
+    if any(index < 0 for index in order):
+        raise argparse.ArgumentTypeError("numbers bitplane order indexes must be non-negative")
+    return order
+
+
 def resolve_pair_config(config_path=None, target_hz=None):
     dmd_a = resolve_dmd_mapping("A", config_path)
     dmd_b = resolve_dmd_mapping("B", config_path)
@@ -152,6 +164,12 @@ def _build_parser():
     parser.add_argument("--b-dot-x", type=int, default=DMD_WIDTH // 2)
     parser.add_argument("--b-dot-y", type=int, default=DMD_HEIGHT // 2)
     parser.add_argument("--b-dot-radius", type=_positive_int, default=40)
+    parser.add_argument(
+        "--dot-radius",
+        type=_positive_int,
+        default=40,
+        help="Radius for generic static dot frames, for example --test dot",
+    )
     parser.add_argument(
         "--b-dot-shape",
         choices=("circle", "square"),
@@ -211,6 +229,16 @@ def _build_parser():
         type=_positive_int,
         default=None,
         help="Numbers paired recipe: seven-segment digit height in pixels",
+    )
+    parser.add_argument(
+        "--numbers-bitplane-order",
+        type=_parse_numbers_bitplane_order,
+        default=None,
+        help=(
+            "Numbers paired recipe: zero-based bitplane indexes in chronological "
+            "display order. Use 1,2,3,4,0 if the first five captured triggers "
+            "visually show 2,3,4,5,1 for --numbers 1,2,3,4,5."
+        ),
     )
     parser.add_argument(
         "--count-start",
@@ -304,6 +332,13 @@ def _validate_pair_args(args):
             raise SystemExit("--test-a is not valid for a-numbers-b-static; A is the numbers stream")
         if len(args.numbers) > BITPLANES:
             raise SystemExit(f"--numbers can contain at most {BITPLANES} entries")
+        if args.numbers_bitplane_order is not None:
+            if len(args.numbers_bitplane_order) != len(args.numbers):
+                raise SystemExit("--numbers-bitplane-order length must match --numbers length")
+            if sorted(args.numbers_bitplane_order) != list(range(len(args.numbers))):
+                raise SystemExit(
+                    "--numbers-bitplane-order must be a zero-based permutation of --numbers slots"
+                )
         return
     if args.test not in STATIC_PAIR_TESTS and (args.test_a or args.test_b):
         raise SystemExit("--test-a/--test-b are only valid for static paired tests")
@@ -361,6 +396,7 @@ def _numbers_provider_kwargs(args):
         "test_b": args.test_b,
         "numbers": args.numbers,
         "numbers_size_px": args.numbers_size_px,
+        "numbers_bitplane_order": getattr(args, "numbers_bitplane_order", None),
         "numbers_exposure_us": args.numbers_exposure_us,
         "b_dot_x": args.b_dot_x,
         "b_dot_y": args.b_dot_y,
@@ -469,6 +505,7 @@ def _make_runtime_pair_frame_provider(args, engine, target_hz):
             test_b=args.test_b,
             width=DMD_WIDTH,
             height=DMD_HEIGHT,
+            dot_radius=args.dot_radius,
         )
     if _is_numbers_recipe(args.test):
         return make_pair_frame_provider(args.test, **_numbers_provider_kwargs(args))
@@ -525,6 +562,7 @@ def _dry_run_timing(args, pair_config):
     elif _is_numbers_recipe(args.test):
         logger.info(
             f"[DRY RUN] Pair content: numbers={','.join(str(n) for n in args.numbers)}, "
+            f"bitplane_order={','.join(str(i) for i in args.numbers_bitplane_order) if args.numbers_bitplane_order is not None else 'default'}, "
             f"per-bitplane exposure={args.numbers_exposure_us or timing['exposure_us']}us, "
             f"size_px={args.numbers_size_px or 'default'} on both DMDs."
         )
@@ -543,7 +581,7 @@ def _dry_run_timing(args, pair_config):
     elif args.test in STATIC_PAIR_TESTS:
         logger.info(
             f"[DRY RUN] Pair content: test={args.test}, test_a={args.test_a or args.test}, "
-            f"test_b={args.test_b or args.test}."
+            f"test_b={args.test_b or args.test}, dot_radius={args.dot_radius}."
         )
     else:
         logger.info(

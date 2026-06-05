@@ -38,6 +38,7 @@ class SyncCheckArgumentParser(argparse.ArgumentParser):
         parsed = super().parse_args(args, namespace)
         try:
             _validate_count_mode_args(parsed)
+            _validate_numbers_mode_args(parsed)
         except ValueError as exc:
             self.error(str(exc))
         parsed.requested_accumulation_cycles = _requested_accumulation_cycles(parsed)
@@ -56,6 +57,18 @@ def parse_numbers(value: str) -> list[int]:
     if len(numbers) > 24:
         raise argparse.ArgumentTypeError("numbers can contain at most 24 entries")
     return numbers
+
+
+def parse_numbers_bitplane_order(value: str) -> list[int]:
+    try:
+        order = [int(part.strip()) for part in value.split(",") if part.strip()]
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("numbers bitplane order must be decimal indexes") from exc
+    if not order:
+        raise argparse.ArgumentTypeError("numbers bitplane order must not be empty")
+    if any(index < 0 for index in order):
+        raise argparse.ArgumentTypeError("numbers bitplane order indexes must be non-negative")
+    return order
 
 
 def positive_int(value: str) -> int:
@@ -103,6 +116,15 @@ def _validate_count_mode_args(args: argparse.Namespace) -> None:
         )
 
 
+def _validate_numbers_mode_args(args: argparse.Namespace) -> None:
+    if args.test == A_COUNT_B_STATIC_TEST or args.numbers_bitplane_order is None:
+        return
+    if len(args.numbers_bitplane_order) != len(args.numbers):
+        raise ValueError("--numbers-bitplane-order length must match --numbers length")
+    if sorted(args.numbers_bitplane_order) != list(range(len(args.numbers))):
+        raise ValueError("--numbers-bitplane-order must be a zero-based permutation of --numbers slots")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = SyncCheckArgumentParser(
         prog="python -m dmdcontrol camera sync-check",
@@ -119,6 +141,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timestamp", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--number-size-px", type=positive_int, default=100)
     parser.add_argument("--numbers", type=parse_numbers, default=parse_numbers("1,2,3,4,5"))
+    parser.add_argument(
+        "--numbers-bitplane-order",
+        type=parse_numbers_bitplane_order,
+        default=None,
+        help=(
+            "Zero-based bitplane indexes in chronological display order for numbers mode. "
+            "Use 1,2,3,4,0 if --numbers 1,2,3,4,5 captures visually as 2,3,4,5,1."
+        ),
+    )
     parser.add_argument(
         "--numbers-exposure-us",
         type=positive_int,
@@ -154,6 +185,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bias-sensitivity", default="default", choices=["default", "verylow", "low", "high", "veryhigh"])
     parser.add_argument("--efps", default="default", choices=["default", "variable", "variable_5000", "constant_1000", "constant_100"])
     parser.add_argument("--polarity-mode", default="positive", choices=["positive", "signed", "ignore"])
+    parser.add_argument(
+        "--accumulation-start-offset-us",
+        type=int,
+        default=0,
+        help="Shift each accumulation window relative to its trigger timestamp.",
+    )
     parser.add_argument("--dark-time-us", type=int, default=None)
     parser.add_argument(
         "--camera-open-method",
@@ -215,18 +252,6 @@ def build_parser() -> argparse.ArgumentParser:
             "Number of complete trigger cycles to use for derived accumulation artifacts. "
             "Numbers mode defaults to 1; count mode defaults to unlimited."
         ),
-    )
-    parser.add_argument(
-        "--trigger-cluster-us",
-        type=nonnegative_int,
-        default=250,
-        help="Cluster near-simultaneous paired-DMD rising triggers within this many microseconds.",
-    )
-    parser.add_argument(
-        "--cycle-selection",
-        default="first",
-        choices=["first", "strongest"],
-        help="Select the first complete trigger cycle or the cycle with the most events.",
     )
     add_event_noise_filter_arguments(parser)
     parser.add_argument("-v", "--verbose", action="count", default=0)
@@ -295,6 +320,11 @@ def _sync_check_test_metadata(args: argparse.Namespace, *, dry_run: bool) -> dic
 
     metadata = {
         "number_sequence": list(args.numbers),
+        "numbers_bitplane_order": (
+            list(args.numbers_bitplane_order)
+            if args.numbers_bitplane_order is not None
+            else None
+        ),
         "numbers_exposure_us": args.numbers_exposure_us,
     }
     if dry_run:
@@ -333,8 +363,7 @@ def _sync_check_metadata(
         "camera_stream_rearm": args.camera_stream_rearm,
         "camera_shutdown_streams": args.camera_shutdown_streams,
         "accumulation_cycles": args.requested_accumulation_cycles,
-        "trigger_cluster_us": args.trigger_cluster_us,
-        "cycle_selection": args.cycle_selection,
+        "accumulation_start_offset_us": args.accumulation_start_offset_us,
         "event_noise_filter": event_noise_filter_metadata(event_filter),
         "save_filtered_events": args.save_filtered_events,
     }
@@ -384,6 +413,11 @@ def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
             "--numbers-size-px",
             str(args.number_size_px),
         ])
+        if args.numbers_bitplane_order is not None:
+            pair_args.extend([
+                "--numbers-bitplane-order",
+                ",".join(str(index) for index in args.numbers_bitplane_order),
+            ])
     if args.test != A_COUNT_B_STATIC_TEST and args.numbers_exposure_us is not None:
         pair_args.extend(["--numbers-exposure-us", str(args.numbers_exposure_us)])
     if args.seq_utilization is not None:
@@ -478,10 +512,10 @@ def _write_capture_artifacts_for_sync_check(
         polarity_mode=args.polarity_mode,
         event_noise_filter=event_filter,
         save_filtered_events=args.save_filtered_events,
-        trigger_cluster_us=args.trigger_cluster_us,
         trigger_cycle_length=expected_trigger_count(args),
         accumulation_cycles=args.requested_accumulation_cycles,
-        cycle_selection=args.cycle_selection,
+        window_start_offset_us=args.accumulation_start_offset_us,
+        contact_sheet_columns=expected_trigger_count(args),
     )
 
 
@@ -572,7 +606,7 @@ def live_capture(
             metadata["camera_pre_capture_flush"] = flush_stale_batches(
                 capture,
                 reads=args.camera_flush_reads,
-                include_triggers=False,
+                include_triggers=True,
             )
             if recording is None:
                 recording = _start_recording(

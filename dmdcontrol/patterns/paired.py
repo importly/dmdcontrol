@@ -228,8 +228,14 @@ def generate_static_frame(
     return _route_mark(frame, route_label)
 
 
-def _static_frame(mode, width, height, route_label):
-    return generate_static_frame(mode, width, height, route_label)
+def _static_frame(mode, width, height, route_label, dot_radius=40):
+    return generate_static_frame(
+        mode,
+        width,
+        height,
+        route_label,
+        dot_radius=dot_radius,
+    )
 
 
 class PairFrameProvider:
@@ -265,10 +271,23 @@ class StaticPairFrameProvider(PairFrameProvider):
     mode_b: str = "checkerboard"
     width: int = DMD_WIDTH
     height: int = DMD_HEIGHT
+    dot_radius: int = 40
 
     def __post_init__(self):
-        self._frame_a = _static_frame(self.mode_a, self.width, self.height, "A")
-        self._frame_b = _static_frame(self.mode_b, self.width, self.height, "B")
+        self._frame_a = _static_frame(
+            self.mode_a,
+            self.width,
+            self.height,
+            "A",
+            dot_radius=self.dot_radius,
+        )
+        self._frame_b = _static_frame(
+            self.mode_b,
+            self.width,
+            self.height,
+            "B",
+            dot_radius=self.dot_radius,
+        )
 
     def initial_pair(self):
         return self._frame_a, self._frame_b
@@ -403,6 +422,7 @@ class NumberSequencePairFrameProvider(PairFrameProvider):
             width=DMD_WIDTH,
             height=DMD_HEIGHT,
             size_px=None,
+            numbers_bitplane_order=None,
     ):
         if not numbers:
             raise ValueError("numbers must not be empty")
@@ -418,6 +438,7 @@ class NumberSequencePairFrameProvider(PairFrameProvider):
             width=width,
             height=height,
             size_px=size_px,
+            bitplane_order=numbers_bitplane_order,
         )
 
     def initial_pair(self):
@@ -440,6 +461,7 @@ class NumberSequenceAStaticBPairFrameProvider(PairFrameProvider):
             b_dot_radius=40,
             b_dot_shape="circle",
             b_dot_invert=False,
+            numbers_bitplane_order=None,
     ):
         if not numbers:
             raise ValueError("numbers must not be empty")
@@ -452,6 +474,7 @@ class NumberSequenceAStaticBPairFrameProvider(PairFrameProvider):
             width=width,
             height=height,
             size_px=size_px,
+            bitplane_order=numbers_bitplane_order,
         )
         self._frame_b = generate_static_frame(
             mode_b,
@@ -487,6 +510,7 @@ class CountSequenceAStaticBPairFrameProvider(PairFrameProvider):
             b_dot_radius=40,
             b_dot_shape="circle",
             b_dot_invert=False,
+            numbers_bitplane_order=None,
     ):
         _validate_count_sequence_args(count_start, count_end, count_slots_per_frame)
         self.width = width
@@ -520,9 +544,25 @@ class CountSequenceAStaticBPairFrameProvider(PairFrameProvider):
         return self._frames_a[self.frame_index], self._frame_b
 
 
-def _pack_number_sequence_bitplanes(numbers, width, height, size_px=None):
+def _pack_number_sequence_bitplanes(numbers, width, height, size_px=None, bitplane_order=None):
     masks = _number_bitplane_masks(numbers, width=width, height=height, size_px=size_px)
+    if bitplane_order is not None:
+        masks = _reorder_masks_for_bitplane_display(masks, bitplane_order)
     return _pack_binary_masks_bitplanes(masks, width, height)
+
+
+def _reorder_masks_for_bitplane_display(masks, bitplane_order):
+    masks = list(masks)
+    order = tuple(bitplane_order)
+    if len(order) != len(masks):
+        raise ValueError("numbers_bitplane_order length must match numbers length")
+    if sorted(order) != list(range(len(masks))):
+        raise ValueError("numbers_bitplane_order must be a zero-based permutation of numbers slots")
+
+    ordered = [None] * len(masks)
+    for display_slot, bitplane_index in enumerate(order):
+        ordered[bitplane_index] = masks[display_slot]
+    return ordered
 
 
 def _pack_count_sequence_frames(count_start, count_end, count_slots_per_frame, width, height, size_px=None):
@@ -617,10 +657,12 @@ def make_pair_frame_provider(
         height=DMD_HEIGHT,
         numbers=None,
         numbers_size_px=None,
+        numbers_bitplane_order=None,
         numbers_exposure_us=None,
         count_start=1,
         count_end=100,
         count_slots_per_frame=2,
+        dot_radius=40,
         b_dot_x=None,
         b_dot_y=None,
         b_dot_radius=40,
@@ -633,6 +675,7 @@ def make_pair_frame_provider(
             mode_b=test_b or test,
             width=width,
             height=height,
+            dot_radius=dot_radius,
         )
     if test == "gradient":
         return DynamicGradientPairFrameProvider(width=width, height=height)
@@ -644,6 +687,7 @@ def make_pair_frame_provider(
             width=width,
             height=height,
             size_px=numbers_size_px,
+            numbers_bitplane_order=numbers_bitplane_order,
         )
     if test == A_NUMBERS_B_STATIC_PAIR_TEST:
         return NumberSequenceAStaticBPairFrameProvider(
@@ -667,6 +711,7 @@ def make_pair_frame_provider(
             width=width,
             height=height,
             size_px=numbers_size_px,
+            numbers_bitplane_order=numbers_bitplane_order,
             b_dot_x=b_dot_x,
             b_dot_y=b_dot_y,
             b_dot_radius=b_dot_radius,

@@ -5,6 +5,9 @@ from dataclasses import dataclass
 import numpy as np
 
 
+_MISSING = object()
+
+
 @dataclass(frozen=True)
 class TriggerRecord:
     timestamp: int
@@ -30,9 +33,11 @@ def accumulate_events_for_triggers(
     resolution,
     window_us,
     polarity_mode,
+    window_start_offset_us=0,
 ):
     if window_us < 0:
         raise ValueError("window_us must be non-negative")
+    window_start_offset_us = int(window_start_offset_us)
     width, height = resolution
     if width <= 0 or height <= 0:
         raise ValueError("resolution must contain positive width and height")
@@ -85,7 +90,7 @@ def accumulate_events_for_triggers(
         ev_v = ev_v[sort_idx]
 
     for trigger_index, trigger in enumerate(rising_triggers):
-        start_us = _timestamp(trigger)
+        start_us = _timestamp(trigger) + window_start_offset_us
         end_us = start_us + window_us
         
         start_idx = np.searchsorted(ev_t, start_us, side='left')
@@ -110,19 +115,33 @@ def _event_increment(event, polarity_mode):
 
 
 def _trigger_edge(trigger):
-    return str(_field(trigger, "edge", default="rising")).lower()
+    edge = _field(trigger, "edge", default=None)
+    if edge is not None:
+        return str(edge).lower()
+    trigger_type = _field(trigger, "type", default=None)
+    if trigger_type is None:
+        return "rising"
+    trigger_type_text = str(trigger_type).lower()
+    if "rising" in trigger_type_text:
+        return "rising"
+    if "falling" in trigger_type_text:
+        return "falling"
+    return trigger_type_text
 
 
 def _timestamp(record):
     return int(_field(record, "timestamp"))
 
 
-def _field(record, name, default=None):
+def _field(record, name, default=_MISSING):
     if hasattr(record, name):
         value = getattr(record, name)
         return value() if callable(value) else value
     if isinstance(record, dict):
-        return record.get(name, default)
-    if default is not None:
+        if name in record:
+            return record[name]
+        if default is not _MISSING:
+            return default
+    if default is not _MISSING:
         return default
     raise AttributeError(f"{record!r} has no {name!r} field")

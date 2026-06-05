@@ -648,7 +648,7 @@ def test_sync_check_live_capture_flushes_stale_batches_immediately_before_record
     assert sync_check.live_capture(args, run, capture, writer, ready) == 0
     assert events == [
         "before_start",
-        ("flush", 7, False),
+        ("flush", 7, True),
         "record_start",
         "sequencer_start_continued",
     ]
