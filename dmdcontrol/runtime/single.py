@@ -23,6 +23,7 @@ from dmdcontrol.patterns.calibration_square import (
     format_calibration_square_state,
     make_calibration_square_frame_provider,
 )
+from dmdcontrol.patterns.kernel import build_kernel_frames
 from dmdcontrol.runtime.lifecycle import (
     build_lut_entries,
     compute_trigger_out_2_timing,
@@ -375,18 +376,6 @@ def _select_post_arm_prime_frame(initial_frame, dynamic_kind, kernel_frames, ker
     return initial_frame
 
 
-def _build_numbers_frames(engine, size_px=None):
-    return tuple(
-        engine.pack_patterns(
-            engine.rgb_to_binary_patterns(
-                generate_number_rgb(
-                    number,
-                    width=engine.width,
-                    height=engine.height,
-                    size_px=size_px,
-                ))) for number in NUMBER_SEQUENCE)
-
-
 def _make_frame_provider(
     engine,
     initial_frame,
@@ -546,7 +535,7 @@ def main(argv=None):
 
         if args.wake_dp:
             logger.info("[+] Waking up DisplayPort receiver...")
-            dlpc.send_packet(0x1A01, bytes([2]))
+            dlpc.wake_displayport_receiver()
             time.sleep(1.0)
 
         black_frame = engine.pack_patterns(engine.generate_solid(0))
@@ -594,19 +583,18 @@ def main(argv=None):
                 f"invert_dmd={args.invert_dmd}, "
                 f"leader_frames={args.kernel_leader_frames}, "
                 f"blank_end_frame={args.kernel_blank_end_frame})...")
-            kernel_masks = engine.generate_kernel_masks(args.kernel_px)
-            kernel_payload_frames = engine.pack_kernel_frames(
-                kernel_masks,
+            kernel_frames, kernel_metadata = build_kernel_frames(
+                engine,
+                args.kernel_px,
                 slots_per_frame=slots,
+                leader_frames=args.kernel_leader_frames,
                 blank_end_frame=args.kernel_blank_end_frame,
             )
-            kernel_payload_vsyncs = len(kernel_payload_frames)
-            kernel_frames = [black_frame] * args.kernel_leader_frames + kernel_payload_frames
-            kernel_cycle_vsyncs = len(kernel_frames)
-            kernel_blank_slot_count = (slots - (512 % slots)) % slots
+            kernel_payload_vsyncs = kernel_metadata["payload_vsyncs"]
+            kernel_cycle_vsyncs = kernel_metadata["cycle_vsyncs"]
+            kernel_blank_slot_count = kernel_metadata["blank_slot_count"]
             kernel_leader_fires = args.kernel_leader_frames * slots
-            kernel_cycle_kernels = 512 + kernel_blank_slot_count + (
-                slots if args.kernel_blank_end_frame else 0)
+            kernel_cycle_kernels = kernel_metadata["cycle_fires"] - kernel_leader_fires
             logger.info(
                 f"[+] Kernel frames ready: {kernel_cycle_vsyncs} VSYNC frames per cycle "
                 f"({args.kernel_leader_frames} leader + {kernel_payload_vsyncs} payload/end-marker) "
@@ -617,7 +605,15 @@ def main(argv=None):
                 f"[+] Prebuilding {len(NUMBER_SEQUENCE)} number frames "
                 f"(digits 1..9, exposure={number_exposure_us} us per number, "
                 f"size_px={args.numbers_size_px or 'default'})...")
-            numbers_frames = _build_numbers_frames(engine, size_px=args.numbers_size_px)
+            numbers_frames = tuple(
+                engine.pack_patterns(
+                    engine.rgb_to_binary_patterns(
+                        generate_number_rgb(
+                            number,
+                            width=engine.width,
+                            height=engine.height,
+                            size_px=args.numbers_size_px,
+                        ))) for number in NUMBER_SEQUENCE)
             logger.info("[+] Number frames ready as full packed DisplayPort frames.")
         if dynamic_kind == "calibr-square":
             calibration_square_state = default_calibration_square_state(engine.width, engine.height)
@@ -703,11 +699,6 @@ def main(argv=None):
             # before the USB control thread starts issuing LUT writes + start command.
             time.sleep(0.1)
 
-        def _frame_pump():
-            # No-op: the background pump is already pushing frames continuously,
-            # no synchronous pump is needed at this point.
-            pass
-
         try:
             sequence_state = configure_dlpc900_for_video_pattern(
                 dlpc,
@@ -716,7 +707,7 @@ def main(argv=None):
                 sequence_utilization=args.seq_utilization,
                 trig2_frame_zero=args.trig2_frame_zero,
                 pre_arm_callback=_prime_video_buffer,
-                frame_pump=_frame_pump,
+                frame_pump=lambda: None,
                 entries_count=lut_entries_count,
                 per_entry_exposure_us=lut_per_entry_exposure_us,
                 trigger_out_2_delay_fraction=args.trigger_out_2_delay_fraction,

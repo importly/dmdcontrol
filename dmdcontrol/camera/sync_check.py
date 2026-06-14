@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import math
 import sys
-from dataclasses import asdict, is_dataclass
 
 from dmdcontrol.camera.capture import (
     AsyncCapture,
@@ -18,6 +17,8 @@ from dmdcontrol.camera.local_support_filter import (
 )
 from dmdcontrol.camera.runs import (
     create_run_directory,
+    final_capture_artifacts,
+    metadata_dict,
     write_capture_artifacts,
     write_json,
     write_run_metadata,
@@ -27,6 +28,11 @@ from dmdcontrol.camera.session import (
     open_ready_camera as _open_ready_camera,
 )
 from dmdcontrol.patterns.paired import MAX_COUNT_SEQUENCE_FRAMES
+from dmdcontrol.support.argparse_types import (
+    nonnegative_int,
+    numbers_bitplane_order,
+    positive_int,
+)
 from dmdcontrol.support.constants import BITPLANES
 
 A_COUNT_B_STATIC_TEST = "a-count-b-static"
@@ -57,38 +63,6 @@ def parse_numbers(value: str) -> list[int]:
     if len(numbers) > 24:
         raise argparse.ArgumentTypeError("numbers can contain at most 24 entries")
     return numbers
-
-
-def parse_numbers_bitplane_order(value: str) -> list[int]:
-    try:
-        order = [int(part.strip()) for part in value.split(",") if part.strip()]
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("numbers bitplane order must be decimal indexes") from exc
-    if not order:
-        raise argparse.ArgumentTypeError("numbers bitplane order must not be empty")
-    if any(index < 0 for index in order):
-        raise argparse.ArgumentTypeError("numbers bitplane order indexes must be non-negative")
-    return order
-
-
-def positive_int(value: str) -> int:
-    try:
-        number = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("value must be positive") from exc
-    if number <= 0:
-        raise argparse.ArgumentTypeError("value must be positive")
-    return number
-
-
-def nonnegative_int(value: str) -> int:
-    try:
-        number = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("value must be non-negative") from exc
-    if number < 0:
-        raise argparse.ArgumentTypeError("value must be non-negative")
-    return number
 
 
 def _requested_accumulation_cycles(args: argparse.Namespace) -> int | None:
@@ -143,7 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--numbers", type=parse_numbers, default=parse_numbers("1,2,3,4,5"))
     parser.add_argument(
         "--numbers-bitplane-order",
-        type=parse_numbers_bitplane_order,
+        type=numbers_bitplane_order,
         default=None,
         help=(
             "Zero-based bitplane indexes in chronological display order for numbers mode. "
@@ -281,12 +255,6 @@ def expected_trigger_count(args: argparse.Namespace) -> int:
     if args.test == A_COUNT_B_STATIC_TEST:
         return args.count_end - args.count_start + 1
     return len(args.numbers)
-
-
-def _asdict(value):
-    if is_dataclass(value):
-        return asdict(value)
-    return dict(getattr(value, "__dict__", {}))
 
 
 def _pair_runtime_seconds(args: argparse.Namespace) -> int:
@@ -473,15 +441,6 @@ def _copy_sweep_metadata(args: argparse.Namespace, metadata: dict[str, object]) 
             metadata[metadata_name] = getattr(args, source_name)
 
 
-def _write_live_capture_setup_artifacts(run, trigger_policy, command_argv):
-    write_json(run.timing_path, trigger_policy)
-    run.command_path.write_text(
-        " ".join(command_argv or sys.argv) + "\n",
-        encoding="utf-8",
-    )
-    run.log_path.write_text("live\n", encoding="utf-8")
-
-
 def _start_recording(
     args,
     capture,
@@ -509,7 +468,7 @@ def _start_recording(
 def _update_before_start_metadata(metadata, ready, context, accumulation_window_us):
     metadata.update(
         {
-            "camera_ready": _asdict(ready),
+            "camera_ready": metadata_dict(ready),
             "dmd_ready": True,
             "timing_a": context.get("state_a",
                                     {}).get("timing"),
@@ -544,41 +503,6 @@ def _write_capture_artifacts_for_sync_check(
         accumulation_cycles=args.requested_accumulation_cycles,
         window_start_offset_us=args.accumulation_start_offset_us,
         contact_sheet_columns=expected_trigger_count(args),
-    )
-
-
-def _final_artifacts_for_sync_check(artifact_summary):
-    artifacts = [
-        "raw.aedat4",
-        "metadata.json",
-        "command.txt",
-        "run.log",
-        "timing.json",
-    ]
-    if artifact_summary is None:
-        return artifacts
-
-    artifacts.extend([
-        "triggers.csv",
-        "accumulated.npy",
-        "contact_sheet.png",
-        "summary.json",
-    ])
-    artifacts.extend(artifact_summary.get("frame_artifacts", []))
-    artifacts.extend(artifact_summary.get("filtered_frame_artifacts", []))
-    if artifact_summary.get("filtered_contact_sheet_artifact"):
-        artifacts.append(artifact_summary["filtered_contact_sheet_artifact"])
-    if artifact_summary.get("filtered_events_artifact"):
-        artifacts.append(artifact_summary["filtered_events_artifact"])
-    return artifacts
-
-
-def _persist_final_live_metadata(run, metadata, capture_result, artifact_summary):
-    metadata["capture"] = _asdict(capture_result)
-    write_run_metadata(
-        run,
-        metadata,
-        artifacts=_final_artifacts_for_sync_check(artifact_summary),
     )
 
 
@@ -629,7 +553,12 @@ def live_capture(
     _copy_sweep_metadata(args, metadata)
 
     try:
-        _write_live_capture_setup_artifacts(run, trigger_policy, command_argv)
+        write_json(run.timing_path, trigger_policy)
+        run.command_path.write_text(
+            " ".join(command_argv or sys.argv) + "\n",
+            encoding="utf-8",
+        )
+        run.log_path.write_text("live\n", encoding="utf-8")
 
         def before_start(context):
             nonlocal recording
@@ -680,7 +609,12 @@ def live_capture(
             except BaseException as exc:
                 metadata["capture_error"] = repr(exc)
         if capture_result is not None:
-            _persist_final_live_metadata(run, metadata, capture_result, artifact_summary)
+            metadata["capture"] = metadata_dict(capture_result)
+            write_run_metadata(
+                run,
+                metadata,
+                artifacts=final_capture_artifacts(artifact_summary),
+            )
         if recording is not None:
             recording = None
 

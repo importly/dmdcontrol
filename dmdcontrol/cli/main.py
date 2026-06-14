@@ -79,28 +79,17 @@ def main(argv: list[str] | None = None) -> int | None:
         from dmdcontrol.cli import config
 
         return config.show(passthrough)
-    if args.area == "camera" and args.command == "discover":
+    if args.area == "camera":
         from dmdcontrol.cli import camera
 
-        return camera.discover(passthrough)
-    if args.area == "camera" and args.command == "status":
-        from dmdcontrol.cli import camera
-
-        return camera.status(passthrough)
-    if args.area == "camera" and args.command == "sync-check":
-        from dmdcontrol.cli import camera
-
-        return camera.sync_check(passthrough)
-    if args.area == "camera" and args.command == "sync-sweep":
-        from dmdcontrol.cli import camera
-
-        return camera.sync_sweep(passthrough)
-    if args.area == "camera" and args.command == "pair-capture":
-        from dmdcontrol.cli import camera
-
-        return camera.pair_capture(passthrough)
-    if args.area == "camera" and args.command == "reprocess-aedat4":
-        from dmdcontrol.cli import camera
-
-        return camera.reprocess_aedat4(passthrough)
+        handlers = {
+            "discover": camera.discover,
+            "status": camera.status,
+            "sync-check": camera.sync_check,
+            "sync-sweep": camera.sync_sweep,
+            "pair-capture": camera.pair_capture,
+            "reprocess-aedat4": camera.reprocess_aedat4,
+        }
+        if args.command in handlers:
+            return handlers[args.command](passthrough)
     raise SystemExit(f"Unsupported command: {args.area} {args.command}")

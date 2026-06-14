@@ -55,6 +55,11 @@ from dmdcontrol.support.constants import (
     DMD_HEIGHT,
     DMD_WIDTH,
 )
+from dmdcontrol.support.argparse_types import (
+    nonnegative_int,
+    numbers_bitplane_order,
+    positive_int,
+)
 from dmdcontrol.support.logging import logger, setup_logger
 
 
@@ -75,20 +80,6 @@ class _DryRunDLPC:
         return None
 
 
-def _positive_int(value):
-    parsed = int(value)
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("must be positive")
-    return parsed
-
-
-def _nonnegative_int(value):
-    parsed = int(value)
-    if parsed < 0:
-        raise argparse.ArgumentTypeError("must be non-negative")
-    return parsed
-
-
 def _parse_numbers(value):
     try:
         numbers = [int(part.strip()) for part in value.split(",") if part.strip()]
@@ -99,18 +90,6 @@ def _parse_numbers(value):
     if any(number < 1 or number > 9 for number in numbers):
         raise argparse.ArgumentTypeError("numbers must be in the range 1..9")
     return numbers
-
-
-def _parse_numbers_bitplane_order(value):
-    try:
-        order = [int(part.strip()) for part in value.split(",") if part.strip()]
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("numbers bitplane order must be decimal indexes") from exc
-    if not order:
-        raise argparse.ArgumentTypeError("numbers bitplane order must not be empty")
-    if any(index < 0 for index in order):
-        raise argparse.ArgumentTypeError("numbers bitplane order indexes must be non-negative")
-    return order
 
 
 def resolve_pair_config(config_path=None, target_hz=None):
@@ -158,10 +137,10 @@ def _build_parser():
     )
     parser.add_argument("--b-dot-x", type=int, default=DMD_WIDTH // 2)
     parser.add_argument("--b-dot-y", type=int, default=DMD_HEIGHT // 2)
-    parser.add_argument("--b-dot-radius", type=_positive_int, default=40)
+    parser.add_argument("--b-dot-radius", type=positive_int, default=40)
     parser.add_argument(
         "--dot-radius",
-        type=_positive_int,
+        type=positive_int,
         default=40,
         help="Radius for generic static dot frames, for example --test dot",
     )
@@ -174,13 +153,13 @@ def _build_parser():
     parser.add_argument("--b-dot-invert", action="store_true")
     parser.add_argument(
         "--kernel-px",
-        type=_positive_int,
+        type=positive_int,
         default=30,
         help="A-kernel paired recipe: total 3x3 kernel side length in pixels",
     )
     parser.add_argument(
         "--kernel-exposure-us",
-        type=_positive_int,
+        type=positive_int,
         default=None,
         help="A-kernel paired recipe: uniform exposure per kernel bitplane",
     )
@@ -204,7 +183,7 @@ def _build_parser():
     )
     parser.add_argument(
         "--kernel-leader-frames",
-        type=_nonnegative_int,
+        type=nonnegative_int,
         default=3,
         help="A-kernel paired recipe: all-black VSYNC frames prepended to each cycle",
     )
@@ -216,19 +195,19 @@ def _build_parser():
     )
     parser.add_argument(
         "--numbers-exposure-us",
-        type=_positive_int,
+        type=positive_int,
         default=None,
         help="Numbers paired recipe: optional per-bitplane LUT exposure override",
     )
     parser.add_argument(
         "--numbers-size-px",
-        type=_positive_int,
+        type=positive_int,
         default=None,
         help="Numbers paired recipe: seven-segment digit height in pixels",
     )
     parser.add_argument(
         "--numbers-bitplane-order",
-        type=_parse_numbers_bitplane_order,
+        type=numbers_bitplane_order,
         default=None,
         help=(
             "Numbers paired recipe: zero-based bitplane indexes in chronological "
@@ -237,13 +216,13 @@ def _build_parser():
     )
     parser.add_argument(
         "--count-start",
-        type=_positive_int,
+        type=positive_int,
         default=1,
         help="A-count paired recipe: first integer label to display",
     )
     parser.add_argument(
         "--count-end",
-        type=_positive_int,
+        type=positive_int,
         default=100,
         help="A-count paired recipe: final integer label to display, inclusive",
     )
@@ -255,7 +234,7 @@ def _build_parser():
     )
     parser.add_argument(
         "--count-exposure-us",
-        type=_positive_int,
+        type=positive_int,
         default=None,
         help="A-count paired recipe: optional per-count LUT exposure override",
     )
@@ -390,42 +369,6 @@ def _lut_override(args, target_hz):
     return _kernel_lut_override(args, target_hz)
 
 
-def _numbers_provider_kwargs(args):
-    return {
-        "test_b": args.test_b,
-        "numbers": args.numbers,
-        "numbers_size_px": args.numbers_size_px,
-        "numbers_bitplane_order": getattr(args,
-                                          "numbers_bitplane_order",
-                                          None),
-        "numbers_exposure_us": args.numbers_exposure_us,
-        "b_dot_x": args.b_dot_x,
-        "b_dot_y": args.b_dot_y,
-        "b_dot_radius": args.b_dot_radius,
-        "b_dot_shape": args.b_dot_shape,
-        "b_dot_invert": args.b_dot_invert,
-        "width": DMD_WIDTH,
-        "height": DMD_HEIGHT,
-    }
-
-
-def _count_provider_kwargs(args):
-    return {
-        "test_b": args.test_b,
-        "count_start": args.count_start,
-        "count_end": args.count_end,
-        "count_slots_per_frame": args.count_slots_per_frame,
-        "numbers_size_px": args.numbers_size_px,
-        "b_dot_x": args.b_dot_x,
-        "b_dot_y": args.b_dot_y,
-        "b_dot_radius": args.b_dot_radius,
-        "b_dot_shape": args.b_dot_shape,
-        "b_dot_invert": args.b_dot_invert,
-        "width": DMD_WIDTH,
-        "height": DMD_HEIGHT,
-    }
-
-
 def _make_runtime_pair_frame_provider(args, engine, target_hz):
     if args.test == CALIBRATION_DOT_PAIR_TEST:
         single_a = SingleDmdFrameAdapter(
@@ -508,9 +451,37 @@ def _make_runtime_pair_frame_provider(args, engine, target_hz):
             dot_radius=args.dot_radius,
         )
     if _is_numbers_recipe(args.test):
-        return make_pair_frame_provider(args.test, **_numbers_provider_kwargs(args))
+        return make_pair_frame_provider(
+            args.test,
+            test_b=args.test_b,
+            numbers=args.numbers,
+            numbers_size_px=args.numbers_size_px,
+            numbers_bitplane_order=getattr(args, "numbers_bitplane_order", None),
+            numbers_exposure_us=args.numbers_exposure_us,
+            b_dot_x=args.b_dot_x,
+            b_dot_y=args.b_dot_y,
+            b_dot_radius=args.b_dot_radius,
+            b_dot_shape=args.b_dot_shape,
+            b_dot_invert=args.b_dot_invert,
+            width=DMD_WIDTH,
+            height=DMD_HEIGHT,
+        )
     if _is_count_recipe(args.test):
-        return make_pair_frame_provider(args.test, **_count_provider_kwargs(args))
+        return make_pair_frame_provider(
+            args.test,
+            test_b=args.test_b,
+            count_start=args.count_start,
+            count_end=args.count_end,
+            count_slots_per_frame=args.count_slots_per_frame,
+            numbers_size_px=args.numbers_size_px,
+            b_dot_x=args.b_dot_x,
+            b_dot_y=args.b_dot_y,
+            b_dot_radius=args.b_dot_radius,
+            b_dot_shape=args.b_dot_shape,
+            b_dot_invert=args.b_dot_invert,
+            width=DMD_WIDTH,
+            height=DMD_HEIGHT,
+        )
     return make_pair_frame_provider(args.test, width=DMD_WIDTH, height=DMD_HEIGHT)
 
 
@@ -735,7 +706,7 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
         if args.wake_dp:
             for label, dlpc in (("A", dlpc_a), ("B", dlpc_b)):
                 logger.info(f"[+] Waking DisplayPort receiver for DMD {label}...")
-                dlpc.send_packet(0x1A01, bytes([2]))
+                dlpc.wake_displayport_receiver()
             time.sleep(1.0)
 
         logger.info("[+] Starting paired continuous GL pump before DLPC preparation...")
@@ -834,7 +805,7 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
             engine.cleanup()
 
 
-def run_with_before_start_callback(argv, before_start):
+def _run(argv, before_start=None):
     args = _build_parser().parse_args(argv)
     setup_logger(verbosity=args.verbose)
     pair_config = resolve_pair_config(args.dmd_config, target_hz=args.hz)
@@ -845,17 +816,12 @@ def run_with_before_start_callback(argv, before_start):
     return _run_prepared_pair(args, pair_config, before_sequencer_start=before_start)
 
 
+def run_with_before_start_callback(argv, before_start):
+    return _run(argv, before_start)
+
+
 def main(argv=None):
-    args = _build_parser().parse_args(argv)
-    setup_logger(verbosity=args.verbose)
-    pair_config = resolve_pair_config(args.dmd_config, target_hz=args.hz)
-    _validate_pair_args(args)
-
-    if args.dry_run_timing:
-        _dry_run_timing(args, pair_config)
-        return 0
-
-    return _run_prepared_pair(args, pair_config)
+    return _run(argv)
 
 
 if __name__ == "__main__":

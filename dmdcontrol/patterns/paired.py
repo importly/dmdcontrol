@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from dmdcontrol.patterns.bitplanes import pack_bitplanes_rgb
 from dmdcontrol.patterns.modes import (
     NUMBER_SEQUENCE,
     generate_decimal_number_rgb,
@@ -75,12 +76,6 @@ def _lines(width, height):
     img = np.zeros((height, width, 3), dtype=np.uint8)
     img[:, ::2, :] = 255
     img[::16, :, :] = 255
-    return img
-
-
-def _colors(width, height, channel=0):
-    img = np.zeros((height, width, 3), dtype=np.uint8)
-    img[:, :, channel] = 255
     return img
 
 
@@ -223,7 +218,8 @@ def generate_static_frame(
     elif mode == "lines":
         frame = _lines(width, height)
     elif mode == "colors":
-        frame = _colors(width, height, channel=0 if route_label == "A" else 1)
+        frame = np.zeros((height, width, 3), dtype=np.uint8)
+        frame[:, :, 0 if route_label == "A" else 1] = 255
     elif mode == "dot":
         return generate_dot_frame(
             width=width,
@@ -285,14 +281,7 @@ class SingleDmdFrameAdapter:
         self.window = window
 
     def pack_patterns(self, binary_images):
-        r = np.zeros((self.height, self.width), dtype=np.uint8)
-        g = np.zeros((self.height, self.width), dtype=np.uint8)
-        b = np.zeros((self.height, self.width), dtype=np.uint8)
-        for i in range(8):
-            g |= binary_images[i] << i
-            r |= binary_images[i + 8] << i
-            b |= binary_images[i + 16] << i
-        return np.ascontiguousarray(np.stack([r, g, b], axis=-1))
+        return pack_bitplanes_rgb(binary_images, self.width, self.height)
 
 
 @dataclass
@@ -610,7 +599,7 @@ def _pack_count_sequence_frames(
         size_px=None):
     _validate_count_sequence_args(count_start, count_end, count_slots_per_frame)
     frames = []
-    counts = _count_sequence_values(count_start, count_end)
+    counts = tuple(range(count_start, count_end + 1))
     for offset in range(0, len(counts), count_slots_per_frame):
         chunk = counts[offset:offset + count_slots_per_frame]
         masks = _decimal_number_bitplane_masks(chunk, width=width, height=height, size_px=size_px)
@@ -637,10 +626,6 @@ def _validate_count_sequence_args(count_start, count_end, count_slots_per_frame)
 def count_sequence_frame_count(count_start, count_end, count_slots_per_frame):
     _validate_count_sequence_args(count_start, count_end, count_slots_per_frame)
     return (count_end - count_start + 1) // count_slots_per_frame
-
-
-def _count_sequence_values(count_start, count_end):
-    return tuple(range(count_start, count_end + 1))
 
 
 def _number_bitplane_masks(numbers, *, width, height, size_px=None):

@@ -102,12 +102,6 @@ def shutdown_camera_streams(capture):
     }
 
 
-def _json_safe_call_result(value):
-    if value is None or isinstance(value, (bool, int, float, str)):
-        return value
-    return repr(value)
-
-
 def _detector_call_key(method_name, value):
     value_name = "true" if value is True else "false" if value is False else str(value)
     return f"{method_name}_{value_name}"
@@ -150,7 +144,11 @@ def configure_rising_edge_triggers(capture):
         call_label = f"{method_name}({value})"
         result["call_order"].append(call_label)
         try:
-            result[f"{key}_result"] = _json_safe_call_result(method(value))
+            call_result = method(value)
+            result[f"{key}_result"] = (
+                call_result
+                if call_result is None or isinstance(call_result, (bool, int, float, str))
+                else repr(call_result))
         except Exception as exc:
             error = repr(exc)
             result[f"{key}_error"] = error

@@ -22,7 +22,6 @@ Examples:
 """
 
 import argparse
-import struct
 import sys
 import time
 
@@ -33,8 +32,8 @@ from dmdcontrol.hardware.dlpc900 import DLPC900
 DLPC900_VID = 0x0451
 DLPC900_PID = 0xC900
 
-COLOR_WHITE_10BIT = 0x03FF
-COLOR_BLACK_10BIT = 0x0000
+INTERNAL_PATTERN_WHITE_LEVEL = 0x03FF
+INTERNAL_PATTERN_BLACK_LEVEL = 0x0000
 
 DISPLAY_MODE_VIDEO = 0
 INPUT_SOURCE_INTERNAL_TEST_PATTERN = 1
@@ -52,60 +51,14 @@ def _count_dlpc900_devices() -> int:
     return sum(1 for _ in devices)
 
 
-def _require_byte_range(name: str, value: int) -> int:
-    if not (0 <= value <= 255):
-        raise ValueError(f"{name} must be in range 0..255, got {value}")
-    return value
-
-
-def _effective_color(requested: str, invert: bool) -> str:
-    if requested not in ("white", "black"):
-        raise ValueError(f"Unsupported color: {requested}")
-    if not invert:
-        return requested
-    return "black" if requested == "white" else "white"
-
-
-def _color_value_10bit(color: str) -> int:
-    if color == "white":
-        return COLOR_WHITE_10BIT
-    if color == "black":
-        return COLOR_BLACK_10BIT
-    raise ValueError(f"Unsupported color: {color}")
-
-
-def _write_pixel_format_rgb(dlpc: DLPC900) -> None:
-    # DLPC900 command 0x1A02: Input Pixel Data Format.
-    # 0 = RGB.
-    dlpc.send_packet(0x1A02, struct.pack("<B", PIXEL_FORMAT_RGB))
-
-
-def _write_internal_test_pattern_color(dlpc: DLPC900, color: str) -> None:
-    """
-    DLPC900 command 0x1204: Internal Test Patterns Color.
-
-    Payload is six 10-bit color intensities stored as little-endian uint16:
-      red foreground
-      green foreground
-      blue foreground
-      red background
-      green background
-      blue background
-
-    For solid field, foreground is the one that matters. Background is set to
-    the same value anyway so other simple patterns do not surprise you if the
-    test pattern state changes.
-    """
-    v = _color_value_10bit(color)
-    payload = struct.pack("<HHHHHH", v, v, v, v, v, v)
-    dlpc.send_packet(0x1204, payload)
-
-
 def configure_solid_flood(
     color: str,
     led_current: int,
     leave_leds_alone: bool,
 ) -> None:
+    if color not in ("white", "black"):
+        raise ValueError(f"Unsupported color: {color}")
+
     device_count = _count_dlpc900_devices()
     if device_count == 0:
         raise RuntimeError("No DLPC900 USB device found.")
@@ -125,7 +78,8 @@ def configure_solid_flood(
         pass
 
     if not leave_leds_alone:
-        led_current = _require_byte_range("led_current", led_current)
+        if not (0 <= led_current <= 255):
+            raise ValueError(f"led_current must be in range 0..255, got {led_current}")
         dlpc.set_led_current(led_current, led_current, led_current)
         dlpc.set_led_enables(r=True, g=True, b=True, sequencer=True)
         time.sleep(0.1)
@@ -140,10 +94,11 @@ def configure_solid_flood(
     )
     time.sleep(0.1)
 
-    _write_pixel_format_rgb(dlpc)
+    dlpc.set_input_pixel_format(PIXEL_FORMAT_RGB)
     time.sleep(0.05)
 
-    _write_internal_test_pattern_color(dlpc, color)
+    dlpc.set_internal_test_pattern_color(
+        INTERNAL_PATTERN_WHITE_LEVEL if color == "white" else INTERNAL_PATTERN_BLACK_LEVEL)
     time.sleep(0.05)
 
     dlpc.set_internal_test_pattern(INTERNAL_TEST_PATTERN_SOLID_FIELD)
@@ -224,7 +179,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     requested = args.color_flag or args.color or "white"
-    output = _effective_color(requested, args.invert)
+    output = ("black" if requested == "white" else "white") if args.invert else requested
 
     if not args.yes:
         print("This will configure the connected DLPC900 over USB.")

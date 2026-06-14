@@ -11,6 +11,7 @@ from urllib import request
 import numpy as np
 from PIL import Image
 
+from dmdcontrol.patterns.bitplanes import pack_bitplanes_rgb, unpack_rgb_bitplanes
 from dmdcontrol.patterns.calibration_square import build_calibration_square_frame
 from dmdcontrol.patterns.kernel import build_kernel_frames
 from dmdcontrol.patterns.modes import (
@@ -59,12 +60,6 @@ def _json_safe_value(value):
     return value
 
 
-def _bitplane_label(plane_index):
-    if 0 <= plane_index < len(BITPLANE_LABELS):
-        return BITPLANE_LABELS[plane_index]
-    return f"P{plane_index}"
-
-
 def build_lut_preview_metadata(entries, timing=None):
     """Describe a DLPC900 video-pattern LUT in preview-friendly JSON data."""
 
@@ -79,7 +74,8 @@ def build_lut_preview_metadata(entries, timing=None):
         dark_us = int(entry[5]) if len(entry) > 5 else 0
         trig2_disabled = bool(entry[6]) if len(entry) > 6 else False
         image_index = int(entry[7]) if len(entry) > 7 else plane_index
-        label = _bitplane_label(plane_index)
+        label = BITPLANE_LABELS[plane_index] if 0 <= plane_index < len(
+            BITPLANE_LABELS) else f"P{plane_index}"
         preview_entries.append(
             {
                 "index": int(index),
@@ -115,29 +111,10 @@ class PreviewEngine:
         self.height = height
 
     def pack_patterns(self, binary_images):
-        if len(binary_images) != BITPLANES:
-            raise ValueError(f"expected {BITPLANES} binary images, got {len(binary_images)}")
-        r = np.zeros((self.height, self.width), dtype=np.uint8)
-        g = np.zeros((self.height, self.width), dtype=np.uint8)
-        b = np.zeros((self.height, self.width), dtype=np.uint8)
-        for i in range(8):
-            g |= np.asarray(binary_images[i], dtype=np.uint8) << i
-            r |= np.asarray(binary_images[i + 8], dtype=np.uint8) << i
-            b |= np.asarray(binary_images[i + 16], dtype=np.uint8) << i
-        return np.ascontiguousarray(np.stack([r, g, b], axis=-1))
+        return pack_bitplanes_rgb(binary_images, self.width, self.height)
 
     def rgb_to_binary_patterns(self, rgb_array):
-        if rgb_array.shape[:2] != (self.height, self.width):
-            raise ValueError(
-                f"RGB array must be {self.height}x{self.width}, got {rgb_array.shape[:2]}")
-        patterns = []
-        for bit in range(8):
-            patterns.append(((rgb_array[:, :, 1] >> bit) & 1).astype(np.uint8))
-        for bit in range(8):
-            patterns.append(((rgb_array[:, :, 0] >> bit) & 1).astype(np.uint8))
-        for bit in range(8):
-            patterns.append(((rgb_array[:, :, 2] >> bit) & 1).astype(np.uint8))
-        return patterns
+        return unpack_rgb_bitplanes(rgb_array, self.width, self.height)
 
     def generate_checkerboard(self, block_size=32):
         y, x = np.indices((self.height, self.width))
@@ -197,20 +174,6 @@ class PreviewEngine:
         return np.ascontiguousarray(np.stack([padded, padded, padded], axis=-1))
 
 
-def _solid_rgb(channel, width=DMD_WIDTH, height=DMD_HEIGHT):
-    frame = np.zeros((height, width, 3), dtype=np.uint8)
-    frame[:, :, channel] = 255
-    return np.ascontiguousarray(frame)
-
-
-def _clock_preview_frame(frame_index, width=DMD_WIDTH, height=DMD_HEIGHT):
-    frame = np.zeros((height, width, 3), dtype=np.uint8)
-    stripe = max(1, width // 16)
-    x0 = (frame_index % 16) * stripe
-    frame[:, x0:min(width, x0 + stripe), :] = 255
-    return np.ascontiguousarray(frame)
-
-
 def _kernel_preview_frame(engine, frame_index):
     frames, _metadata = build_kernel_frames(
         engine,
@@ -228,7 +191,9 @@ def render_single_frame(test="coarse-grid", frame_index=0, width=DMD_WIDTH, heig
     engine = PreviewEngine(width=width, height=height)
 
     if test == "colors":
-        return _solid_rgb(frame_index % 3, width=width, height=height)
+        frame = np.zeros((height, width, 3), dtype=np.uint8)
+        frame[:, :, frame_index % 3] = 255
+        return np.ascontiguousarray(frame)
     if test == "numbers":
         number = NUMBER_SEQUENCE[frame_index % len(NUMBER_SEQUENCE)]
         return generate_number_rgb(number, width=width, height=height)
@@ -238,7 +203,11 @@ def render_single_frame(test="coarse-grid", frame_index=0, width=DMD_WIDTH, heig
     if test == "snake":
         return engine.generate_snake_frame(frame_index=frame_index)
     if test == "clock":
-        return _clock_preview_frame(frame_index, width=width, height=height)
+        frame = np.zeros((height, width, 3), dtype=np.uint8)
+        stripe = max(1, width // 16)
+        x0 = (frame_index % 16) * stripe
+        frame[:, x0:min(width, x0 + stripe), :] = 255
+        return np.ascontiguousarray(frame)
     if test == "kernel":
         return _kernel_preview_frame(engine, frame_index)
 

@@ -29,7 +29,7 @@ def main(argv=None):
     )
     logger.info("[+] Waking up DisplayPort receiver...")
 
-    dlpc.send_packet(0x1A01, bytes([2]))
+    dlpc.wake_displayport_receiver()
     time.sleep(1)
 
     dlpc.set_input_source(0, 1)

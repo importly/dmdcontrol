@@ -9,12 +9,14 @@ from pathlib import Path
 import numpy as np
 
 from dmdcontrol.camera.accumulation import TriggerRecord
+from dmdcontrol.camera.capture import merge_time_range
 from dmdcontrol.camera.runs import (
     CameraRunDirectory,
     write_capture_artifacts,
     write_json,
     write_run_metadata,
 )
+from dmdcontrol.support.argparse_types import nonnegative_int, positive_int
 
 
 @dataclass(frozen=True)
@@ -23,20 +25,6 @@ class Aedat4RecordingData:
     triggers: list[TriggerRecord]
     resolution: tuple[int, int]
     stats: dict[str, object]
-
-
-def positive_int(value: str) -> int:
-    number = int(value)
-    if number <= 0:
-        raise argparse.ArgumentTypeError("value must be positive")
-    return number
-
-
-def nonnegative_int(value: str) -> int:
-    number = int(value)
-    if number < 0:
-        raise argparse.ArgumentTypeError("value must be non-negative")
-    return number
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -67,7 +55,8 @@ def main(argv: list[str] | None = None) -> int:
     run_dir = Path(args.run_dir).expanduser()
     if not run_dir.is_absolute():
         run_dir = Path.cwd() / run_dir
-    source_metadata = _read_json_if_exists(run_dir / "metadata.json")
+    metadata_path = run_dir / "metadata.json"
+    source_metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
     options = _resolve_options(args, source_metadata)
     aedat4_path = (Path(args.aedat4).expanduser() if args.aedat4 else run_dir / "raw.aedat4")
     if not aedat4_path.is_absolute():
@@ -80,7 +69,18 @@ def main(argv: list[str] | None = None) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     recording = read_aedat4_recording(aedat4_path)
-    derived_run = _derived_run_directory(output_dir, aedat4_path)
+    derived_run = CameraRunDirectory(
+        path=output_dir,
+        raw_recording_path=aedat4_path,
+        metadata_path=output_dir / "metadata.json",
+        command_path=output_dir / "command.txt",
+        log_path=output_dir / "run.log",
+        triggers_path=output_dir / "triggers.csv",
+        accumulated_path=output_dir / "accumulated.npy",
+        timing_path=output_dir / "timing.json",
+        contact_sheet_path=output_dir / "contact_sheet.png",
+        summary_path=output_dir / "summary.json",
+    )
     derived_run.command_path.write_text(" ".join(sys.argv) + "\n", encoding="utf-8")
     derived_run.log_path.write_text("aedat4 reprocess\n", encoding="utf-8")
 
@@ -101,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
         "mode": "aedat4-reprocess",
         "source_run_directory": str(run_dir),
         "source_aedat4": str(aedat4_path),
-        "source_metadata_path": str(run_dir / "metadata.json"),
+        "source_metadata_path": str(metadata_path),
         "options": options,
         "aedat4": recording.stats,
     }
@@ -179,7 +179,7 @@ def _read_event_batches(recording) -> tuple[list[np.ndarray], dict[str, object]]
         array = np.asarray(batch.numpy()).copy()
         batches.append(array)
         count += len(array)
-        time_range = _merge_time_range(time_range, _array_time_range(array))
+        time_range = merge_time_range(time_range, _array_time_range(array))
     return batches, {
         "batches": len(batches),
         "count": count,
@@ -202,7 +202,7 @@ def _read_trigger_batches(recording) -> tuple[list[TriggerRecord], dict[str, obj
             record = _trigger_record(trigger)
             triggers.append(record)
             edge_counts[record.edge] = edge_counts.get(record.edge, 0) + 1
-            time_range = _merge_time_range(time_range, (record.timestamp, record.timestamp))
+            time_range = merge_time_range(time_range, (record.timestamp, record.timestamp))
     return triggers, {
         "batches": batch_count,
         "count": len(triggers),
@@ -246,14 +246,6 @@ def _array_time_range(array) -> tuple[int, int] | None:
     return int(np.min(timestamps)), int(np.max(timestamps))
 
 
-def _merge_time_range(current, update):
-    if update is None:
-        return current
-    if current is None:
-        return update
-    return min(current[0], update[0]), max(current[1], update[1])
-
-
 def _json_time_range(time_range):
     if time_range is None:
         return None
@@ -286,8 +278,9 @@ def _resolve_options(args, metadata: dict[str, object]) -> dict[str, object]:
         "trigger_cycle_length":
         int(trigger_cycle_length) if trigger_cycle_length is not None else None,
         "accumulation_cycles": (
-            int(args.accumulation_cycles) if args.accumulation_cycles is not None else
-            _optional_int(metadata.get("accumulation_cycles"))),
+            int(args.accumulation_cycles)
+            if args.accumulation_cycles is not None else
+            int(metadata["accumulation_cycles"]) if metadata.get("accumulation_cycles") is not None else None),
         "max_accumulation_triggers": (
             int(args.max_accumulation_triggers)
             if args.max_accumulation_triggers is not None else None),
@@ -300,38 +293,11 @@ def _resolve_options(args, metadata: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _optional_int(value):
-    if value is None:
-        return None
-    return int(value)
-
-
 def _first_not_none(*values):
     for value in values:
         if value is not None:
             return value
     return None
-
-
-def _read_json_if_exists(path: Path) -> dict[str, object]:
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _derived_run_directory(output_dir: Path, aedat4_path: Path) -> CameraRunDirectory:
-    return CameraRunDirectory(
-        path=output_dir,
-        raw_recording_path=aedat4_path,
-        metadata_path=output_dir / "metadata.json",
-        command_path=output_dir / "command.txt",
-        log_path=output_dir / "run.log",
-        triggers_path=output_dir / "triggers.csv",
-        accumulated_path=output_dir / "accumulated.npy",
-        timing_path=output_dir / "timing.json",
-        contact_sheet_path=output_dir / "contact_sheet.png",
-        summary_path=output_dir / "summary.json",
-    )
 
 
 if __name__ == "__main__":

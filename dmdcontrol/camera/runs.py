@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -12,6 +12,7 @@ from PIL import Image
 from dmdcontrol.camera.accumulation import (
     accumulate_events_for_triggers,
     filter_rising_triggers,
+    structured_field,
 )
 from dmdcontrol.camera.local_support_filter import (
     LocalSupportFilterConfig,
@@ -42,6 +43,32 @@ class _AccumulationTriggerStages:
     final: list
     alignment_metadata: dict
     cycle_limit_metadata: dict
+
+
+def final_capture_artifacts(artifact_summary):
+    artifacts = [
+        "raw.aedat4",
+        "metadata.json",
+        "command.txt",
+        "run.log",
+        "timing.json",
+    ]
+    if artifact_summary is None:
+        return artifacts
+
+    artifacts.extend([
+        "triggers.csv",
+        "accumulated.npy",
+        "contact_sheet.png",
+        "summary.json",
+    ])
+    artifacts.extend(artifact_summary.get("frame_artifacts", []))
+    artifacts.extend(artifact_summary.get("filtered_frame_artifacts", []))
+    if artifact_summary.get("filtered_contact_sheet_artifact"):
+        artifacts.append(artifact_summary["filtered_contact_sheet_artifact"])
+    if artifact_summary.get("filtered_events_artifact"):
+        artifacts.append(artifact_summary["filtered_events_artifact"])
+    return artifacts
 
 
 def default_timestamp() -> str:
@@ -75,6 +102,12 @@ def write_json(path, payload):
         encoding="utf-8",
     )
     return payload
+
+
+def metadata_dict(value):
+    if is_dataclass(value):
+        return asdict(value)
+    return dict(getattr(value, "__dict__", {}))
 
 
 def write_run_metadata(run_directory, metadata, artifacts=None):
@@ -221,20 +254,20 @@ def _events_to_arrays(events):
             return empty
         event_array = np.concatenate(batches) if len(batches) > 1 else batches[0]
         return {
-            "x": _structured_field(event_array,
-                                   "x").astype(np.int64,
-                                               copy=False),
-            "y": _structured_field(event_array,
-                                   "y").astype(np.int64,
-                                               copy=False),
-            "t": _structured_field(event_array,
-                                   "timestamp",
-                                   "t").astype(np.int64,
-                                               copy=False),
-            "p": _structured_field(event_array,
-                                   "polarity",
-                                   "p").astype(np.bool_,
-                                               copy=False),
+            "x": structured_field(event_array,
+                                  "x").astype(np.int64,
+                                              copy=False),
+            "y": structured_field(event_array,
+                                  "y").astype(np.int64,
+                                              copy=False),
+            "t": structured_field(event_array,
+                                  "timestamp",
+                                  "t").astype(np.int64,
+                                              copy=False),
+            "p": structured_field(event_array,
+                                  "polarity",
+                                  "p").astype(np.bool_,
+                                              copy=False),
         }
     return {
         "x": np.array([_record_field(event,
@@ -250,14 +283,6 @@ def _events_to_arrays(events):
                                      "polarity") for event in events],
                       dtype=np.bool_),
     }
-
-
-def _structured_field(event_array, *names):
-    field_names = event_array.dtype.names or ()
-    for name in names:
-        if name in field_names:
-            return event_array[name]
-    raise ValueError(f"event array missing required field: one of {names!r}")
 
 
 def _arrays_to_event_batches(arrays):

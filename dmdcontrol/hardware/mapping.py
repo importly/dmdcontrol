@@ -72,11 +72,6 @@ def resolve_dmd_mapping(name, config_path=None):
     )
 
 
-def _field_value(mapping, field):
-    value = getattr(mapping, field)
-    return "" if value is None else str(value)
-
-
 def _build_parser():
     parser = argparse.ArgumentParser(description="Resolve configured DMD mapping values")
     parser.add_argument("--dmd", required=True, help="Configured DMD name, for example A or B")
@@ -100,7 +95,8 @@ def _build_parser():
 def main(argv=None):
     args = _build_parser().parse_args(argv)
     mapping = resolve_dmd_mapping(args.dmd, args.config)
-    print(_field_value(mapping, args.field))
+    value = getattr(mapping, args.field)
+    print("" if value is None else str(value))
     return 0
 
 

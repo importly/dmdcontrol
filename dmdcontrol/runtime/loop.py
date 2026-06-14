@@ -6,15 +6,6 @@ from dmdcontrol.runtime.lifecycle import apply_pattern_sequence, ensure_video_pa
 from dmdcontrol.support.logging import logger
 
 
-def _mode_description(mode):
-    descriptions = {
-        0: "Video Mode",
-        1: "Pre-stored Pattern Mode",
-        2: "Video Pattern Mode",
-    }
-    return descriptions.get(mode, "unknown")
-
-
 def _format_bool_state(value, ok_when_true=True):
     state = bool(value)
     ok = state if ok_when_true else not state
@@ -60,9 +51,14 @@ def _format_watchdog_status(mode, ms, hw):
     video_frozen = bool(ms.get("video_frozen", False))
     dmd_parked = bool(ms.get("dmd_parked", False))
     mode_ok = mode == 2
+    mode_description = {
+        0: "Video Mode",
+        1: "Pre-stored Pattern Mode",
+        2: "Video Pattern Mode",
+    }.get(mode, "unknown")
 
     return (
-        f"[WATCHDOG] mode={mode}({_mode_description(mode)}, {'OK' if mode_ok else 'WARN: expected Video Pattern Mode=2'}); "
+        f"[WATCHDOG] mode={mode}({mode_description}, {'OK' if mode_ok else 'WARN: expected Video Pattern Mode=2'}); "
         f"sequencer_running={_format_bool_state(sequencer_running)} required for triggers; "
         f"external_source_locked={_format_bool_state(external_locked)} advisory DP sync bit; "
         f"port1_syncs_valid={_format_bool_state(port1_sync_valid)} advisory P1 sync bit; "

@@ -13,7 +13,6 @@ from dmdcontrol.patterns.numbered_regions import generate_numbered_regions
 from dmdcontrol.patterns.visual import generate_coarse_grid_rgb, generate_coarse_lines_rgb
 from dmdcontrol.support.constants import (
     DEFAULT_CALIBRATION_SQUARE_FRACTION,
-    DEFAULT_NUMBERS_EXPOSURE_US,
     DMD_HEIGHT,
     DMD_WIDTH,
     MIN_CALIBRATION_SQUARE_PX,

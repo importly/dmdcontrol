@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from dataclasses import asdict, is_dataclass
 
 import numpy as np
 
@@ -18,6 +17,8 @@ from dmdcontrol.camera.local_support_filter import (
 )
 from dmdcontrol.camera.runs import (
     create_run_directory,
+    final_capture_artifacts,
+    metadata_dict,
     write_capture_artifacts,
     write_json,
     write_run_metadata,
@@ -26,26 +27,7 @@ from dmdcontrol.camera.session import (
     close_camera_resources,
     open_ready_camera as _open_ready_camera,
 )
-
-
-def positive_int(value: str) -> int:
-    try:
-        number = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("value must be positive") from exc
-    if number <= 0:
-        raise argparse.ArgumentTypeError("value must be positive")
-    return number
-
-
-def nonnegative_int(value: str) -> int:
-    try:
-        number = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("value must be non-negative") from exc
-    if number < 0:
-        raise argparse.ArgumentTypeError("value must be non-negative")
-    return number
+from dmdcontrol.support.argparse_types import nonnegative_int, positive_int
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -257,12 +239,6 @@ def dry_run(args: argparse.Namespace):
     return run
 
 
-def _asdict(value):
-    if is_dataclass(value):
-        return asdict(value)
-    return dict(getattr(value, "__dict__", {}))
-
-
 def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
     pair_args = [
         "--test",
@@ -293,10 +269,6 @@ def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
     for _ in range(args.verbose or 0):
         pair_args.append("-v")
     return pair_args
-
-
-def _expected_trigger_count(args: argparse.Namespace) -> int | None:
-    return None
 
 
 def _accumulation_window_us(args: argparse.Namespace) -> int:
@@ -481,7 +453,7 @@ def live(args: argparse.Namespace) -> int:
             nonlocal recording
             metadata.update(
                 {
-                    "camera_ready": _asdict(ready),
+                    "camera_ready": metadata_dict(ready),
                     "dmd_ready": True,
                     "timing_a": context["state_a"]["timing"],
                     "timing_b": context["state_b"]["timing"],
@@ -490,7 +462,7 @@ def live(args: argparse.Namespace) -> int:
                 recording = AsyncCapture(
                     capture,
                     writer,
-                    expected_trigger_count=_expected_trigger_count(args),
+                    expected_trigger_count=None,
                     timeout_s=max(1,
                                   args.runtime_seconds),
                     on_events=artifact_buffer.append_events,
@@ -534,32 +506,11 @@ def live(args: argparse.Namespace) -> int:
             except BaseException as exc:
                 metadata["capture_error"] = repr(exc)
         if capture_result is not None:
-            metadata["capture"] = _asdict(capture_result)
-            artifacts = [
-                "raw.aedat4",
-                "metadata.json",
-                "command.txt",
-                "run.log",
-                "timing.json",
-            ]
-            if artifact_summary is not None:
-                artifacts.extend(
-                    [
-                        "triggers.csv",
-                        "accumulated.npy",
-                        "contact_sheet.png",
-                        "summary.json",
-                    ])
-                artifacts.extend(artifact_summary.get("frame_artifacts", []))
-                artifacts.extend(artifact_summary.get("filtered_frame_artifacts", []))
-                if artifact_summary.get("filtered_contact_sheet_artifact"):
-                    artifacts.append(artifact_summary["filtered_contact_sheet_artifact"])
-                if artifact_summary.get("filtered_events_artifact"):
-                    artifacts.append(artifact_summary["filtered_events_artifact"])
+            metadata["capture"] = metadata_dict(capture_result)
             write_run_metadata(
                 run,
                 metadata,
-                artifacts=artifacts,
+                artifacts=final_capture_artifacts(artifact_summary),
             )
         if recording is not None:
             recording = None

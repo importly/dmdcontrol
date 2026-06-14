@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import asdict, is_dataclass
 from types import ModuleType
 
 FIELDS = (
@@ -29,16 +28,10 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _mapping_dict(mapping) -> dict:
-    if is_dataclass(mapping):
-        return asdict(mapping)
-    return {field: getattr(mapping, field) for field in FIELDS}
-
-
 def show(argv: list[str]) -> int:
     args = _build_parser().parse_args(argv)
     mapping = _mapping_module().resolve_dmd_mapping(args.dmd, args.config)
-    values = _mapping_dict(mapping)
+    values = {field: getattr(mapping, field) for field in FIELDS}
     if args.field:
         value = values[args.field]
         print("" if value is None else value)

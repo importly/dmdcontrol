@@ -435,20 +435,6 @@ class DLPC900:
         num_to_display = 0 if repeat else num_entries
         self._write(0x1A31, struct.pack("<HI", num_entries, num_to_display))
 
-    def set_pattern_lut_reorder(self, order, repeat=True):
-        """0x1A32: Reorder LUT playback sequence for Pattern Mode."""
-        order_list = [int(idx) for idx in order]
-        if not order_list:
-            raise ValueError("Pattern LUT reorder list cannot be empty")
-        for idx in order_list:
-            if not (0 <= idx <= 399):
-                raise ValueError(f"Reorder index out of range: {idx}")
-        nr = len(order_list)
-        np_ = 0 if repeat else nr
-        payload = struct.pack("<HI", nr, np_)
-        payload += b"".join(struct.pack("<H", idx) for idx in order_list)
-        self._write(0x1A32, payload)
-
     def set_pattern_lut_definition(self, entries):
         """0x1A34: Define pattern LUT entries (DLPU018J Table 2-143).
 
@@ -491,11 +477,26 @@ class DLPC900:
 
     # ---- misc --------------------------------------------------------
 
+    def wake_displayport_receiver(self):
+        self._write(0x1A01, bytes([2]))
+
+    def set_input_pixel_format(self, pixel_format):
+        self._write(0x1A02, struct.pack("<B", pixel_format))
+
+    def set_internal_test_pattern_color(self, foreground, background=None):
+        background = foreground if background is None else background
+        self._write(
+            0x1204,
+            struct.pack(
+                "<HHHHHH",
+                foreground,
+                foreground,
+                foreground,
+                background,
+                background,
+                background,
+            ),
+        )
+
     def set_internal_test_pattern(self, pattern):
         self._write(0x1203, struct.pack("<B", pattern))
-
-    def send_packet(self, cmd_id: int, data: bytes = b"", read: bool = False):
-        """Backward-compat shim: routes to _read or _write."""
-        if read:
-            return self._read(cmd_id)
-        self._write(cmd_id, data)

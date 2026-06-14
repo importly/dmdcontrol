@@ -33,7 +33,6 @@ def filter_rising_triggers(triggers):
     return [trigger for trigger in triggers if _trigger_edge(trigger) == "rising"]
 
 
-# becoming suspect of this function now
 def accumulate_events_for_triggers(
     events,
     triggers,
@@ -103,15 +102,6 @@ def accumulate_events_for_triggers(
     return frames
 
 
-def _event_increment(event, polarity_mode):
-    polarity = bool(_field_any(event, ("polarity", "p")))
-    if polarity_mode == "positive":
-        return 1.0 if polarity else 0.0
-    if polarity_mode == "signed":
-        return 1.0 if polarity else -1.0
-    return 1.0
-
-
 def _event_arrays(events):
     empty = _EventArrays(
         timestamp=np.array([],
@@ -136,20 +126,20 @@ def _event_arrays(events):
             return empty
         event_array = np.concatenate(batches) if len(batches) > 1 else batches[0]
         return _EventArrays(
-            timestamp=_structured_field(event_array,
-                                        "timestamp",
-                                        "t").astype(np.int64,
-                                                    copy=False),
-            x=_structured_field(event_array,
-                                "x").astype(np.int64,
-                                            copy=False),
-            y=_structured_field(event_array,
-                                "y").astype(np.int64,
-                                            copy=False),
-            polarity=_structured_field(event_array,
-                                       "polarity",
-                                       "p").astype(np.bool_,
+            timestamp=structured_field(event_array,
+                                       "timestamp",
+                                       "t").astype(np.int64,
                                                    copy=False),
+            x=structured_field(event_array,
+                               "x").astype(np.int64,
+                                           copy=False),
+            y=structured_field(event_array,
+                               "y").astype(np.int64,
+                                           copy=False),
+            polarity=structured_field(event_array,
+                                      "polarity",
+                                      "p").astype(np.bool_,
+                                                  copy=False),
         )
 
     return _EventArrays(
@@ -170,7 +160,7 @@ def _event_arrays(events):
     )
 
 
-def _structured_field(event_array, *names):
+def structured_field(event_array, *names):
     field_names = event_array.dtype.names or ()
     for name in names:
         if name in field_names:

@@ -115,10 +115,6 @@ def _has_value(value) -> bool:
     return value is not None and str(value).strip() not in {"", "None", "none", "nan"}
 
 
-def _is_truthy(value) -> bool:
-    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
 def _row_sync_check_argv(row: dict[str, str]) -> list[str]:
     explicit = row.get("sync_check_argv", "")
     if explicit.strip():
@@ -139,7 +135,7 @@ def _row_sync_check_argv(row: dict[str, str]) -> list[str]:
         if _has_value(value):
             argv.extend([flag, str(value)])
     for key, flag in ROW_FLAG_MAP:
-        if _is_truthy(row.get(key, "")):
+        if str(row.get(key, "")).strip().lower() in {"1", "true", "yes", "y", "on"}:
             argv.append(flag)
     verbose = row.get("verbose")
     if _has_value(verbose):
@@ -182,14 +178,14 @@ def _validate_persistent_camera_args(parsed_rows) -> None:
                     f"from {expected!r} to {actual!r}; persistent camera settings must not vary.")
 
 
-def dry_run(manifest_path: Path, parsed_rows) -> int:
+def dry_run(parsed_rows) -> int:
     for _, _, args in parsed_rows:
         args.dry_run = True
         sync_check.dry_run(args)
     return 0
 
 
-def live(manifest_path: Path, parsed_rows) -> int:
+def live(parsed_rows) -> int:
     _validate_persistent_camera_args(parsed_rows)
     first_args = parsed_rows[0][2]
     capture = None
@@ -231,5 +227,5 @@ def main(argv: list[str] | None = None) -> int:
     manifest_path = Path(args.manifest)
     parsed_rows = _load_manifest(manifest_path)
     if args.dry_run:
-        return dry_run(manifest_path, parsed_rows)
-    return live(manifest_path, parsed_rows)
+        return dry_run(parsed_rows)
+    return live(parsed_rows)

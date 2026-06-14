@@ -6,6 +6,7 @@ from typing import Literal
 
 import numpy as np
 
+from dmdcontrol.support.argparse_types import nonnegative_int, positive_int
 from dmdcontrol.support.constants import (
     DEFAULT_FILTER_DELTA_T_US,
     DEFAULT_FILTER_POLARITY,
@@ -193,15 +194,15 @@ def add_event_noise_filter_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--event-noise-filter", default="none", choices=["none", "local-support"])
     parser.add_argument(
         "--event-filter-delta-us",
-        type=_positive_int,
+        type=positive_int,
         default=DEFAULT_FILTER_DELTA_T_US)
     parser.add_argument(
         "--event-filter-window-px",
-        type=_positive_int,
+        type=positive_int,
         default=DEFAULT_FILTER_WINDOW_PX)
     parser.add_argument(
         "--event-filter-threshold",
-        type=_non_negative_int,
+        type=nonnegative_int,
         default=DEFAULT_FILTER_THRESHOLD)
     parser.add_argument(
         "--event-filter-polarity",
@@ -238,21 +239,3 @@ def event_noise_filter_metadata(
     return metadata
 
 
-def _positive_int(value: str) -> int:
-    try:
-        number = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("value must be positive") from exc
-    if number <= 0:
-        raise argparse.ArgumentTypeError("value must be positive")
-    return number
-
-
-def _non_negative_int(value: str) -> int:
-    try:
-        number = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("value must be >= 0") from exc
-    if number < 0:
-        raise argparse.ArgumentTypeError("value must be >= 0")
-    return number

@@ -186,7 +186,7 @@ def _batch_len(batch) -> int:
         return 0
 
 
-def _merge_time_range(current, update):
+def merge_time_range(current, update):
     if update is None:
         return current
     if current is None:
@@ -278,7 +278,7 @@ def record_until_trigger_count(
         if on_events is not None:
             on_events(events)
         event_count += _batch_len(events)
-        event_time_range_us = _merge_time_range(
+        event_time_range_us = merge_time_range(
             event_time_range_us,
             _batch_time_range_us(events),
         )
@@ -297,7 +297,7 @@ def record_until_trigger_count(
             on_triggers(triggers)
         trigger_batch_count += 1
         trigger_count += _batch_len(triggers)
-        trigger_time_range_us = _merge_time_range(
+        trigger_time_range_us = merge_time_range(
             trigger_time_range_us,
             _batch_time_range_us(triggers),
         )
