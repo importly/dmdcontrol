@@ -28,3 +28,11 @@ dev = [
 [tool.uv]
 package = false
 default-groups = ["dev"]
+
+[tool.yapf]
+based_on_style = "pep8"
+column_limit = 100
+dedent_closing_brackets = false
+split_before_closing_bracket = false
+split_before_first_argument = true
+split_all_comma_separated_values = true

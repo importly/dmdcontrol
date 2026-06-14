@@ -292,6 +292,7 @@ The normal camera entrypoints are:
 
 ```bash
 ./run_camera_sync_check.sh [flags]
+./run_camera_sync_sweep.sh --manifest runs/<sync-timing-sweep>_manifest.csv
 ./run_dmd_pair_capture.sh [flags]
 python debug_scripts/camera_probe.py [flags]
 ```
@@ -303,6 +304,12 @@ Current default camera behavior is intended to match the original modern `dv_pro
 - No legacy `dv.io.CameraCapture()` path is used unless `--camera-open-method legacy` is passed.
 - No post-trigger grace reads are used unless `--camera-post-trigger-event-batches N` is passed. The default is `0`.
 - No USB reset, stream rearm, shutdown, or power-cycle command runs unless the corresponding flag/env option is passed.
+
+For timing sweeps, prefer `notebooks/01_generate_timing_sweep_commands.ipynb` plus the generated
+`run_camera_sync_sweep.sh --manifest ...` launcher. That command opens the DVXplorer once, reuses the same capture
+handle for every manifest row, and closes it only after the sweep finishes. After a physical replug, run the persistent
+sweep directly; do not run `python -m dmdcontrol camera status`, `camera_probe.py`, or a one-row sync check first if the
+goal is to preserve the first good camera open for the sweep.
 
 The extra camera flags are diagnostic switches, not normal-run requirements:
 

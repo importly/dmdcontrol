@@ -11,6 +11,7 @@ from dmdcontrol.patterns.modes import (
 
 
 class CalibrationSquareModeTests(unittest.TestCase):
+
     def test_default_state_is_centered_and_sized_from_surface(self):
         state = default_calibration_square_state(width=100, height=80)
 

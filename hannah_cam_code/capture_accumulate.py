@@ -131,11 +131,19 @@ def write_grayscale_png(path, pixels, width, height):
         scanlines.extend(image_bytes[start:start + width])
 
     png = (
-        b"\x89PNG\r\n\x1a\n"
-        + _png_chunk(b"IHDR", struct.pack("!IIBBBBB", width, height, 8, 0, 0, 0, 0))
-        + _png_chunk(b"IDAT", zlib.compress(bytes(scanlines)))
-        + _png_chunk(b"IEND", b"")
-    )
+        b"\x89PNG\r\n\x1a\n" +
+        _png_chunk(b"IHDR",
+                   struct.pack("!IIBBBBB",
+                               width,
+                               height,
+                               8,
+                               0,
+                               0,
+                               0,
+                               0)) + _png_chunk(b"IDAT",
+                                                zlib.compress(bytes(scanlines))) +
+        _png_chunk(b"IEND",
+                   b""))
     path.write_bytes(png)
 
 
@@ -182,7 +190,8 @@ def run_capture(seconds, output_path=None):
         recording_path,
         fallback_resolution=fallback_resolution,
     )
-    png_path = Path(output_path) if output_path else recording_path.with_name("accumulated_events.png")
+    png_path = Path(output_path) if output_path else recording_path.with_name(
+        "accumulated_events.png")
     if not png_path.is_absolute():
         png_path = script_dir / png_path
     write_grayscale_png(png_path, pixels, width, height)
@@ -199,8 +208,13 @@ def run_capture(seconds, output_path=None):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Briefly record DAVIS events and save an accumulated PNG.")
-    parser.add_argument("--seconds", type=float, default=0.5, help="Capture duration, clamped to 0.05-5.0 seconds.")
+    parser = argparse.ArgumentParser(
+        description="Briefly record DAVIS events and save an accumulated PNG.")
+    parser.add_argument(
+        "--seconds",
+        type=float,
+        default=0.5,
+        help="Capture duration, clamped to 0.05-5.0 seconds.")
     parser.add_argument("--output", type=Path, help="Optional PNG output path.")
     args = parser.parse_args(argv)
 
@@ -213,8 +227,7 @@ def main(argv=None):
         f"{summary['total_events']} events from {summary['batch_count']} batches, "
         f"{summary['width']}x{summary['height']} image, "
         f"{summary['seconds']:.2f}s capture, "
-        f"recording={summary['recording_path']}"
-    )
+        f"recording={summary['recording_path']}")
 
 
 if __name__ == "__main__":

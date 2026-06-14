@@ -10,6 +10,7 @@ from PIL import Image
 
 
 class DmdPreviewServerTests(unittest.TestCase):
+
     def setUp(self):
         from dmdcontrol.preview.server import create_server
 
@@ -138,9 +139,10 @@ class DmdPreviewServerTests(unittest.TestCase):
                         "start_us": 0,
                         "end_us": 600,
                         "segment_end_us": 600,
-                    }
-                ],
-                "timing": {"effective_frame_hz": 60.0, "entries_count": 1},
+                    }],
+                "timing": {
+                    "effective_frame_hz": 60.0,
+                    "entries_count": 1},
             },
         }
         req = request.Request(

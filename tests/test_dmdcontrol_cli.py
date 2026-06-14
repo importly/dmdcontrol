@@ -1,8 +1,10 @@
+import ast
 import importlib
 import json
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -38,6 +40,24 @@ def test_cli_main_import_does_not_load_hardware_modules():
     assert "dmdcontrol.hardware.dlpc900" not in sys.modules
 
 
+def test_production_code_uses_navigable_lazy_imports():
+    root = Path(__file__).resolve().parents[1]
+    offenders = []
+    for path in sorted((root / "dmdcontrol").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module == "importlib":
+                if any(alias.name == "import_module" for alias in node.names):
+                    offenders.append(path.relative_to(root).as_posix())
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                if (isinstance(node.func.value,
+                               ast.Name) and node.func.value.id == "importlib"
+                        and node.func.attr == "import_module"):
+                    offenders.append(path.relative_to(root).as_posix())
+
+    assert offenders == []
+
+
 def test_single_run_delegates_passthrough_args(monkeypatch):
     runtime = Mock(return_value=7)
     monkeypatch.setattr(
@@ -67,8 +87,7 @@ def test_pair_run_translates_preferred_flags(monkeypatch):
             "--mode=checkerboard",
             "--b-test",
             "black",
-        ]
-    ) == 0
+        ]) == 0
 
     runtime.assert_called_once_with(
         [
@@ -78,8 +97,7 @@ def test_pair_run_translates_preferred_flags(monkeypatch):
             "--test=checkerboard",
             "--test-b",
             "black",
-        ]
-    )
+        ])
 
 
 def test_pair_calibrate_injects_test_and_default_zero_runtime(monkeypatch):
@@ -99,8 +117,7 @@ def test_pair_calibrate_injects_test_and_default_zero_runtime(monkeypatch):
             "0",
             "--b-dot-x",
             "10",
-        ]
-    )
+        ])
 
 
 def test_pair_calibrate_preserves_essential_preview_dot_args(monkeypatch):
@@ -111,24 +128,21 @@ def test_pair_calibrate_preserves_essential_preview_dot_args(monkeypatch):
     )
 
     assert (
-            run_cli(
-                [
-                    "pair",
-                    "calibrate",
-                    "--b-dot-x",
-                    "960",
-                    "--b-dot-y",
-                    "540",
-                    "--b-dot-radius",
-                    "40",
-                    "--preview-url",
-                    "http://127.0.0.1:8080/api/live-frame",
-                    "--preview-fps",
-                    "1",
-                ]
-            )
-            == 0
-    )
+        run_cli(
+            [
+                "pair",
+                "calibrate",
+                "--b-dot-x",
+                "960",
+                "--b-dot-y",
+                "540",
+                "--b-dot-radius",
+                "40",
+                "--preview-url",
+                "http://127.0.0.1:8080/api/live-frame",
+                "--preview-fps",
+                "1",
+            ]) == 0)
 
     runtime.assert_called_once_with(
         [
@@ -146,8 +160,7 @@ def test_pair_calibrate_preserves_essential_preview_dot_args(monkeypatch):
             "http://127.0.0.1:8080/api/live-frame",
             "--preview-fps",
             "1",
-        ]
-    )
+        ])
 
 
 def test_pair_calibrate_preserves_user_runtime_seconds(monkeypatch):
@@ -159,9 +172,7 @@ def test_pair_calibrate_preserves_user_runtime_seconds(monkeypatch):
 
     assert run_cli(["pair", "calibrate", "--runtime-seconds=5"]) == 0
 
-    runtime.assert_called_once_with(
-        ["--test", "a-calibr-square-b-dot", "--runtime-seconds=5"]
-    )
+    runtime.assert_called_once_with(["--test", "a-calibr-square-b-dot", "--runtime-seconds=5"])
 
 
 def test_preview_serve_help_exits_zero(capsys):
@@ -239,7 +250,12 @@ def test_config_show_prints_one_field(monkeypatch, capsys):
 
 def test_module_preview_help_subprocess_exits_zero():
     result = subprocess.run(
-        [sys.executable, "-m", "dmdcontrol", "preview", "serve", "--help"],
+        [sys.executable,
+         "-m",
+         "dmdcontrol",
+         "preview",
+         "serve",
+         "--help"],
         check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

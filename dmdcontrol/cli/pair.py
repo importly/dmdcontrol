@@ -27,17 +27,13 @@ def _translate_run_args(argv: list[str]) -> list[str]:
     return translated
 
 
-def _has_runtime_seconds(argv: list[str]) -> bool:
-    return any(arg == "--runtime-seconds" or arg.startswith("--runtime-seconds=") for arg in argv)
-
-
 def run(argv: list[str]) -> int | None:
     return _pair_runtime().main(_translate_run_args(argv))
 
 
 def calibrate(argv: list[str]) -> int | None:
     translated = ["--test", CALIBRATION_TEST]
-    if not _has_runtime_seconds(argv):
+    if not any(arg == "--runtime-seconds" or arg.startswith("--runtime-seconds=") for arg in argv):
         translated.extend(["--runtime-seconds", "0"])
     translated.extend(argv)
     return _pair_runtime().main(translated)

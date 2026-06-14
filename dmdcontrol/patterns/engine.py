@@ -4,11 +4,13 @@ import glfw
 import numpy as np
 from OpenGL.GL import *
 
+from dmdcontrol.patterns.bitplanes import pack_bitplanes_rgb, unpack_rgb_bitplanes
 from dmdcontrol.support.constants import DMD_HEIGHT, DMD_WIDTH, TARGET_HZ
 from dmdcontrol.support.logging import logger
 
 
 class PatternEngine:
+
     def __init__(self, width=DMD_WIDTH, height=DMD_HEIGHT, monitor_index=0, fps=TARGET_HZ):
         self.width = width
         self.height = height
@@ -32,25 +34,20 @@ class PatternEngine:
 
         if not monitors:
             raise TimeoutError(
-                "GLFW found no monitors after 5 seconds. Is the display connected and X11 running?"
-            )
+                "GLFW found no monitors after 5 seconds. Is the display connected and X11 running?")
 
         if len(monitors) > monitor_index:
             monitor = monitors[monitor_index]
         else:
             monitor = monitors[0]
-            logger.warning(
-                f"[WARNING] Monitor {monitor_index} not found, using primary."
-            )
+            logger.warning(f"[WARNING] Monitor {monitor_index} not found, using primary.")
 
         glfw.window_hint(glfw.DECORATED, glfw.FALSE)
         glfw.window_hint(glfw.RESIZABLE, glfw.FALSE)
         glfw.window_hint(glfw.AUTO_ICONIFY, glfw.FALSE)
         glfw.window_hint(glfw.REFRESH_RATE, self.fps)
 
-        self.window = glfw.create_window(
-            width, height, "DLPC900 Pattern Engine", monitor, None
-        )
+        self.window = glfw.create_window(width, height, "DLPC900 Pattern Engine", monitor, None)
 
         if not self.window:
             glfw.terminate()
@@ -63,8 +60,7 @@ class PatternEngine:
         if mode is not None:
             logger.info(
                 f"[+] GLFW video mode: {mode.size.width}x{mode.size.height} @ {mode.refresh_rate}Hz "
-                f"(requested {width}x{height} @ {self.fps}Hz)"
-            )
+                f"(requested {width}x{height} @ {self.fps}Hz)")
 
         # Verify 1:1 Framebuffer scaling
         fb_w, fb_h = glfw.get_framebuffer_size(self.window)
@@ -90,35 +86,7 @@ class PatternEngine:
         Packs 24 independent binary masks into a single 24-bit RGB frame.
         WARNING: This requires RGB 4:4:4 video without YCbCr chroma subsampling. make sure nvidia or opensource drivers support it
         """
-        r = np.zeros((self.height, self.width), dtype=np.uint8)
-        g = np.zeros((self.height, self.width), dtype=np.uint8)
-        b = np.zeros((self.height, self.width), dtype=np.uint8)
-        for i in range(8):
-            g |= binary_images[i] << i
-            r |= binary_images[i + 8] << i
-            b |= binary_images[i + 16] << i
-        return np.ascontiguousarray(np.stack([r, g, b], axis=-1))
-
-    def pack_patterns_safe_8bit(self, binary_images):
-        """
-        Future-proof wrapper that packs up to 8 independent binary masks into a pure grayscale frame. 
-        can be bad, lose alot of detail Because R=G=B, this perfectly bypasses Linux YCbCr chroma subsampling 
-        and dithering natively. The 8 bitplanes are duplicated across Green, Red, and Blue channels for a total
-        of 24 planes.
-
-        Args:
-            binary_images: List of up to 8 binary numpy arrays (0 or 1)
-        """
-        if len(binary_images) > 8:
-            logger.warning(
-                "[WARNING] pack_patterns_safe_8bit received more than 8 patterns. Only the first 8 will be used.")
-
-        gray = np.zeros((self.height, self.width), dtype=np.uint8)
-        for i in range(min(8, len(binary_images))):
-            gray |= binary_images[i] << i
-
-        # Duplicate the gray channel into R, G, and B
-        return np.ascontiguousarray(np.stack([gray, gray, gray], axis=-1))
+        return pack_bitplanes_rgb(binary_images, self.width, self.height)
 
     def rgb_to_binary_patterns(self, rgb_array):
         """
@@ -131,23 +99,7 @@ class PatternEngine:
             List of 24 binary numpy arrays (values 0 or 1)
             Order: G0-G7, R0-R7, B0-B7 (matches DLPC900 bit-plane extraction)
         """
-        if rgb_array.shape[:2] != (self.height, self.width):
-            raise ValueError(
-                f"RGB array must be {self.height}x{self.width}, got {rgb_array.shape[:2]}"
-            )
-
-        patterns = []
-        # Green channel: bits 0-7
-        for bit in range(8):
-            patterns.append((rgb_array[:, :, 1] >> bit) & 1)
-        # Red channel: bits 8-15
-        for bit in range(8):
-            patterns.append((rgb_array[:, :, 0] >> bit) & 1)
-        # Blue channel: bits 16-23
-        for bit in range(8):
-            patterns.append((rgb_array[:, :, 2] >> bit) & 1)
-
-        return patterns
+        return unpack_rgb_bitplanes(rgb_array, self.width, self.height)
 
     def display_frame(self, frame_array):
         glBindTexture(GL_TEXTURE_2D, self.tex_id)
@@ -227,8 +179,15 @@ class PatternEngine:
         import random
         # Initialize snake state if it doesn't exist
         if not hasattr(self, 'snake_pos'):
-            self.snake_pos = [(grid_w // 2, grid_h // 2), (grid_w // 2 - 1, grid_h // 2),
-                              (grid_w // 2 - 2, grid_h // 2), (grid_w // 2 - 3, grid_h // 2)]
+            self.snake_pos = [
+                (grid_w // 2,
+                 grid_h // 2),
+                (grid_w // 2 - 1,
+                 grid_h // 2),
+                (grid_w // 2 - 2,
+                 grid_h // 2),
+                (grid_w // 2 - 3,
+                 grid_h // 2)]
             self.snake_dir = (1, 0)
 
         # Move snake
@@ -262,7 +221,8 @@ class PatternEngine:
         if frame_2d.shape != (self.height, self.width):
             padded = np.zeros((self.height, self.width), dtype=np.uint8)
             h, w = frame_2d.shape
-            padded[:min(h, self.height), :min(w, self.width)] = frame_2d[:min(h, self.height), :min(w, self.width)]
+            padded[:min(h, self.height), :min(w, self.width)] = frame_2d[:min(h, self.height), :min(
+                w, self.width)]
             frame_2d = padded
 
         # Return directly packed RGB frame (pure Grayscale for chroma bypass)
@@ -292,7 +252,16 @@ class PatternEngine:
         text_x = (self.width - text_size[0]) // 2
         text_y = (self.height + text_size[1]) // 2
 
-        cv2.putText(canvas, time_str, (text_x, text_y), font, font_scale, color, thickness, cv2.LINE_AA)
+        cv2.putText(
+            canvas,
+            time_str,
+            (text_x,
+             text_y),
+            font,
+            font_scale,
+            color,
+            thickness,
+            cv2.LINE_AA)
 
         # flip the image Y axis
         # canvas = np.flip(canvas, axis=0)
@@ -331,81 +300,14 @@ class PatternEngine:
             bx_start = x_start + (i * block_w)
             bx_end = min(x_start + sub_width, bx_start + block_w)
 
-            img[y_start: y_start + sub_height, bx_start:bx_end] = 1
+            img[y_start:y_start + sub_height, bx_start:bx_end] = 1
             patterns.append(img)
         return patterns
-
-    def generate_subscale_patterns(self, sub_width=512, sub_height=512):
-        patterns = []
-        for i in range(24):
-            img = np.zeros((self.height, self.width), dtype=np.uint8)
-            y_start = (self.height - sub_height) // 2
-            x_start = (self.width - sub_width) // 2
-            img[y_start: y_start + sub_height, x_start: x_start + sub_width] = (
-                    np.random.rand(sub_height, sub_width) > 0.5
-            ).astype(np.uint8)
-            patterns.append(img)
-        return patterns
-
-    def generate_kernel_masks(self, kernel_px):
-        """Generate 512 binary masks, one per 3x3 binary kernel variation.
-
-        Each mask is a (height, width) uint8 array of 0/1 with a centered
-        kernel_px x kernel_px square divided into a 3x3 grid of cells.
-        Bit b of the kernel index k (0..511) drives the cell at
-        (row=b//3, col=b%3). bit 0 = top-left, bit 8 = bottom-right.
-        """
-        if kernel_px % 3 != 0:
-            raise ValueError(f"kernel_px ({kernel_px}) must be a multiple of 3")
-        if kernel_px > min(self.width, self.height):
-            raise ValueError(
-                f"kernel_px ({kernel_px}) exceeds frame {self.width}x{self.height}"
-            )
-        cell = kernel_px // 3
-        x0 = (self.width - kernel_px) // 2
-        y0 = (self.height - kernel_px) // 2
-        masks = []
-        for k in range(512):
-            m = np.zeros((self.height, self.width), dtype=np.uint8)
-            for bit in range(9):
-                if k & (1 << bit):
-                    row, col = bit // 3, bit % 3
-                    yy, xx = y0 + row * cell, x0 + col * cell
-                    m[yy: yy + cell, xx: xx + cell] = 1
-            masks.append(m)
-        return masks
-
-    def pack_kernel_frames(self, masks, slots_per_frame=24, blank_end_frame=False):
-        """Pack a list of kernel masks into VSYNC RGB frames.
-
-        slots_per_frame: number of masks consumed by the LUT per VSYNC (1..24).
-        Each RGB frame still carries 24 bit-positions; unused positions (those
-        not referenced by the LUT) are zero-padded and ignored by the sequencer.
-
-        Returns ceil(len(masks)/slots_per_frame) RGB frames. The last group
-        is zero-padded if shorter than slots_per_frame.
-        If blank_end_frame=True, appends one fully-black RGB frame as a
-        per-cycle sync marker.
-        """
-        if slots_per_frame < 1 or slots_per_frame > 24:
-            raise ValueError(f"slots_per_frame ({slots_per_frame}) must be in [1, 24].")
-        pad = (-len(masks)) % slots_per_frame
-        black_mask = np.zeros((self.height, self.width), dtype=np.uint8)
-        padded = list(masks) + [black_mask] * pad
-        unused = [black_mask] * (24 - slots_per_frame)
-        frames = [
-            self.pack_patterns(padded[i: i + slots_per_frame] + unused)
-            for i in range(0, len(padded), slots_per_frame)
-        ]
-        if blank_end_frame:
-            frames.append(self.pack_patterns([black_mask] * 24))
-        return frames
 
     def should_close(self):
         return (
-                glfw.window_should_close(self.window)
-                or glfw.get_key(self.window, glfw.KEY_ESCAPE) == glfw.PRESS
-        )
+            glfw.window_should_close(self.window) or glfw.get_key(self.window,
+                                                                  glfw.KEY_ESCAPE) == glfw.PRESS)
 
     def cleanup(self):
         glfw.terminate()

@@ -23,6 +23,7 @@ from dmdcontrol.patterns.calibration_square import (
     format_calibration_square_state,
     make_calibration_square_frame_provider,
 )
+from dmdcontrol.patterns.kernel import build_kernel_frames
 from dmdcontrol.runtime.lifecycle import (
     build_lut_entries,
     compute_trigger_out_2_timing,
@@ -44,77 +45,144 @@ from dmdcontrol.runtime.loop import run_render_loop, run_trigger_loop
 
 def _build_parser():
     parser = argparse.ArgumentParser(description="DLPC900 1080p Video Pattern Runtime")
-    parser.add_argument("--hz", type=int, default=DEFAULT_HZ, help="Target Hz (60 or 120, experimental)")
+    parser.add_argument(
+        "--hz",
+        type=int,
+        default=DEFAULT_HZ,
+        help="Target Hz (60 or 120, experimental)")
     parser.add_argument("--monitor", type=int, default=None, help="GLFW monitor index")
-    parser.add_argument("--dmd", default=None,
-                        help="Configured DMD name from dmd_devices.json, for example A or B.")
-    parser.add_argument("--dmd-config", default=None,
-                        help="Path to DMD mapping config. Defaults to repository dmd_devices.json.")
-    parser.add_argument("--test", choices=PATTERN_NAMES, default="checkerboard",
-                        help=f"Diagnostic pattern mode. Choices: {', '.join(PATTERN_NAMES)}.")
+    parser.add_argument(
+        "--dmd",
+        default=None,
+        help="Configured DMD name from dmd_devices.json, for example A or B.")
+    parser.add_argument(
+        "--dmd-config",
+        default=None,
+        help="Path to DMD mapping config. Defaults to repository dmd_devices.json.")
+    parser.add_argument(
+        "--test",
+        choices=PATTERN_NAMES,
+        default="checkerboard",
+        help=f"Diagnostic pattern mode. Choices: {', '.join(PATTERN_NAMES)}.")
     parser.add_argument("--trigger", action="store_true", help="Software Trigger Mode (Approach A)")
-    parser.add_argument("--runtime-seconds", type=int, default=60,
-                        help="Runtime for diagnostic patterns. Use 0 to run until ESC/window close.")
+    parser.add_argument(
+        "--runtime-seconds",
+        type=int,
+        default=60,
+        help="Runtime for diagnostic patterns. Use 0 to run until ESC/window close.")
     parser.add_argument("--wake-dp", action="store_true", help="Wake DP receiver before runtime")
-    parser.add_argument("--dual-pixel", action="store_true",
-                        help="Force dual-pixel P1-P2 mode for DLPC900 parallel input (default: single-pixel P1)")
-    parser.add_argument("--seq-utilization", type=float, default=DEFAULT_SEQUENCE_UTILIZATION,
-                        help="Fraction of safe frame budget allocated to LUT exposure timing (0<value<=1). "
-                             "Lower values increase idle headroom and improve robustness.")
-    parser.add_argument("--trig2-frame-zero", action="store_true",
-                        help="Emit TRIG_OUT_2 only on LUT bitplane 0 (single frame anchor). "
-                             "Default mode emits TRIG_OUT_2 on every bitplane.")
+    parser.add_argument(
+        "--dual-pixel",
+        action="store_true",
+        help="Force dual-pixel P1-P2 mode for DLPC900 parallel input (default: single-pixel P1)")
+    parser.add_argument(
+        "--seq-utilization",
+        type=float,
+        default=DEFAULT_SEQUENCE_UTILIZATION,
+        help="Fraction of safe frame budget allocated to LUT exposure timing (0<value<=1). "
+        "Lower values increase idle headroom and improve robustness.")
+    parser.add_argument(
+        "--trig2-frame-zero",
+        action="store_true",
+        help="Emit TRIG_OUT_2 only on LUT bitplane 0 (single frame anchor). "
+        "Default mode emits TRIG_OUT_2 on every bitplane.")
     parser.add_argument(
         "--trigger-out-2-delay-fraction",
         type=float,
         default=0.00,
         help="Fraction of LUT exposure used as TRIG_OUT_2 rising-edge delay. Default: 0.",
     )
-    parser.add_argument("--abort-recover-cooldown", type=float, default=8.0,
-                        help="Seconds between automatic abort recovery attempts while watchdog detects sequencer abort.")
-    parser.add_argument("--no-auto-recover-abort", action="store_true",
-                        help="Disable automatic sequencer re-arm attempts when abort bit is detected during runtime.")
-    parser.add_argument("--capture", type=str, help="Save the generated packed frames to an mp4 video (e.g. test.mp4)")
-    parser.add_argument("--invert-dmd", action="store_true",
-                        help="Invert the final packed DMD output: every pixel in every displayed bitplane. "
-                             "This also inverts leader, pad, blank-end, and trigger black frames.")
-    parser.add_argument("--kernel-px", type=int, default=30,
-                        help="Total kernel side length in pixels for --test kernel (must be a multiple of 3). "
-                             "Default 30 (3x3 cells of 10px). Use 999 for naked-eye visibility (3x3 cells of 333px).")
-    parser.add_argument("--kernel-single-shot", action="store_true",
-                        help="Play the kernel cycle once then hold the idle marker frame. Default: loop continuously.")
-    parser.add_argument("--kernel-blank-end-frame", dest="kernel_blank_end_frame", action="store_true", default=True,
-                        help="Append one all-black VSYNC frame (24 black bitplanes) at the end of each kernel cycle "
-                             "as a sync marker for downstream DAQ. This is on by default.")
-    parser.add_argument("--no-kernel-blank-end-frame", dest="kernel_blank_end_frame", action="store_false",
-                        help="Disable the all-black VSYNC frame normally appended to each kernel cycle.")
-    parser.add_argument("--kernel-leader-frames", type=int, default=3,
-                        help="Number of all-black VSYNC frames prepended to each kernel cycle as an acquisition "
-                             "leader marker. DAQ should ignore these initial trigger pulses. Default: 3.")
-    parser.add_argument("--kernel-exposure-us", type=int, default=None,
-                        help="Uniform exposure time in microseconds for every kernel (kernel mode only). "
-                             "Default: use full 24-entry LUT (~615 us/kernel at 60 Hz with 0.90 utilization, "
-                             "1440 Hz binary rate). Larger values reduce kernels per VSYNC and lengthen the "
-                             "512-kernel cycle. "
-                             "Ceiling = one VSYNC period (~16670 us at 60 Hz).")
-    parser.add_argument("--numbers-exposure-us", type=int, default=None,
-                        help="Wall-clock display time in microseconds for each digit in --test numbers. "
-                             f"Default: {DEFAULT_NUMBERS_EXPOSURE_US} us.")
-    parser.add_argument("--numbers-size-px", type=int, default=None,
-                        help="Seven-segment digit height in pixels for --test numbers. "
-                             "Default: preserve existing height-scaled rendering.")
-    parser.add_argument("--calibr-square-control-file", default=None,
-                        help="Calibration-square only: read single-character controls from this file. "
-                             "Used by run_calibr_square.sh; normal run_dmd.sh behavior is unchanged.")
-    parser.add_argument("--dry-run-timing", action="store_true",
-                        help="Print LUT, trigger, and kernel-cycle timing without opening OpenGL or USB hardware.")
-    parser.add_argument("-v", "--verbose", action="count", default=0,
-                        help="Increase logging verbosity. Use -v for DEBUG logs and watchdog; -vv adds source paths "
-                             "and full board snapshots.")
+    parser.add_argument(
+        "--abort-recover-cooldown",
+        type=float,
+        default=8.0,
+        help=
+        "Seconds between automatic abort recovery attempts while watchdog detects sequencer abort.")
+    parser.add_argument(
+        "--no-auto-recover-abort",
+        action="store_true",
+        help="Disable automatic sequencer re-arm attempts when abort bit is detected during runtime."
+    )
+    parser.add_argument(
+        "--capture",
+        type=str,
+        help="Save the generated packed frames to an mp4 video (e.g. test.mp4)")
+    parser.add_argument(
+        "--invert-dmd",
+        action="store_true",
+        help="Invert the final packed DMD output: every pixel in every displayed bitplane. "
+        "This also inverts leader, pad, blank-end, and trigger black frames.")
+    parser.add_argument(
+        "--kernel-px",
+        type=int,
+        default=30,
+        help="Total kernel side length in pixels for --test kernel (must be a multiple of 3). "
+        "Default 30 (3x3 cells of 10px). Use 999 for naked-eye visibility (3x3 cells of 333px).")
+    parser.add_argument(
+        "--kernel-single-shot",
+        action="store_true",
+        help=
+        "Play the kernel cycle once then hold the idle marker frame. Default: loop continuously.")
+    parser.add_argument(
+        "--kernel-blank-end-frame",
+        dest="kernel_blank_end_frame",
+        action="store_true",
+        default=True,
+        help="Append one all-black VSYNC frame (24 black bitplanes) at the end of each kernel cycle "
+        "as a sync marker for downstream DAQ. This is on by default.")
+    parser.add_argument(
+        "--no-kernel-blank-end-frame",
+        dest="kernel_blank_end_frame",
+        action="store_false",
+        help="Disable the all-black VSYNC frame normally appended to each kernel cycle.")
+    parser.add_argument(
+        "--kernel-leader-frames",
+        type=int,
+        default=3,
+        help="Number of all-black VSYNC frames prepended to each kernel cycle as an acquisition "
+        "leader marker. DAQ should ignore these initial trigger pulses. Default: 3.")
+    parser.add_argument(
+        "--kernel-exposure-us",
+        type=int,
+        default=None,
+        help="Uniform exposure time in microseconds for every kernel (kernel mode only). "
+        "Default: use full 24-entry LUT (~615 us/kernel at 60 Hz with 0.90 utilization, "
+        "1440 Hz binary rate). Larger values reduce kernels per VSYNC and lengthen the "
+        "512-kernel cycle. "
+        "Ceiling = one VSYNC period (~16670 us at 60 Hz).")
+    parser.add_argument(
+        "--numbers-exposure-us",
+        type=int,
+        default=None,
+        help="Wall-clock display time in microseconds for each digit in --test numbers. "
+        f"Default: {DEFAULT_NUMBERS_EXPOSURE_US} us.")
+    parser.add_argument(
+        "--numbers-size-px",
+        type=int,
+        default=None,
+        help="Seven-segment digit height in pixels for --test numbers. "
+        "Default: preserve existing height-scaled rendering.")
+    parser.add_argument(
+        "--calibr-square-control-file",
+        default=None,
+        help="Calibration-square only: read single-character controls from this file. "
+        "Used by run_calibr_square.sh; normal run_dmd.sh behavior is unchanged.")
+    parser.add_argument(
+        "--dry-run-timing",
+        action="store_true",
+        help="Print LUT, trigger, and kernel-cycle timing without opening OpenGL or USB hardware.")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=0,
+        help="Increase logging verbosity. Use -v for DEBUG logs and watchdog; -vv adds source paths "
+        "and full board snapshots.")
     return parser
 
 
 class _DryRunDLPC:
+
     def get_display_dimensions(self):
         return None
 
@@ -160,47 +228,41 @@ def _log_kernel_timing_summary(args, timing, prefix="[TIMING]"):
     logger.info(
         f"{prefix} Kernel LUT: {slots} slots/VSYNC, exposure={timing['exposure_us']}us, "
         f"dark={timing['dark_us']}us, effective VSYNC={timing['effective_frame_hz']:.3f}Hz, "
-        f"bitplane rate={timing['effective_binary_rate_hz']:.1f}Hz."
-    )
+        f"bitplane rate={timing['effective_binary_rate_hz']:.1f}Hz.")
     cycle_period_ms = cycle_vsyncs * 1000.0 / timing["effective_frame_hz"]
     logger.info(
         f"{prefix} Kernel cycle: {cycle_vsyncs} VSYNC frames, {total_fires} bitplane fires, "
-        f"{trig2_pulses} TRIG_OUT_2 pulses, period ~{cycle_period_ms:.1f}ms."
-    )
+        f"{trig2_pulses} TRIG_OUT_2 pulses, period ~{cycle_period_ms:.1f}ms.")
     logger.info(
         f"{prefix} Cycle structure: {leader_vsyncs} leader marker VSYNCs "
         f"({leader_fires} bitplane fires), {payload_vsyncs} payload VSYNCs "
         f"(512 kernels + {payload_pad} pad blanks)"
-        f"{', 1 end-marker VSYNC' if args.kernel_blank_end_frame else ''}."
-    )
+        f"{', 1 end-marker VSYNC' if args.kernel_blank_end_frame else ''}.")
     logger.info(
         f"{prefix} DMD output polarity: "
-        f"{'inverted after packing; black markers output white' if args.invert_dmd else 'normal'}."
-    )
+        f"{'inverted after packing; black markers output white' if args.invert_dmd else 'normal'}.")
     if args.trig2_frame_zero:
         marker_level = "white" if args.invert_dmd else "black"
         logger.warning(
             f"{prefix} --trig2-frame-zero is active: TRIG_OUT_2 marks VSYNC frames, not individual kernels. "
-            f"Each payload trigger covers up to {slots} kernels."
-        )
+            f"Each payload trigger covers up to {slots} kernels.")
         logger.info(
             f"{prefix} DAQ: ignore first {leader_vsyncs} TRIG_OUT_2 pulses "
-            f"for the {marker_level} leader."
-        )
+            f"for the {marker_level} leader.")
     else:
         marker_level = "white" if args.invert_dmd else "black"
         logger.info(
             f"{prefix} Trigger map is relative to kernel-cycle start; "
-            f"startup pulses emitted during DLPC arm or post-arm video-prime are outside this map."
-        )
+            f"startup pulses emitted during DLPC arm or post-arm video-prime are outside this map.")
         logger.info(
             f"{prefix} DAQ: ignore first {leader_fires} TRIG_OUT_2 pulses "
-            f"for the {marker_level} leader."
-        )
+            f"for the {marker_level} leader.")
         kernel_range = _format_range(leader_fires, 512)
         pad_range = _format_range(leader_fires + 512, payload_pad)
         end_range = _format_range(leader_fires + payload_fires, end_marker_fires)
-        logger.info(f"{prefix} Trigger map: pulses {kernel_range} -> kernel_index = pulse - {leader_fires}.")
+        logger.info(
+            f"{prefix} Trigger map: pulses {kernel_range} -> kernel_index = pulse - {leader_fires}."
+        )
         if pad_range:
             logger.info(f"{prefix} Trigger map: pulses {pad_range} -> pad {marker_level}.")
         if end_range:
@@ -213,54 +275,38 @@ def _log_numbers_timing_summary(args, timing, prefix="[TIMING]"):
     cycle_s = exposure_s * len(NUMBER_SEQUENCE)
     pulse_rate_hz = (
         timing["effective_frame_hz"]
-        if args.trig2_frame_zero
-        else timing["effective_binary_rate_hz"]
-    )
+        if args.trig2_frame_zero else timing["effective_binary_rate_hz"])
     pulses_per_number = exposure_s * pulse_rate_hz
     trig2_mode = (
-        "one pulse per VSYNC frame"
-        if args.trig2_frame_zero
-        else "one pulse per LUT bitplane"
-    )
+        "one pulse per VSYNC frame" if args.trig2_frame_zero else "one pulse per LUT bitplane")
     logger.info(
         f"{prefix} Numbers mode: digits 1..9, exposure={exposure_us}us "
-        f"({exposure_us / 1000.0:.3f}ms) per number, full cycle ~{cycle_s:.3f}s."
-    )
+        f"({exposure_us / 1000.0:.3f}ms) per number, full cycle ~{cycle_s:.3f}s.")
     logger.info(
         f"{prefix} Numbers mode uses dynamic DisplayPort frames, not a custom packed LUT; "
-        "existing Video Pattern Mode LUT timing remains unchanged."
-    )
+        "existing Video Pattern Mode LUT timing remains unchanged.")
     logger.info(
         f"{prefix} TRIG_OUT_2 is the acquisition/index signal for numbers mode "
         f"({trig2_mode}); expect ~{pulses_per_number:.1f} pulses per displayed number. "
-        "TRIG_OUT_1 is advisory only."
-    )
+        "TRIG_OUT_1 is advisory only.")
 
 
 def _log_calibration_square_summary(args, timing, prefix="[TIMING]"):
     pulse_rate_hz = (
         timing["effective_frame_hz"]
-        if args.trig2_frame_zero
-        else timing["effective_binary_rate_hz"]
-    )
+        if args.trig2_frame_zero else timing["effective_binary_rate_hz"])
     trig2_mode = (
-        "one pulse per VSYNC frame"
-        if args.trig2_frame_zero
-        else "one pulse per LUT bitplane"
-    )
+        "one pulse per VSYNC frame" if args.trig2_frame_zero else "one pulse per LUT bitplane")
     logger.info(
         f"{prefix} Calibration square controls: W/A/S/D move, Q/E rotate, R/F resize, ESC or X exits. "
-        "Use run_calibr_square.sh for terminal controls and pixel-bound feedback."
-    )
+        "Use run_calibr_square.sh for terminal controls and pixel-bound feedback.")
     logger.info(
         f"{prefix} Calibration square uses dynamic DisplayPort frames, not a custom packed LUT; "
-        "existing Video Pattern Mode LUT timing remains unchanged."
-    )
+        "existing Video Pattern Mode LUT timing remains unchanged.")
     logger.info(
         f"{prefix} TRIG_OUT_2 is the acquisition/index signal for calibration square mode "
         f"({trig2_mode}, ~{pulse_rate_hz:.1f} pulses/s). It marks the running Video Pattern "
-        "Mode sequence, not keyboard edits or square edges. TRIG_OUT_1 is advisory only."
-    )
+        "Mode sequence, not keyboard edits or square edges. TRIG_OUT_1 is advisory only.")
 
 
 def _dry_run_timing(args):
@@ -273,7 +319,8 @@ def _dry_run_timing(args):
         entries_count=entries_count,
         per_entry_exposure_us=exposure_us,
     )
-    logger.info("[DRY RUN] Hardware was not opened. Timing uses target Hz, not measured DLPC900 timing.")
+    logger.info(
+        "[DRY RUN] Hardware was not opened. Timing uses target Hz, not measured DLPC900 timing.")
     logger.info(
         f"[DRY RUN] Pattern LUT: {len(entries)} entries, exposure={timing['exposure_us']}us, "
         f"dark={timing['dark_us']}us, sequence={timing['total_sequence_us']:.1f}/"
@@ -291,8 +338,7 @@ def _dry_run_timing(args):
     logger.info(
         f"[DRY RUN] TRIG_OUT_2 rising edge delay={trigger_timing['rising_delay_us']}us, "
         f"falling={trigger_timing['falling_delay_us']}us "
-        f"({trigger_timing['delay_fraction']:.3f} of {trigger_timing['delay_basis']})."
-    )
+        f"({trigger_timing['delay_fraction']:.3f} of {trigger_timing['delay_basis']}).")
     if args.test == "kernel":
         _log_kernel_timing_summary(args, timing, prefix="[DRY RUN]")
     elif args.test == "numbers":
@@ -330,31 +376,15 @@ def _select_post_arm_prime_frame(initial_frame, dynamic_kind, kernel_frames, ker
     return initial_frame
 
 
-def _build_numbers_frames(engine, size_px=None):
-    return tuple(
-        engine.pack_patterns(
-            engine.rgb_to_binary_patterns(
-                generate_number_rgb(
-                    number,
-                    width=engine.width,
-                    height=engine.height,
-                    size_px=size_px,
-                )
-            )
-        )
-        for number in NUMBER_SEQUENCE
-    )
-
-
 def _make_frame_provider(
-        engine,
-        initial_frame,
-        dynamic_kind,
-        args=None,
-        kernel_frames=None,
-        numbers_frames=None,
-        calibration_square_state=None,
-        invert_dmd=False,
+    engine,
+    initial_frame,
+    dynamic_kind,
+    args=None,
+    kernel_frames=None,
+    numbers_frames=None,
+    calibration_square_state=None,
+    invert_dmd=False,
 ):
     """Returns callable() -> frame. Hides per-mode frame regeneration from loop."""
 
@@ -409,16 +439,18 @@ def _make_frame_provider(
             make_calibration_square_frame_provider(
                 engine,
                 initial_frame,
-                control_file=getattr(args, "calibr_square_control_file", None),
+                control_file=getattr(args,
+                                     "calibr_square_control_file",
+                                     None),
                 initial_state=calibration_square_state,
-            )
-        )
+            ))
     if dynamic_kind == "kernel":
         frames = kernel_frames
         n = len(frames)
         black = engine.pack_patterns(engine.generate_solid(0))
         state = {"i": 0}
         if args is not None and args.kernel_single_shot:
+
             def _provider_once():
                 i = state["i"]
                 if i < n:
@@ -473,14 +505,9 @@ def main(argv=None):
     target_hz = args.hz
     dmd_mapping = resolve_dmd_mapping(args.dmd, args.dmd_config) if args.dmd else None
     monitor_index = (
-        args.monitor
-        if args.monitor is not None
-        else (
+        args.monitor if args.monitor is not None else (
             dmd_mapping.glfw_monitor_index
-            if dmd_mapping and dmd_mapping.glfw_monitor_index is not None
-            else 0
-        )
-    )
+            if dmd_mapping and dmd_mapping.glfw_monitor_index is not None else 0))
     if dmd_mapping:
         if not dmd_mapping.xrandr_output:
             raise SystemExit(
@@ -491,8 +518,7 @@ def main(argv=None):
             f"[+] DMD {dmd_mapping.name}: USB id_path={dmd_mapping.usb_id_path}, "
             f"expected devpath fragment={dmd_mapping.usb_devpath_contains or '<not required>'}, "
             f"xrandr_output={dmd_mapping.xrandr_output or '<not configured>'}, "
-            f"GLFW monitor={monitor_index}"
-        )
+            f"GLFW monitor={monitor_index}")
     dlpc = None
     engine = None
     try:
@@ -509,7 +535,7 @@ def main(argv=None):
 
         if args.wake_dp:
             logger.info("[+] Waking up DisplayPort receiver...")
-            dlpc.send_packet(0x1A01, bytes([2]))
+            dlpc.wake_displayport_receiver()
             time.sleep(1.0)
 
         black_frame = engine.pack_patterns(engine.generate_solid(0))
@@ -518,7 +544,8 @@ def main(argv=None):
         logger.info(f"[+] Preparing Diagnostic Mode: {label}...")
 
         if args.trigger and patterns is None:
-            logger.warning(f"Trigger mode does not support dynamic '{args.test}'; using checkerboard.")
+            logger.warning(
+                f"Trigger mode does not support dynamic '{args.test}'; using checkerboard.")
             patterns = engine.generate_checkerboard()
             dynamic_kind = None
             label = "Static Checkerboard"
@@ -526,7 +553,8 @@ def main(argv=None):
         lut_entries_count = None
         lut_per_entry_exposure_us = None
         if dynamic_kind == "kernel":
-            lut_entries_count, lut_per_entry_exposure_us = _compute_kernel_lut_override(args, target_hz)
+            lut_entries_count, lut_per_entry_exposure_us = _compute_kernel_lut_override(
+                args, target_hz)
         if dynamic_kind == "kernel" and lut_per_entry_exposure_us is not None:
             logger.info(
                 f"[+] Kernel exposure override: {lut_per_entry_exposure_us} us uniformly per kernel -> "
@@ -554,35 +582,38 @@ def main(argv=None):
                 f"(kernel_px={args.kernel_px}, slots_per_vsync={slots}, "
                 f"invert_dmd={args.invert_dmd}, "
                 f"leader_frames={args.kernel_leader_frames}, "
-                f"blank_end_frame={args.kernel_blank_end_frame})..."
-            )
-            kernel_masks = engine.generate_kernel_masks(args.kernel_px)
-            kernel_payload_frames = engine.pack_kernel_frames(
-                kernel_masks,
+                f"blank_end_frame={args.kernel_blank_end_frame})...")
+            kernel_frames, kernel_metadata = build_kernel_frames(
+                engine,
+                args.kernel_px,
                 slots_per_frame=slots,
+                leader_frames=args.kernel_leader_frames,
                 blank_end_frame=args.kernel_blank_end_frame,
             )
-            kernel_payload_vsyncs = len(kernel_payload_frames)
-            kernel_frames = [black_frame] * args.kernel_leader_frames + kernel_payload_frames
-            kernel_cycle_vsyncs = len(kernel_frames)
-            kernel_blank_slot_count = (slots - (512 % slots)) % slots
+            kernel_payload_vsyncs = kernel_metadata["payload_vsyncs"]
+            kernel_cycle_vsyncs = kernel_metadata["cycle_vsyncs"]
+            kernel_blank_slot_count = kernel_metadata["blank_slot_count"]
             kernel_leader_fires = args.kernel_leader_frames * slots
-            kernel_cycle_kernels = 512 + kernel_blank_slot_count + (
-                slots if args.kernel_blank_end_frame else 0
-            )
+            kernel_cycle_kernels = kernel_metadata["cycle_fires"] - kernel_leader_fires
             logger.info(
                 f"[+] Kernel frames ready: {kernel_cycle_vsyncs} VSYNC frames per cycle "
                 f"({args.kernel_leader_frames} leader + {kernel_payload_vsyncs} payload/end-marker) "
-                f"covering {kernel_leader_fires + kernel_cycle_kernels} bitplane fires."
-            )
+                f"covering {kernel_leader_fires + kernel_cycle_kernels} bitplane fires.")
         if dynamic_kind == "numbers":
             number_exposure_us = _numbers_exposure_us(args)
             logger.info(
                 f"[+] Prebuilding {len(NUMBER_SEQUENCE)} number frames "
                 f"(digits 1..9, exposure={number_exposure_us} us per number, "
-                f"size_px={args.numbers_size_px or 'default'})..."
-            )
-            numbers_frames = _build_numbers_frames(engine, size_px=args.numbers_size_px)
+                f"size_px={args.numbers_size_px or 'default'})...")
+            numbers_frames = tuple(
+                engine.pack_patterns(
+                    engine.rgb_to_binary_patterns(
+                        generate_number_rgb(
+                            number,
+                            width=engine.width,
+                            height=engine.height,
+                            size_px=args.numbers_size_px,
+                        ))) for number in NUMBER_SEQUENCE)
             logger.info("[+] Number frames ready as full packed DisplayPort frames.")
         if dynamic_kind == "calibr-square":
             calibration_square_state = default_calibration_square_state(engine.width, engine.height)
@@ -592,7 +623,8 @@ def main(argv=None):
             )
             logger.info("[+] Controls: W/A/S/D move, Q/E rotate, R/F resize, ESC exits.")
             if args.calibr_square_control_file:
-                logger.info(f"[+] Reading calibration controls from {args.calibr_square_control_file}")
+                logger.info(
+                    f"[+] Reading calibration controls from {args.calibr_square_control_file}")
 
         if patterns is not None:
             frame = engine.pack_patterns(patterns)
@@ -625,8 +657,7 @@ def main(argv=None):
             # kernel/numbers/calibration provider during DLPC arm. The real
             # loop starts at frame 0 after configuration completes.
             prearm_frame_provider = lambda: _maybe_invert_frame(
-                black_frame if args.trigger else frame, args.invert_dmd
-            )
+                black_frame if args.trigger else frame, args.invert_dmd)
         else:
             prearm_frame_provider = frame_provider
 
@@ -668,19 +699,15 @@ def main(argv=None):
             # before the USB control thread starts issuing LUT writes + start command.
             time.sleep(0.1)
 
-        def _frame_pump():
-            # No-op: the background pump is already pushing frames continuously,
-            # no synchronous pump is needed at this point.
-            pass
-
         try:
             sequence_state = configure_dlpc900_for_video_pattern(
-                dlpc, target_hz,
+                dlpc,
+                target_hz,
                 dual_pixel=args.dual_pixel,
                 sequence_utilization=args.seq_utilization,
                 trig2_frame_zero=args.trig2_frame_zero,
                 pre_arm_callback=_prime_video_buffer,
-                frame_pump=_frame_pump,
+                frame_pump=lambda: None,
                 entries_count=lut_entries_count,
                 per_entry_exposure_us=lut_per_entry_exposure_us,
                 trigger_out_2_delay_fraction=args.trigger_out_2_delay_fraction,
@@ -706,21 +733,13 @@ def main(argv=None):
             )
             prime_label = (
                 "first kernel payload frame"
-                if dynamic_kind == "kernel" and post_arm_prime_frame is not frame
-                else "number 1 frame"
-                if dynamic_kind == "numbers"
-                else "calibration square frame"
-                if dynamic_kind == "calibr-square"
-                else "initial pattern frame"
-            )
+                if dynamic_kind == "kernel" and post_arm_prime_frame is not frame else
+                "number 1 frame" if dynamic_kind == "numbers" else "calibration square frame"
+                if dynamic_kind == "calibr-square" else "initial pattern frame")
         logger.info(f"[+] Priming DP output after sequencer arm with {prime_label}...")
         engine.display_frame(_maybe_invert_frame(post_arm_prime_frame, args.invert_dmd))
-        if (
-                dynamic_kind == "kernel"
-                and kernel_frames is not None
-                and len(kernel_frames) > 0
-                and post_arm_prime_frame is not kernel_frames[0]
-        ):
+        if (dynamic_kind == "kernel" and kernel_frames is not None and len(kernel_frames) > 0
+                and post_arm_prime_frame is not kernel_frames[0]):
             logger.info("[+] Returning DP output to kernel leader frame before runtime cycle...")
             engine.display_frame(_maybe_invert_frame(kernel_frames[0], args.invert_dmd))
 
@@ -729,8 +748,7 @@ def main(argv=None):
         if not verify_runtime_state(dlpc):
             raise RuntimeError(
                 "Runtime state check failed after post-arm DP prime. "
-                "Triggers are likely unavailable because mode 2/sequencer/lock is not valid."
-            )
+                "Triggers are likely unavailable because mode 2/sequencer/lock is not valid.")
 
         logger.info(f"[+] Holding output for {args.runtime_seconds} seconds...")
         logger.info(f"[+] Starting Diagnostic Mode: {label}...")
@@ -743,8 +761,7 @@ def main(argv=None):
                 f"{' + ' + str(sequence_state['timing']['entries_count']) + ' end-marker blanks' if args.kernel_blank_end_frame else ''}); "
                 f"cycle period ~{kernel_cycle_vsyncs * 1000.0 / sequence_state['timing']['effective_frame_hz']:.1f} ms; "
                 f"uniform exposure ~{sequence_state['timing']['exposure_us']} us per kernel; "
-                f"DMD output polarity={'inverted' if args.invert_dmd else 'normal'}."
-            )
+                f"DMD output polarity={'inverted' if args.invert_dmd else 'normal'}.")
             _log_kernel_timing_summary(args, sequence_state["timing"])
         elif dynamic_kind == "numbers":
             _log_numbers_timing_summary(args, sequence_state["timing"])
@@ -753,20 +770,28 @@ def main(argv=None):
 
         if args.trigger:
             logger.info("[+] Software Trigger Mode (Approach A) Active.")
-            logger.info("    Press spacebar to trigger 1 frame of pattern sequence, or ESC to exit.")
+            logger.info(
+                "    Press spacebar to trigger 1 frame of pattern sequence, or ESC to exit.")
             trig_frame = engine.pack_patterns(patterns)
             run_trigger_loop(
                 engine,
-                _maybe_invert_frame(black_frame, args.invert_dmd),
-                _maybe_invert_frame(trig_frame, args.invert_dmd),
+                _maybe_invert_frame(black_frame,
+                                    args.invert_dmd),
+                _maybe_invert_frame(trig_frame,
+                                    args.invert_dmd),
                 args.runtime_seconds,
             )
             return 0
         video_writer = _open_video_writer(args.capture, target_hz) if args.capture else None
         try:
             run_render_loop(
-                dlpc, engine, frame_provider, args, sequence_state,
-                video_writer=video_writer, cv2_module=cv2,
+                dlpc,
+                engine,
+                frame_provider,
+                args,
+                sequence_state,
+                video_writer=video_writer,
+                cv2_module=cv2,
             )
         finally:
             if video_writer is not None:

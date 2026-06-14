@@ -19,12 +19,24 @@ def generate_numbered_regions(width, height, grid_cols=6, grid_rows=4):
     cell_width = width // grid_cols
     cell_height = height // grid_rows
     colors = [
-        (255, 255, 255),
-        (128, 128, 128),
-        (64, 64, 64),
-        (192, 192, 192),
-        (32, 32, 32),
-        (96, 96, 96),
+        (255,
+         255,
+         255),
+        (128,
+         128,
+         128),
+        (64,
+         64,
+         64),
+        (192,
+         192,
+         192),
+        (32,
+         32,
+         32),
+        (96,
+         96,
+         96),
     ]
 
     region_num = 1
@@ -48,7 +60,8 @@ def generate_numbered_regions(width, height, grid_cols=6, grid_rows=4):
             for offset_x in (-2, 0, 2):
                 for offset_y in (-2, 0, 2):
                     draw.text(
-                        (text_x + offset_x, text_y + offset_y),
+                        (text_x + offset_x,
+                         text_y + offset_y),
                         text,
                         fill="black",
                         font=font,

@@ -1,19 +1,12 @@
 from __future__ import annotations
 
 import json
-from importlib import import_module
 
 
 def _discovery_module():
-    return import_module("dmdcontrol.camera.discovery")
+    from dmdcontrol.camera import discovery
 
-
-def _sync_check_module():
-    return import_module("dmdcontrol.camera.sync_check")
-
-
-def _pair_capture_module():
-    return import_module("dmdcontrol.camera.pair_capture")
+    return discovery
 
 
 def discover(argv):
@@ -29,8 +22,24 @@ def status(argv):
 
 
 def sync_check(argv):
-    return _sync_check_module().main(argv)
+    from dmdcontrol.camera import sync_check as sync_check_module
+
+    return sync_check_module.main(argv)
+
+
+def sync_sweep(argv):
+    from dmdcontrol.camera import sync_sweep as sync_sweep_module
+
+    return sync_sweep_module.main(argv)
 
 
 def pair_capture(argv):
-    return _pair_capture_module().main(argv)
+    from dmdcontrol.camera import pair_capture as pair_capture_module
+
+    return pair_capture_module.main(argv)
+
+
+def reprocess_aedat4(argv):
+    from dmdcontrol.camera import reprocess_aedat4 as reprocess_aedat4_module
+
+    return reprocess_aedat4_module.main(argv)

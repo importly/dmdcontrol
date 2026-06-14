@@ -14,11 +14,11 @@ from dmdcontrol.support.constants import (
 
 
 def compute_kernel_lut_override(
-        enabled,
-        kernel_exposure_us,
-        target_hz,
-        sequence_utilization,
-        dark_time_us=None,
+    enabled,
+    kernel_exposure_us,
+    target_hz,
+    sequence_utilization,
+    dark_time_us=None,
 ):
     if not enabled or kernel_exposure_us is None:
         return None, None
@@ -47,7 +47,7 @@ def generate_kernel_masks(width=DMD_WIDTH, height=DMD_HEIGHT, kernel_px=30):
             if kernel_index & (1 << bit):
                 row, col = bit // 3, bit % 3
                 yy, xx = y0 + row * cell, x0 + col * cell
-                mask[yy: yy + cell, xx: xx + cell] = 1
+                mask[yy:yy + cell, xx:xx + cell] = 1
         masks.append(mask)
     return masks
 
@@ -55,35 +55,33 @@ def generate_kernel_masks(width=DMD_WIDTH, height=DMD_HEIGHT, kernel_px=30):
 def pack_kernel_frames(engine, masks, slots_per_frame=BITPLANES, blank_end_frame=False):
     """Pack kernel masks into DisplayPort RGB frames consumed by the LUT."""
     if slots_per_frame < 1 or slots_per_frame > BITPLANES:
-        raise ValueError(
-            f"slots_per_frame ({slots_per_frame}) must be in [1, {BITPLANES}]."
-        )
+        raise ValueError(f"slots_per_frame ({slots_per_frame}) must be in [1, {BITPLANES}].")
     black_mask = np.zeros((engine.height, engine.width), dtype=np.uint8)
     pad = (-len(masks)) % slots_per_frame
     padded = list(masks) + [black_mask] * pad
     unused = [black_mask] * (BITPLANES - slots_per_frame)
     frames = [
-        engine.pack_patterns(padded[i: i + slots_per_frame] + unused)
-        for i in range(0, len(padded), slots_per_frame)
-    ]
+        engine.pack_patterns(padded[i:i + slots_per_frame] + unused)
+        for i in range(0, len(padded), slots_per_frame)]
     if blank_end_frame:
         frames.append(engine.pack_patterns([black_mask] * BITPLANES))
     return frames
 
 
 def build_kernel_frames(
-        engine,
-        kernel_px,
-        slots_per_frame=BITPLANES,
-        leader_frames=3,
-        blank_end_frame=True,
+    engine,
+    kernel_px,
+    slots_per_frame=BITPLANES,
+    leader_frames=3,
+    blank_end_frame=True,
 ):
     if leader_frames < 0:
         raise ValueError("leader_frames must be non-negative")
     kernel_masks = generate_kernel_masks(engine.width, engine.height, kernel_px)
     black_frame = engine.pack_patterns(
-        [np.zeros((engine.height, engine.width), dtype=np.uint8)] * BITPLANES
-    )
+        [np.zeros((engine.height,
+                   engine.width),
+                  dtype=np.uint8)] * BITPLANES)
     payload_frames = pack_kernel_frames(
         engine,
         kernel_masks,
@@ -92,21 +90,24 @@ def build_kernel_frames(
     )
     frames = [black_frame] * leader_frames + payload_frames
     metadata = {
-        "leader_frames": leader_frames,
-        "payload_vsyncs": len(payload_frames),
-        "blank_slot_count": (slots_per_frame - (512 % slots_per_frame))
-                            % slots_per_frame,
-        "cycle_vsyncs": len(frames),
-        "cycle_fires": (leader_frames * slots_per_frame)
-                       + 512
-                       + ((slots_per_frame - (512 % slots_per_frame)) % slots_per_frame)
-                       + (slots_per_frame if blank_end_frame else 0),
-        "black_frame": black_frame,
+        "leader_frames":
+        leader_frames,
+        "payload_vsyncs":
+        len(payload_frames),
+        "blank_slot_count": (slots_per_frame - (512 % slots_per_frame)) % slots_per_frame,
+        "cycle_vsyncs":
+        len(frames),
+        "cycle_fires": (leader_frames * slots_per_frame) + 512 +
+        ((slots_per_frame -
+          (512 % slots_per_frame)) % slots_per_frame) + (slots_per_frame if blank_end_frame else 0),
+        "black_frame":
+        black_frame,
     }
     return frames, metadata
 
 
 class KernelFrameProvider:
+
     def __init__(self, frames, black_frame, single_shot=False):
         if not frames:
             raise ValueError("frames must not be empty")

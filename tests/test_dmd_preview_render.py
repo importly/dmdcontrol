@@ -7,6 +7,7 @@ from PIL import Image
 
 
 class DmdPreviewRenderTests(unittest.TestCase):
+
     def test_import_does_not_load_hardware_modules(self):
         for module_name in ("glfw", "OpenGL.GL", "dlpc900_hid"):
             sys.modules.pop(module_name, None)
@@ -74,9 +75,30 @@ class DmdPreviewRenderTests(unittest.TestCase):
         from dmdcontrol.preview.render import build_lut_preview_metadata
 
         entries = [
-            (0, 600, False, 1, 7, 10, False, 0),
-            (8, 600, False, 1, 7, 10, False, 8),
-            (16, 600, True, 1, 7, 10, True, 16),
+            (0,
+             600,
+             False,
+             1,
+             7,
+             10,
+             False,
+             0),
+            (8,
+             600,
+             False,
+             1,
+             7,
+             10,
+             False,
+             8),
+            (16,
+             600,
+             True,
+             1,
+             7,
+             10,
+             True,
+             16),
         ]
         timing = {
             "entries_count": 3,

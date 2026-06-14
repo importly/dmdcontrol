@@ -114,7 +114,10 @@ def candidate_from_udev_properties(props, hidraw=None, sys_root="/sys"):
 
 def _udevadm_properties_for_hidraw(hidraw):
     result = subprocess.run(
-        ["udevadm", "info", "--query=property", f"--name={hidraw}"],
+        ["udevadm",
+         "info",
+         "--query=property",
+         f"--name={hidraw}"],
         check=False,
         text=True,
         stdout=subprocess.PIPE,
@@ -130,10 +133,7 @@ def discover_dlpc900_usb(dev_dir="/dev", sys_root="/sys"):
     sys_hidraw_path = Path(sys_root) / "class" / "hidraw"
     hidraw_nodes = sorted(dev_path.glob("hidraw*"))
     if not hidraw_nodes and sys_hidraw_path.exists():
-        hidraw_nodes = [
-            dev_path / path.name
-            for path in sorted(sys_hidraw_path.glob("hidraw*"))
-        ]
+        hidraw_nodes = [dev_path / path.name for path in sorted(sys_hidraw_path.glob("hidraw*"))]
     candidates = []
     for hidraw_path in hidraw_nodes:
         hidraw = str(hidraw_path)
@@ -160,23 +160,16 @@ def resolve_usb_candidate(usb_id_path, usb_devpath_contains=None, candidates=Non
         candidates = discover_dlpc900_usb()
     coerced = [_coerce_candidate(candidate) for candidate in candidates]
     matches = [
-        candidate
-        for candidate in coerced
-        if candidate.id_path == usb_id_path
-           and (
-                   not usb_devpath_contains
-                   or (candidate.devpath and usb_devpath_contains in candidate.devpath)
-           )
-    ]
+        candidate for candidate in coerced if candidate.id_path == usb_id_path and (
+            not usb_devpath_contains or
+            (candidate.devpath and usb_devpath_contains in candidate.devpath))]
     if not matches:
         discovered = ", ".join(
             f"{c.id_path or '<no ID_PATH>'} ({c.physical_path or '<no physical path>'})"
-            for c in coerced
-        )
+            for c in coerced)
         raise RuntimeError(
             f"Expected DLPC900 USB mapping not present: id_path={usb_id_path!r}, "
-            f"devpath_contains={usb_devpath_contains!r}. Discovered: {discovered or '<none>'}"
-        )
+            f"devpath_contains={usb_devpath_contains!r}. Discovered: {discovered or '<none>'}")
     if len(matches) > 1:
         raise RuntimeError(f"Ambiguous DLPC900 USB mapping for id_path={usb_id_path!r}")
     return matches[0]
@@ -187,10 +180,7 @@ def _load_pyusb_devices(pyusb_devices=None):
         return list(pyusb_devices)
     import usb.core
 
-    return list(
-        usb.core.find(find_all=True, idVendor=DLPC900_VID, idProduct=DLPC900_PID)
-        or []
-    )
+    return list(usb.core.find(find_all=True, idVendor=DLPC900_VID, idProduct=DLPC900_PID) or [])
 
 
 def _select_pyusb_device_by_physical_path(devices, physical_path):
@@ -206,28 +196,28 @@ def _select_pyusb_device_by_physical_path(devices, physical_path):
         if ports is not None and tuple(ports) == expected_ports:
             matches.append(device)
     if len(matches) > 1:
-        raise RuntimeError(
-            f"Ambiguous DLPC900 PyUSB devices for physical path {physical_path!r}"
-        )
+        raise RuntimeError(f"Ambiguous DLPC900 PyUSB devices for physical path {physical_path!r}")
     return matches[0] if matches else None
 
 
 def _select_pyusb_device_by_candidate(devices, candidate):
     if candidate.bus is not None and candidate.address is not None:
         for device in devices:
-            if (
-                    getattr(device, "bus", None) == candidate.bus
-                    and getattr(device, "address", None) == candidate.address
-            ):
+            if (getattr(device,
+                        "bus",
+                        None) == candidate.bus and getattr(device,
+                                                           "address",
+                                                           None) == candidate.address):
                 return device
     return _select_pyusb_device_by_physical_path(devices, candidate.physical_path)
 
 
 def select_pyusb_device_for_mapping(
-        usb_id_path,
-        usb_devpath_contains=None,
-        candidates=None,
-        pyusb_devices=None, ):
+    usb_id_path,
+    usb_devpath_contains=None,
+    candidates=None,
+    pyusb_devices=None,
+):
     devices = _load_pyusb_devices(pyusb_devices)
     try:
         candidate = resolve_usb_candidate(
@@ -247,8 +237,7 @@ def select_pyusb_device_for_mapping(
         return device
 
     raise RuntimeError(
-        f"Found hidraw mapping {candidate.id_path}, but could not match it to a PyUSB device."
-    )
+        f"Found hidraw mapping {candidate.id_path}, but could not match it to a PyUSB device.")
 
 
 def _format_int(value, width=3):
@@ -272,14 +261,13 @@ def format_usb_candidates(candidates):
                 f"  devpath: {candidate.devpath or 'unknown'}",
                 f"  physical_path: {candidate.physical_path or 'unknown'}",
                 f"  suggested_config_key: {candidate.id_path or 'unknown'}",
-            ]
-        )
+            ])
     return "\n".join(lines)
 
 
 def _build_parser():
     parser = argparse.ArgumentParser(description="Discover DLPC900 USB HID devices")
-    parser.add_argument("command", nargs="?", default="discover", choices=("discover",))
+    parser.add_argument("command", nargs="?", default="discover", choices=("discover", ))
     return parser
 
 

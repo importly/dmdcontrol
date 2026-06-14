@@ -82,7 +82,7 @@ class DmdPreviewHandler(BaseHTTPRequestHandler):
         test = _query_value(params, "test", "coarse-grid")
         test_a = _query_value(params, "test_a", None)
         test_b = _query_value(params, "test_b", None)
-        frame_index = _query_int(params, "frame", 0)
+        frame_index = int(_query_value(params, "frame", 0))
         view = _query_value(params, "view", "packed")
         plane = _query_plane(params, "plane", 0)
         png = render_preview_png(
@@ -119,6 +119,7 @@ class DmdPreviewHandler(BaseHTTPRequestHandler):
 
 
 class DmdPreviewServer(ThreadingHTTPServer):
+
     def __init__(self, server_address):
         super().__init__(server_address, DmdPreviewHandler)
         self.live_store = LiveFrameStore()
@@ -129,13 +130,6 @@ def _query_value(params, name, default):
     if not values:
         return default
     return values[0] or default
-
-
-def _query_int(params, name, default):
-    value = _query_value(params, name, None)
-    if value is None:
-        return default
-    return int(value)
 
 
 def _query_plane(params, name, default):

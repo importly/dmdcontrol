@@ -6,6 +6,7 @@ from dmdcontrol.patterns.calibration_square import read_calibration_square_contr
 
 
 class CalibrationSquareControlFileTests(unittest.TestCase):
+
     def test_reads_only_new_valid_commands(self):
         with tempfile.NamedTemporaryFile("w+", delete=False) as f:
             path = f.name

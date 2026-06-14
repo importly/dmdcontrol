@@ -5,11 +5,13 @@ from dmdcontrol.runtime.lifecycle import build_lut_entries, compute_trigger_out_
 
 
 class DryRunDLPC:
+
     def get_display_dimensions(self):
         return None
 
 
 class TriggerTimingTests(unittest.TestCase):
+
     def test_default_delay_is_zero_percent_of_exposure(self):
         timing = compute_trigger_out_2_timing(exposure_us=3000)
 

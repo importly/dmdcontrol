@@ -4,6 +4,7 @@ import unittest
 
 
 class DmdPreviewPackageTests(unittest.TestCase):
+
     def test_package_server_exports_preview_api_without_hardware_imports(self):
         for module_name in ("glfw", "OpenGL.GL", "dlpc900_hid"):
             sys.modules.pop(module_name, None)

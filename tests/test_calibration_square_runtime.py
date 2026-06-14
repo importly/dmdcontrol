@@ -25,6 +25,7 @@ class _Engine:
 
 
 class CalibrationSquareRuntimeTests(unittest.TestCase):
+
     def test_build_frame_repeats_square_mask_for_all_bitplanes(self):
         engine = _Engine()
         state = default_calibration_square_state(engine.width, engine.height)

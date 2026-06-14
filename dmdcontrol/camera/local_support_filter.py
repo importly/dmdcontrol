@@ -6,6 +6,7 @@ from typing import Literal
 
 import numpy as np
 
+from dmdcontrol.support.argparse_types import nonnegative_int, positive_int
 from dmdcontrol.support.constants import (
     DEFAULT_FILTER_DELTA_T_US,
     DEFAULT_FILTER_POLARITY,
@@ -41,8 +42,7 @@ class LocalSupportFilterConfig:
         out["algorithm"] = "centered-local-support"
         out["note"] = (
             "Practical notebook-validated local support filter; "
-            "not a source-faithful DV Runtime YNoise implementation."
-        )
+            "not a source-faithful DV Runtime YNoise implementation.")
         return out
 
 
@@ -65,7 +65,8 @@ def centered_local_support_mask(
     y: np.ndarray,
     t: np.ndarray,
     p: np.ndarray,
-    resolution: tuple[int, int],
+    resolution: tuple[int,
+                      int],
     config: LocalSupportFilterConfig,
 ) -> np.ndarray:
     """Return boolean keep mask for centered causal local-support event filtering.
@@ -144,9 +145,13 @@ def apply_local_support_filter_arrays(
     y: np.ndarray,
     t: np.ndarray,
     p: np.ndarray,
-    resolution: tuple[int, int],
+    resolution: tuple[int,
+                      int],
     config: LocalSupportFilterConfig,
-) -> tuple[dict[str, np.ndarray], np.ndarray, LocalSupportFilterStats]:
+) -> tuple[dict[str,
+                np.ndarray],
+           np.ndarray,
+           LocalSupportFilterStats]:
     """Filter event arrays and return filtered arrays, mask, and stats."""
     config.validate()
 
@@ -187,10 +192,23 @@ def apply_local_support_filter_arrays(
 
 def add_event_noise_filter_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--event-noise-filter", default="none", choices=["none", "local-support"])
-    parser.add_argument("--event-filter-delta-us", type=_positive_int, default=DEFAULT_FILTER_DELTA_T_US)
-    parser.add_argument("--event-filter-window-px", type=_positive_int, default=DEFAULT_FILTER_WINDOW_PX)
-    parser.add_argument("--event-filter-threshold", type=_non_negative_int, default=DEFAULT_FILTER_THRESHOLD)
-    parser.add_argument("--event-filter-polarity", default=DEFAULT_FILTER_POLARITY, choices=["same", "any"])
+    parser.add_argument(
+        "--event-filter-delta-us",
+        type=positive_int,
+        default=DEFAULT_FILTER_DELTA_T_US)
+    parser.add_argument(
+        "--event-filter-window-px",
+        type=positive_int,
+        default=DEFAULT_FILTER_WINDOW_PX)
+    parser.add_argument(
+        "--event-filter-threshold",
+        type=nonnegative_int,
+        default=DEFAULT_FILTER_THRESHOLD)
+    parser.add_argument(
+        "--event-filter-polarity",
+        default=DEFAULT_FILTER_POLARITY,
+        choices=["same",
+                 "any"])
     parser.add_argument("--save-filtered-events", action="store_true", default=False)
 
 
@@ -215,28 +233,9 @@ def event_noise_filter_metadata(
         metadata["algorithm"] = "none"
         metadata["note"] = (
             "Event noise filtering disabled. Local-support parameters are resolved "
-            "but were not applied."
-        )
+            "but were not applied.")
     if stats is not None:
         metadata.update(stats.to_metadata())
     return metadata
 
 
-def _positive_int(value: str) -> int:
-    try:
-        number = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("value must be positive") from exc
-    if number <= 0:
-        raise argparse.ArgumentTypeError("value must be positive")
-    return number
-
-
-def _non_negative_int(value: str) -> int:
-    try:
-        number = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("value must be >= 0") from exc
-    if number < 0:
-        raise argparse.ArgumentTypeError("value must be >= 0")
-    return number

@@ -37,8 +37,7 @@ def format_calibration_square_state(state, width, height):
     return (
         f"center=({state.x:.0f},{state.y:.0f}) px, "
         f"bounds=({left},{top})..({right},{bottom}) px, "
-        f"size={state.size:.0f}px, angle={state.angle_deg:.1f}deg"
-    )
+        f"size={state.size:.0f}px, angle={state.angle_deg:.1f}deg")
 
 
 def read_calibration_square_control_file(path, offset):
@@ -55,36 +54,43 @@ def read_calibration_square_control_file(path, offset):
     except OSError as exc:
         logger.warning(f"[CALIBRATION] Cannot read control file {path}: {exc}")
         return "", offset
-    commands = "".join(
-        ch.lower() for ch in data if ch.lower() in VALID_CALIBRATION_COMMANDS
-    )
+    commands = "".join(ch.lower() for ch in data if ch.lower() in VALID_CALIBRATION_COMMANDS)
     return commands, offset
 
 
 def calibration_square_key_commands(glfw):
     return (
-        (glfw.KEY_W, "w"),
-        (glfw.KEY_A, "a"),
-        (glfw.KEY_S, "s"),
-        (glfw.KEY_D, "d"),
-        (glfw.KEY_Q, "q"),
-        (glfw.KEY_E, "e"),
-        (glfw.KEY_R, "r"),
-        (glfw.KEY_F, "f"),
+        (glfw.KEY_W,
+         "w"),
+        (glfw.KEY_A,
+         "a"),
+        (glfw.KEY_S,
+         "s"),
+        (glfw.KEY_D,
+         "d"),
+        (glfw.KEY_Q,
+         "q"),
+        (glfw.KEY_E,
+         "e"),
+        (glfw.KEY_R,
+         "r"),
+        (glfw.KEY_F,
+         "f"),
     )
 
 
 def make_calibration_square_frame_provider(
-        engine,
-        initial_frame,
-        control_file=None,
-        initial_state=None, ):
+    engine,
+    initial_frame,
+    control_file=None,
+    initial_state=None,
+):
     import glfw
 
     key_commands = calibration_square_key_commands(glfw)
     state = {
-        "square": initial_state
-                  or default_calibration_square_state(engine.width, engine.height),
+        "square": initial_state or default_calibration_square_state(engine.width,
+                                                                    engine.height),
         "frame": initial_frame,
         "control_offset": 0,
         "last_log": 0.0,
@@ -96,10 +102,8 @@ def make_calibration_square_frame_provider(
             state["control_offset"],
         )
         keyboard_commands = "".join(
-            command
-            for key, command in key_commands
-            if glfw.get_key(engine.window, key) == glfw.PRESS
-        )
+            command for key, command in key_commands
+            if glfw.get_key(engine.window, key) == glfw.PRESS)
         commands = file_commands + keyboard_commands
         if "x" in commands:
             logger.info("[CALIBRATION] Exit requested from calibration control input.")

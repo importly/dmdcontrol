@@ -23,9 +23,8 @@ def _dv_with_descriptor(serial="CAM123", dev_address=None):
     if dev_address is not None:
         descriptor.devAddress = dev_address
     return SimpleNamespace(
-        io=SimpleNamespace(
-            camera=SimpleNamespace(discover=lambda: [descriptor]),
-        ),
+        io=SimpleNamespace(camera=SimpleNamespace(discover=lambda: [descriptor]),
+                           ),
     )
 
 
@@ -39,7 +38,9 @@ def test_reset_camera_usb_uses_usbdevfs_reset_ioctl(monkeypatch, tmp_path):
     closed = []
     monkeypatch.setattr(usb_reset.sys, "platform", "linux")
     monkeypatch.setattr(usb_reset.os, "open", lambda path, flags: opened.append((path, flags)) or 9)
-    monkeypatch.setattr(usb_reset.fcntl, "ioctl", lambda fd, request, arg: ioctl_calls.append((fd, request, arg)))
+    monkeypatch.setattr(
+        usb_reset.fcntl,
+        "ioctl", lambda fd, request, arg: ioctl_calls.append((fd, request, arg)))
     monkeypatch.setattr(usb_reset.os, "close", lambda fd: closed.append(fd))
     monkeypatch.setattr(usb_reset.time, "sleep", lambda seconds: None)
 
@@ -62,7 +63,9 @@ def test_reset_camera_usb_falls_back_to_authorized_toggle(monkeypatch, tmp_path)
     device = _write_device(sysfs_root, "1-2")
 
     monkeypatch.setattr(usb_reset.sys, "platform", "linux")
-    monkeypatch.setattr(usb_reset.os, "open", lambda path, flags: (_ for _ in ()).throw(PermissionError("no access")))
+    monkeypatch.setattr(
+        usb_reset.os,
+        "open", lambda path, flags: (_ for _ in ()).throw(PermissionError("no access")))
     monkeypatch.setattr(usb_reset.time, "sleep", lambda seconds: None)
 
     result = usb_reset.reset_camera_usb(

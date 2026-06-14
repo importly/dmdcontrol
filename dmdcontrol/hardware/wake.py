@@ -21,8 +21,7 @@ def main(argv=None):
     if mapping:
         logger.info(
             f"[+] Waking DMD {mapping.name}: USB id_path={mapping.usb_id_path}, "
-            f"expected devpath fragment={mapping.usb_devpath_contains or '<not required>'}"
-        )
+            f"expected devpath fragment={mapping.usb_devpath_contains or '<not required>'}")
 
     dlpc = DLPC900(
         usb_id_path=mapping.usb_id_path if mapping else None,
@@ -30,7 +29,7 @@ def main(argv=None):
     )
     logger.info("[+] Waking up DisplayPort receiver...")
 
-    dlpc.send_packet(0x1A01, bytes([2]))
+    dlpc.wake_displayport_receiver()
     time.sleep(1)
 
     dlpc.set_input_source(0, 1)

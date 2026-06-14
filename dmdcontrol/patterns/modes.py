@@ -13,7 +13,6 @@ from dmdcontrol.patterns.numbered_regions import generate_numbered_regions
 from dmdcontrol.patterns.visual import generate_coarse_grid_rgb, generate_coarse_lines_rgb
 from dmdcontrol.support.constants import (
     DEFAULT_CALIBRATION_SQUARE_FRACTION,
-    DEFAULT_NUMBERS_EXPOSURE_US,
     DMD_HEIGHT,
     DMD_WIDTH,
     MIN_CALIBRATION_SQUARE_PX,
@@ -21,15 +20,59 @@ from dmdcontrol.support.constants import (
 )
 
 _DIGIT_SEGMENTS = {
-    1: ("b", "c"),
-    2: ("a", "b", "g", "e", "d"),
-    3: ("a", "b", "g", "c", "d"),
-    4: ("f", "g", "b", "c"),
-    5: ("a", "f", "g", "c", "d"),
-    6: ("a", "f", "g", "e", "c", "d"),
-    7: ("a", "b", "c"),
-    8: ("a", "b", "c", "d", "e", "f", "g"),
-    9: ("a", "b", "c", "d", "f", "g"),
+    1: ("b",
+        "c"),
+    2: ("a",
+        "b",
+        "g",
+        "e",
+        "d"),
+    3: ("a",
+        "b",
+        "g",
+        "c",
+        "d"),
+    4: ("f",
+        "g",
+        "b",
+        "c"),
+    5: ("a",
+        "f",
+        "g",
+        "c",
+        "d"),
+    6: ("a",
+        "f",
+        "g",
+        "e",
+        "c",
+        "d"),
+    7: ("a",
+        "b",
+        "c"),
+    8: ("a",
+        "b",
+        "c",
+        "d",
+        "e",
+        "f",
+        "g"),
+    9: ("a",
+        "b",
+        "c",
+        "d",
+        "f",
+        "g"),
+}
+
+_DECIMAL_DIGIT_SEGMENTS = {
+    0: ("a",
+        "b",
+        "c",
+        "d",
+        "e",
+        "f"),
+    **_DIGIT_SEGMENTS,
 }
 
 
@@ -48,7 +91,8 @@ def _clamp(value, lo, hi):
 def default_calibration_square_state(width=DMD_WIDTH, height=DMD_HEIGHT):
     size = max(
         MIN_CALIBRATION_SQUARE_PX,
-        min(width, height) * DEFAULT_CALIBRATION_SQUARE_FRACTION,
+        min(width,
+            height) * DEFAULT_CALIBRATION_SQUARE_FRACTION,
     )
     return CalibrationSquareState(
         x=width / 2.0,
@@ -61,9 +105,17 @@ def default_calibration_square_state(width=DMD_WIDTH, height=DMD_HEIGHT):
 def clamp_calibration_square_state(state, width=DMD_WIDTH, height=DMD_HEIGHT):
     max_size = max(MIN_CALIBRATION_SQUARE_PX, min(width, height))
     return CalibrationSquareState(
-        x=float(_clamp(state.x, 0.0, max(0.0, width - 1.0))),
-        y=float(_clamp(state.y, 0.0, max(0.0, height - 1.0))),
-        size=float(_clamp(state.size, MIN_CALIBRATION_SQUARE_PX, max_size)),
+        x=float(_clamp(state.x,
+                       0.0,
+                       max(0.0,
+                           width - 1.0))),
+        y=float(_clamp(state.y,
+                       0.0,
+                       max(0.0,
+                           height - 1.0))),
+        size=float(_clamp(state.size,
+                          MIN_CALIBRATION_SQUARE_PX,
+                          max_size)),
         angle_deg=float(state.angle_deg % 360.0),
     )
 
@@ -76,29 +128,41 @@ def calibration_square_bounds(state, width=DMD_WIDTH, height=DMD_HEIGHT):
     xs = []
     ys = []
     for local_x, local_y in (
-            (-half, -half),
-            (half, -half),
-            (half, half),
-            (-half, half),
+        (-half, -half),
+        (half, -half),
+        (half, half),
+        (-half, half),
     ):
         xs.append(state.x + cos_a * local_x - sin_a * local_y)
         ys.append(state.y + sin_a * local_x + cos_a * local_y)
     return (
-        int(_clamp(np.floor(min(xs)), 0, max(0, width - 1))),
-        int(_clamp(np.floor(min(ys)), 0, max(0, height - 1))),
-        int(_clamp(np.ceil(max(xs)), 0, max(0, width - 1))),
-        int(_clamp(np.ceil(max(ys)), 0, max(0, height - 1))),
+        int(_clamp(np.floor(min(xs)),
+                   0,
+                   max(0,
+                       width - 1))),
+        int(_clamp(np.floor(min(ys)),
+                   0,
+                   max(0,
+                       height - 1))),
+        int(_clamp(np.ceil(max(xs)),
+                   0,
+                   max(0,
+                       width - 1))),
+        int(_clamp(np.ceil(max(ys)),
+                   0,
+                   max(0,
+                       height - 1))),
     )
 
 
 def apply_calibration_square_commands(
-        state,
-        commands,
-        width=DMD_WIDTH,
-        height=DMD_HEIGHT,
-        move_px=10,
-        rotation_deg=2,
-        size_step_px=10,
+    state,
+    commands,
+    width=DMD_WIDTH,
+    height=DMD_HEIGHT,
+    move_px=10,
+    rotation_deg=2,
+    size_step_px=10,
 ):
     x = state.x
     y = state.y
@@ -123,19 +187,22 @@ def apply_calibration_square_commands(
         elif command == "f":
             size -= size_step_px
     return clamp_calibration_square_state(
-        CalibrationSquareState(x=x, y=y, size=size, angle_deg=angle),
+        CalibrationSquareState(x=x,
+                               y=y,
+                               size=size,
+                               angle_deg=angle),
         width=width,
         height=height,
     )
 
 
 def generate_calibration_square_mask(
-        width=DMD_WIDTH,
-        height=DMD_HEIGHT,
-        center_x=None,
-        center_y=None,
-        size_px=None,
-        angle_deg=0.0,
+    width=DMD_WIDTH,
+    height=DMD_HEIGHT,
+    center_x=None,
+    center_y=None,
+    size_px=None,
+    angle_deg=0.0,
 ):
     if width <= 0 or height <= 0:
         raise ValueError("width and height must be positive")
@@ -196,6 +263,47 @@ def _fill_rect(img, x0, y0, x1, y1):
         img[y0:y1, x0:x1, :] = 255
 
 
+def _draw_digit_segments(img, segments, x0, y0, digit_w, digit_h, min_stroke_px=1):
+    x1 = x0 + digit_w
+    y1 = y0 + digit_h
+    mid = (y0 + y1) // 2
+    thickness = max(min_stroke_px, int(min(digit_w, digit_h) * 0.16))
+    half_t = max(max(1, min_stroke_px // 2), thickness // 2)
+
+    boxes = {
+        "a": (x0 + thickness,
+              y0,
+              x1 - thickness,
+              y0 + thickness),
+        "b": (x1 - thickness,
+              y0 + thickness,
+              x1,
+              mid),
+        "c": (x1 - thickness,
+              mid,
+              x1,
+              y1 - thickness),
+        "d": (x0 + thickness,
+              y1 - thickness,
+              x1 - thickness,
+              y1),
+        "e": (x0,
+              mid,
+              x0 + thickness,
+              y1 - thickness),
+        "f": (x0,
+              y0 + thickness,
+              x0 + thickness,
+              mid),
+        "g": (x0 + thickness,
+              mid - half_t,
+              x1 - thickness,
+              mid + half_t),
+    }
+    for segment in segments:
+        _fill_rect(img, *boxes[segment])
+
+
 def generate_number_rgb(number, width=DMD_WIDTH, height=DMD_HEIGHT, size_px=None):
     """Generate a binary RGB seven-segment digit frame for number mode."""
     if number not in _DIGIT_SEGMENTS:
@@ -210,25 +318,56 @@ def generate_number_rgb(number, width=DMD_WIDTH, height=DMD_HEIGHT, size_px=None
     else:
         digit_h = max(24, int(height * 0.78))
         digit_w = min(max(16, int(width * 0.46)), max(16, int(digit_h * 0.62)))
-    thickness = max(4, int(min(digit_w, digit_h) * 0.16))
     x0 = (width - digit_w) // 2
-    x1 = x0 + digit_w
     y0 = (height - digit_h) // 2
-    y1 = y0 + digit_h
-    mid = (y0 + y1) // 2
-    half_t = max(2, thickness // 2)
+    _draw_digit_segments(
+        img,
+        _DIGIT_SEGMENTS[number],
+        x0,
+        y0,
+        digit_w,
+        digit_h,
+        min_stroke_px=4,
+    )
+    return img
 
-    boxes = {
-        "a": (x0 + thickness, y0, x1 - thickness, y0 + thickness),
-        "b": (x1 - thickness, y0 + thickness, x1, mid),
-        "c": (x1 - thickness, mid, x1, y1 - thickness),
-        "d": (x0 + thickness, y1 - thickness, x1 - thickness, y1),
-        "e": (x0, mid, x0 + thickness, y1 - thickness),
-        "f": (x0, y0 + thickness, x0 + thickness, mid),
-        "g": (x0 + thickness, mid - half_t, x1 - thickness, mid + half_t),
-    }
-    for segment in _DIGIT_SEGMENTS[number]:
-        _fill_rect(img, *boxes[segment])
+
+def generate_decimal_number_rgb(number, width=DMD_WIDTH, height=DMD_HEIGHT, size_px=None):
+    """Generate a binary RGB seven-segment decimal label frame."""
+    if number < 0:
+        raise ValueError("number must be non-negative")
+
+    img = np.zeros((height, width, 3), dtype=np.uint8)
+    if size_px is not None:
+        if size_px <= 0:
+            raise ValueError("size_px must be positive")
+        digit_h = min(int(size_px), height)
+    else:
+        digit_h = max(24, int(height * 0.78))
+
+    digits = [int(char) for char in str(int(number))]
+    digit_w = max(1, int(digit_h * 0.62))
+    gap = max(1, int(digit_w * 0.18)) if len(digits) > 1 else 0
+    group_w = len(digits) * digit_w + (len(digits) - 1) * gap
+    if group_w > width:
+        scale = width / max(1, group_w)
+        digit_w = max(1, int(digit_w * scale))
+        digit_h = max(1, min(height, int(digit_h * scale)))
+        gap = max(1, int(gap * scale)) if len(digits) > 1 else 0
+        group_w = len(digits) * digit_w + (len(digits) - 1) * gap
+
+    x = max(0, (width - group_w) // 2)
+    y = max(0, (height - digit_h) // 2)
+    for digit in digits:
+        _draw_digit_segments(
+            img,
+            _DECIMAL_DIGIT_SEGMENTS[digit],
+            x,
+            y,
+            digit_w,
+            digit_h,
+        )
+        x += digit_w + gap
     return img
 
 
@@ -250,16 +389,24 @@ def _coarse_lines(engine):
 PATTERN_MODES = {
     #                 label                                   pattern generator          dynamic or not
     "checkerboard": ("Static Checkerboard", lambda e: (e.generate_checkerboard(), None)),
-    "ordering": ("Bit Ordering Sweep", lambda e: (e.generate_ordering_diagnostic_patterns(DMD_WIDTH, DMD_HEIGHT), None)),
-    "numbered": ("Numbered Regions (6x4 grid)", _numbered),
+    "ordering": (
+        "Bit Ordering Sweep", lambda e:
+        (e.generate_ordering_diagnostic_patterns(DMD_WIDTH, DMD_HEIGHT), None)),
+    "numbered": ("Numbered Regions (6x4 grid)",
+                 _numbered),
     "single-pixel": ("1x1 Single Pixel", lambda e: (e.generate_checkerboard(block_size=1), None)),
     "2x2": ("2x2 Checkerboard", lambda e: (e.generate_checkerboard(block_size=2), None)),
     "lines": ("1-pixel Lines", lambda e: (e.generate_lines(), None)),
-    "colors": ("Color Channels (R/G/B)", lambda e: (e.rgb_to_binary_patterns(_solid_color(0)), "colors")),
-    "coarse-grid": ("Human-Visible Coarse Grid", _coarse_grid),
-    "grid": ("Human-Visible Coarse Grid", _coarse_grid),
-    "coarse-lines": ("Human-Visible Coarse Lines", _coarse_lines),
-    "bands": ("Human-Visible Coarse Lines", _coarse_lines),
+    "colors":
+    ("Color Channels (R/G/B)", lambda e: (e.rgb_to_binary_patterns(_solid_color(0)), "colors")),
+    "coarse-grid": ("Human-Visible Coarse Grid",
+                    _coarse_grid),
+    "grid": ("Human-Visible Coarse Grid",
+             _coarse_grid),
+    "coarse-lines": ("Human-Visible Coarse Lines",
+                     _coarse_lines),
+    "bands": ("Human-Visible Coarse Lines",
+              _coarse_lines),
     "numbers": ("Sequential Numbers (1-9)", lambda e: (None, "numbers")),
     "calibr-square": ("Interactive Calibration Square", lambda e: (None, "calibr-square")),
     "snake": ("60FPS Snake", lambda e: (None, "snake")),

@@ -3,8 +3,6 @@ from __future__ import annotations
 import argparse
 import math
 import sys
-from dataclasses import asdict, is_dataclass
-from importlib import import_module
 
 from dmdcontrol.camera.capture import (
     AsyncCapture,
@@ -19,6 +17,8 @@ from dmdcontrol.camera.local_support_filter import (
 )
 from dmdcontrol.camera.runs import (
     create_run_directory,
+    final_capture_artifacts,
+    metadata_dict,
     write_capture_artifacts,
     write_json,
     write_run_metadata,
@@ -27,6 +27,28 @@ from dmdcontrol.camera.session import (
     close_camera_resources,
     open_ready_camera as _open_ready_camera,
 )
+from dmdcontrol.patterns.paired import MAX_COUNT_SEQUENCE_FRAMES
+from dmdcontrol.support.argparse_types import (
+    nonnegative_int,
+    numbers_bitplane_order,
+    positive_int,
+)
+from dmdcontrol.support.constants import BITPLANES
+
+A_COUNT_B_STATIC_TEST = "a-count-b-static"
+
+
+class SyncCheckArgumentParser(argparse.ArgumentParser):
+
+    def parse_args(self, args=None, namespace=None):
+        parsed = super().parse_args(args, namespace)
+        try:
+            _validate_count_mode_args(parsed)
+            _validate_numbers_mode_args(parsed)
+        except ValueError as exc:
+            self.error(str(exc))
+        parsed.requested_accumulation_cycles = _requested_accumulation_cycles(parsed)
+        return parsed
 
 
 def parse_numbers(value: str) -> list[int]:
@@ -43,28 +65,42 @@ def parse_numbers(value: str) -> list[int]:
     return numbers
 
 
-def positive_int(value: str) -> int:
-    try:
-        number = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("value must be positive") from exc
-    if number <= 0:
-        raise argparse.ArgumentTypeError("value must be positive")
-    return number
+def _requested_accumulation_cycles(args: argparse.Namespace) -> int | None:
+    if args.accumulation_cycles is not None:
+        return args.accumulation_cycles
+    if args.test == A_COUNT_B_STATIC_TEST:
+        return None
+    return 1
 
 
-def nonnegative_int(value: str) -> int:
-    try:
-        number = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("value must be non-negative") from exc
-    if number < 0:
-        raise argparse.ArgumentTypeError("value must be non-negative")
-    return number
+def _validate_count_mode_args(args: argparse.Namespace) -> None:
+    if args.test != A_COUNT_B_STATIC_TEST:
+        return
+    if args.count_start > args.count_end:
+        raise ValueError("--count-start must be <= --count-end")
+    if args.count_slots_per_frame <= 0 or args.count_slots_per_frame > BITPLANES:
+        raise ValueError(f"--count-slots-per-frame must be in the range 1..{BITPLANES}")
+    count_total = args.count_end - args.count_start + 1
+    if count_total % args.count_slots_per_frame != 0:
+        raise ValueError("count range length must be divisible by --count-slots-per-frame")
+    frame_count = count_total // args.count_slots_per_frame
+    if frame_count > MAX_COUNT_SEQUENCE_FRAMES:
+        raise ValueError(
+            f"a-count-b-static can span at most {MAX_COUNT_SEQUENCE_FRAMES} VSYNC frames")
+
+
+def _validate_numbers_mode_args(args: argparse.Namespace) -> None:
+    if args.test == A_COUNT_B_STATIC_TEST or args.numbers_bitplane_order is None:
+        return
+    if len(args.numbers_bitplane_order) != len(args.numbers):
+        raise ValueError("--numbers-bitplane-order length must match --numbers length")
+    if sorted(args.numbers_bitplane_order) != list(range(len(args.numbers))):
+        raise ValueError(
+            "--numbers-bitplane-order must be a zero-based permutation of --numbers slots")
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = SyncCheckArgumentParser(
         prog="python -m dmdcontrol camera sync-check",
         description="Paired DMD + DVXplorer sync check.",
     )
@@ -80,11 +116,28 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--number-size-px", type=positive_int, default=100)
     parser.add_argument("--numbers", type=parse_numbers, default=parse_numbers("1,2,3,4,5"))
     parser.add_argument(
+        "--numbers-bitplane-order",
+        type=numbers_bitplane_order,
+        default=None,
+        help=(
+            "Zero-based bitplane indexes in chronological display order for numbers mode. "
+            "Use 1,2,3,4,0 if --numbers 1,2,3,4,5 captures visually as 2,3,4,5,1."),
+    )
+    parser.add_argument(
         "--numbers-exposure-us",
         type=positive_int,
         default=None,
         help="Optional per-bitplane LUT exposure override in microseconds. "
-             "Omit for the maximum safe exposure at the configured VSYNC.",
+        "Omit for the maximum safe exposure at the configured VSYNC.",
+    )
+    parser.add_argument("--count-start", type=positive_int, default=1)
+    parser.add_argument("--count-end", type=positive_int, default=100)
+    parser.add_argument("--count-slots-per-frame", type=positive_int, default=2)
+    parser.add_argument(
+        "--count-exposure-us",
+        type=positive_int,
+        default=None,
+        help="Optional per-count LUT exposure override in microseconds.",
     )
     parser.add_argument("--trigger-out-2-delay-fraction", type=float, default=0.00)
     parser.add_argument("--runtime-seconds", type=int, default=0)
@@ -93,7 +146,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=None,
         help="Optional paired-runtime LUT budget utilization override. "
-             "Use 1.0 only when intentionally using nearly the full VSYNC budget.",
+        "Use 1.0 only when intentionally using nearly the full VSYNC budget.",
     )
     parser.add_argument("--dmd-config", default=None)
     parser.add_argument("--hz", type=int, default=None)
@@ -102,14 +155,40 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--b-dot-x", type=int, default=960)
     parser.add_argument("--b-dot-y", type=int, default=540)
     parser.add_argument("--b-dot-radius", type=positive_int, default=20)
-    parser.add_argument("--bias-sensitivity", default="default", choices=["default", "verylow", "low", "high", "veryhigh"])
-    parser.add_argument("--efps", default="default", choices=["default", "variable", "variable_5000", "constant_1000", "constant_100"])
-    parser.add_argument("--polarity-mode", default="positive", choices=["positive", "signed", "ignore"])
+    parser.add_argument(
+        "--bias-sensitivity",
+        default="default",
+        choices=["default",
+                 "verylow",
+                 "low",
+                 "high",
+                 "veryhigh"])
+    parser.add_argument(
+        "--efps",
+        default="default",
+        choices=["default",
+                 "variable",
+                 "variable_5000",
+                 "constant_1000",
+                 "constant_100"])
+    parser.add_argument(
+        "--polarity-mode",
+        default="positive",
+        choices=["positive",
+                 "signed",
+                 "ignore"])
+    parser.add_argument(
+        "--accumulation-start-offset-us",
+        type=int,
+        default=0,
+        help="Shift each accumulation window relative to its trigger timestamp.",
+    )
     parser.add_argument("--dark-time-us", type=int, default=None)
     parser.add_argument(
         "--camera-open-method",
         default="modern",
-        choices=["modern", "legacy"],
+        choices=["modern",
+                 "legacy"],
         help="Camera API used to open the device. Use legacy to mirror mentor CameraCapture code.",
     )
     parser.add_argument(
@@ -117,7 +196,8 @@ def build_parser() -> argparse.ArgumentParser:
         dest="camera_usb_reset",
         action="store_true",
         default=False,
-        help="Diagnostic: run a Linux USB device reset before opening the camera. Disabled by default.",
+        help=
+        "Diagnostic: run a Linux USB device reset before opening the camera. Disabled by default.",
     )
     parser.add_argument(
         "--no-camera-usb-reset",
@@ -131,14 +211,13 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Optional command run before camera open to power-cycle the USB port, "
             "for example: \"uhubctl -l 1-2 -p 3 -a cycle -d 2\". "
-            "Defaults to DMD_CAMERA_POWER_CYCLE_COMMAND when set."
-        ),
+            "Defaults to DMD_CAMERA_POWER_CYCLE_COMMAND when set."),
     )
     parser.add_argument(
         "--camera-flush-reads",
         type=nonnegative_int,
-        default=1,
-        help="Number of stale event/trigger batch reads to discard after opening the camera.",
+        default=32,
+        help="Maximum stale event/trigger batch reads to discard before capture.",
     )
     parser.add_argument(
         "--camera-post-trigger-event-batches",
@@ -156,7 +235,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--camera-shutdown-streams",
         action="store_true",
         default=False,
-        help="Diagnostic: stop camera streams before releasing the capture object. Disabled by default.",
+        help=
+        "Diagnostic: stop camera streams before releasing the capture object. Disabled by default.",
+    )
+    parser.add_argument(
+        "--accumulation-cycles",
+        type=positive_int,
+        default=None,
+        help=(
+            "Number of complete trigger cycles to use for derived accumulation artifacts. "
+            "Numbers mode defaults to 1; count mode defaults to unlimited."),
     )
     add_event_noise_filter_arguments(parser)
     parser.add_argument("-v", "--verbose", action="count", default=0)
@@ -164,24 +252,114 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def expected_trigger_count(args: argparse.Namespace) -> int:
+    if args.test == A_COUNT_B_STATIC_TEST:
+        return args.count_end - args.count_start + 1
     return len(args.numbers)
-
-
-def _asdict(value):
-    if is_dataclass(value):
-        return asdict(value)
-    return dict(getattr(value, "__dict__", {}))
 
 
 def _pair_runtime_seconds(args: argparse.Namespace) -> int:
     runtime_seconds = args.runtime_seconds
     if runtime_seconds <= 0:
-        if args.numbers_exposure_us is None:
+        if args.test == A_COUNT_B_STATIC_TEST:
+            exposure_us = args.count_exposure_us
+            if exposure_us is None:
+                runtime_seconds = 1
+            else:
+                per_count_us = exposure_us + max(0, args.dark_time_us or 0)
+                sequence_seconds = expected_trigger_count(args) * per_count_us / 1_000_000.0
+                runtime_seconds = max(1, math.ceil(sequence_seconds))
+        elif args.numbers_exposure_us is None:
             runtime_seconds = 1
         else:
             sequence_seconds = len(args.numbers) * args.numbers_exposure_us / 1_000_000.0
             runtime_seconds = max(1, math.ceil(sequence_seconds))
     return runtime_seconds
+
+
+def _requested_accumulation_window_us(args: argparse.Namespace) -> int | None:
+    if args.test == A_COUNT_B_STATIC_TEST:
+        return args.count_exposure_us
+    return args.numbers_exposure_us
+
+
+def _trigger_policy(args: argparse.Namespace) -> dict[str, object]:
+    return {
+        "channel": "TRIG_OUT_2",
+        "edge": "rising",
+        "delay_fraction": args.trigger_out_2_delay_fraction,
+    }
+
+
+def _sync_check_test_metadata(args: argparse.Namespace, *, dry_run: bool) -> dict[str, object]:
+    if args.test == A_COUNT_B_STATIC_TEST:
+        metadata = {
+            "count_start": args.count_start,
+            "count_end": args.count_end,
+            "count_slots_per_frame": args.count_slots_per_frame,
+            "count_exposure_us": args.count_exposure_us,
+        }
+        if dry_run:
+            metadata.update(
+                {
+                    "accumulation_window_us": _requested_accumulation_window_us(args),
+                    "bitplane_count": args.count_slots_per_frame,
+                })
+        return metadata
+
+    metadata = {
+        "number_sequence":
+        list(args.numbers),
+        "numbers_bitplane_order":
+        (list(args.numbers_bitplane_order) if args.numbers_bitplane_order is not None else None),
+        "numbers_exposure_us":
+        args.numbers_exposure_us,
+    }
+    if dry_run:
+        metadata["bitplane_count"] = len(args.numbers)
+    return metadata
+
+
+def _sync_check_metadata(
+    args: argparse.Namespace,
+    event_filter,
+    *,
+    dry_run: bool,
+    command: list[str],
+) -> dict[str,
+          object]:
+    metadata = {
+        "mode": "sync-check",
+        "dry_run": dry_run,
+        "test": args.test,
+        "command": command,
+        "number_size_px": args.number_size_px,
+        "b_dot_x": args.b_dot_x,
+        "b_dot_y": args.b_dot_y,
+        "b_dot_radius": args.b_dot_radius,
+        "expected_trigger_count": expected_trigger_count(args),
+        "seq_utilization": args.seq_utilization,
+        "trigger_policy": _trigger_policy(args),
+        "bias_sensitivity": args.bias_sensitivity,
+        "efps": args.efps,
+        "polarity_mode": args.polarity_mode,
+        "dark_time_us": args.dark_time_us,
+        "camera_usb_reset": args.camera_usb_reset,
+        "camera_power_cycle_command": args.camera_power_cycle_command,
+        "camera_open_method": args.camera_open_method,
+        "camera_flush_reads": args.camera_flush_reads,
+        "camera_post_trigger_event_batches": args.camera_post_trigger_event_batches,
+        "camera_stream_rearm": args.camera_stream_rearm,
+        "camera_shutdown_streams": args.camera_shutdown_streams,
+        "accumulation_cycles": args.requested_accumulation_cycles,
+        "accumulation_start_offset_us": args.accumulation_start_offset_us,
+        "event_noise_filter": event_noise_filter_metadata(event_filter),
+        "save_filtered_events": args.save_filtered_events,
+    }
+    if dry_run:
+        metadata["trigger_mode"] = "per_bitplane"
+    metadata.update(_sync_check_test_metadata(args, dry_run=dry_run))
+    return metadata
+
 
 # special run system for sync check
 def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
@@ -197,16 +375,41 @@ def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
         str(args.b_dot_y),
         "--b-dot-radius",
         str(args.b_dot_radius),
-        "--numbers",
-        ",".join(str(number) for number in args.numbers),
-        "--numbers-size-px",
-        str(args.number_size_px),
         "--runtime-seconds",
         str(runtime_seconds),
         "--trigger-out-2-delay-fraction",
         str(args.trigger_out_2_delay_fraction),
     ]
-    if args.numbers_exposure_us is not None:
+
+    if args.test == A_COUNT_B_STATIC_TEST:
+        pair_args.extend(
+            [
+                "--count-start",
+                str(args.count_start),
+                "--count-end",
+                str(args.count_end),
+                "--count-slots-per-frame",
+                str(args.count_slots_per_frame),
+                "--numbers-size-px",
+                str(args.number_size_px),
+            ])
+        if args.count_exposure_us is not None:
+            pair_args.extend(["--count-exposure-us", str(args.count_exposure_us)])
+    else:
+        pair_args.extend(
+            [
+                "--numbers",
+                ",".join(str(number) for number in args.numbers),
+                "--numbers-size-px",
+                str(args.number_size_px),
+            ])
+        if args.numbers_bitplane_order is not None:
+            pair_args.extend(
+                [
+                    "--numbers-bitplane-order",
+                    ",".join(str(index) for index in args.numbers_bitplane_order),
+                ])
+    if args.test != A_COUNT_B_STATIC_TEST and args.numbers_exposure_us is not None:
         pair_args.extend(["--numbers-exposure-us", str(args.numbers_exposure_us)])
     if args.seq_utilization is not None:
         pair_args.extend(["--seq-utilization", str(args.seq_utilization)])
@@ -222,51 +425,100 @@ def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
 
 
 def _run_pair_with_callback(pair_args, before_start):
-    pair_module = import_module("dmdcontrol.runtime.pair")
+    from dmdcontrol.runtime import pair as pair_module
+
     return pair_module.run_with_before_start_callback(pair_args, before_start)
+
+
+def _copy_sweep_metadata(args: argparse.Namespace, metadata: dict[str, object]) -> None:
+    for source_name, metadata_name in (
+        ("sweep_id", "sweep_id"),
+        ("sweep_index", "sweep_index"),
+        ("sweep_repeat", "sweep_repeat"),
+        ("sweep_manifest", "sweep_manifest"),
+    ):
+        if hasattr(args, source_name):
+            metadata[metadata_name] = getattr(args, source_name)
+
+
+def _start_recording(
+    args,
+    capture,
+    writer,
+    event_records,
+    trigger_records,
+    accumulation_window_us,
+):
+    recording = AsyncCapture(
+        capture,
+        writer,
+        expected_trigger_count=None,
+        timeout_s=max(1,
+                      _pair_runtime_seconds(args)),
+        on_events=lambda batch: append_batch_records(event_records, batch, as_numpy=True),
+        on_triggers=lambda batch: append_batch_records(trigger_records, batch),
+        record_fn=record_until_trigger_count,
+        post_trigger_event_batches=args.camera_post_trigger_event_batches,
+        post_trigger_event_time_us=accumulation_window_us or 0,
+    )
+    recording.start()
+    return recording
+
+
+def _update_before_start_metadata(metadata, ready, context, accumulation_window_us):
+    metadata.update(
+        {
+            "camera_ready": metadata_dict(ready),
+            "dmd_ready": True,
+            "timing_a": context.get("state_a",
+                                    {}).get("timing"),
+            "timing_b": context.get("state_b",
+                                    {}).get("timing"),
+        })
+    if accumulation_window_us["value"] is None:
+        timing = context.get("state_a", {}).get("timing") or {}
+        accumulation_window_us["value"] = timing.get("exposure_us")
+    metadata["accumulation_window_us"] = accumulation_window_us["value"]
+
+
+def _write_capture_artifacts_for_sync_check(
+    args,
+    run,
+    ready,
+    event_records,
+    trigger_records,
+    event_filter,
+    accumulation_window_us,
+):
+    return write_capture_artifacts(
+        run,
+        events=event_records,
+        triggers=trigger_records,
+        resolution=tuple(ready.event_resolution),
+        window_us=accumulation_window_us or 0,
+        polarity_mode=args.polarity_mode,
+        event_noise_filter=event_filter,
+        save_filtered_events=args.save_filtered_events,
+        trigger_cycle_length=expected_trigger_count(args),
+        accumulation_cycles=args.requested_accumulation_cycles,
+        window_start_offset_us=args.accumulation_start_offset_us,
+        contact_sheet_columns=expected_trigger_count(args),
+    )
+
 
 def dry_run(args: argparse.Namespace):
     run = create_run_directory("sync-check", args.output_root, timestamp=args.timestamp)
     event_filter = event_noise_filter_config_from_args(args)
-    trigger_policy = {
-        "channel": "TRIG_OUT_2",
-        "edge": "rising",
-        "delay_fraction": args.trigger_out_2_delay_fraction,
-    }
-    metadata = {
-        "mode": "sync-check",
-        "dry_run": True,
-        "command": sys.argv,
-        "number_sequence": list(args.numbers),
-        "number_size_px": args.number_size_px,
-        "numbers_exposure_us": args.numbers_exposure_us,
-        "b_dot_x": args.b_dot_x,
-        "b_dot_y": args.b_dot_y,
-        "b_dot_radius": args.b_dot_radius,
-        "expected_trigger_count": expected_trigger_count(args),
-        "trigger_mode": "per_bitplane",
-        "bitplane_count": len(args.numbers),
-        "seq_utilization": args.seq_utilization,
-        "trigger_policy": trigger_policy,
-        "bias_sensitivity": args.bias_sensitivity,
-        "efps": args.efps,
-        "polarity_mode": args.polarity_mode,
-        "dark_time_us": args.dark_time_us,
-        "camera_usb_reset": args.camera_usb_reset,
-        "camera_power_cycle_command": args.camera_power_cycle_command,
-        "camera_open_method": args.camera_open_method,
-        "camera_flush_reads": args.camera_flush_reads,
-        "camera_post_trigger_event_batches": args.camera_post_trigger_event_batches,
-        "camera_stream_rearm": args.camera_stream_rearm,
-        "camera_shutdown_streams": args.camera_shutdown_streams,
-        "event_noise_filter": event_noise_filter_metadata(event_filter),
-        "save_filtered_events": args.save_filtered_events,
-    }
+    trigger_policy = _trigger_policy(args)
+    metadata = _sync_check_metadata(args, event_filter, dry_run=True, command=sys.argv)
     write_json(run.timing_path, trigger_policy)
     write_run_metadata(
         run,
         metadata,
-        artifacts=["metadata.json", "timing.json", "command.txt", "run.log"],
+        artifacts=["metadata.json",
+                   "timing.json",
+                   "command.txt",
+                   "run.log"],
     )
     run.command_path.write_text(
         "python -m dmdcontrol camera sync-check --dry-run\n",
@@ -276,101 +528,74 @@ def dry_run(args: argparse.Namespace):
     return run
 
 
-def live(args: argparse.Namespace) -> int:
-    run = create_run_directory("sync-check", args.output_root, timestamp=args.timestamp)
+def live_capture(
+    args: argparse.Namespace,
+    run,
+    capture,
+    writer,
+    ready,
+    command_argv: list[str] | None = None,
+) -> int:
     event_filter = event_noise_filter_config_from_args(args)
-    capture = None
-    writer = None
     recording = None
     capture_result = None
     artifact_summary = None
     event_records = []
     trigger_records = []
-    accumulation_window_us = {"value": args.numbers_exposure_us}
-    trigger_policy = {
-        "channel": "TRIG_OUT_2",
-        "edge": "rising",
-        "delay_fraction": args.trigger_out_2_delay_fraction,
-    }
-    metadata = {
-        "mode": "sync-check",
-        "dry_run": False,
-        "command": sys.argv,
-        "number_sequence": list(args.numbers),
-        "number_size_px": args.number_size_px,
-        "numbers_exposure_us": args.numbers_exposure_us,
-        "b_dot_x": args.b_dot_x,
-        "b_dot_y": args.b_dot_y,
-        "b_dot_radius": args.b_dot_radius,
-        "expected_trigger_count": expected_trigger_count(args),
-        "seq_utilization": args.seq_utilization,
-        "trigger_policy": trigger_policy,
-        "bias_sensitivity": args.bias_sensitivity,
-        "efps": args.efps,
-        "polarity_mode": args.polarity_mode,
-        "dark_time_us": args.dark_time_us,
-        
-        "camera_usb_reset": args.camera_usb_reset,
-        "camera_power_cycle_command": args.camera_power_cycle_command,
-        "camera_open_method": args.camera_open_method,
-        "camera_flush_reads": args.camera_flush_reads,
-        "camera_post_trigger_event_batches": args.camera_post_trigger_event_batches,
-        "camera_stream_rearm": args.camera_stream_rearm,
-        "camera_shutdown_streams": args.camera_shutdown_streams,
-        
-        "event_noise_filter": event_noise_filter_metadata(event_filter),
-        "save_filtered_events": args.save_filtered_events,
-    }
+    accumulation_window_us = {"value": _requested_accumulation_window_us(args)}
+    trigger_policy = _trigger_policy(args)
+    metadata = _sync_check_metadata(
+        args,
+        event_filter,
+        dry_run=False,
+        command=command_argv or sys.argv,
+    )
+    _copy_sweep_metadata(args, metadata)
 
     try:
-        capture, writer, ready = _open_ready_camera(run, args)
         write_json(run.timing_path, trigger_policy)
-        run.command_path.write_text(" ".join(sys.argv) + "\n", encoding="utf-8")
+        run.command_path.write_text(
+            " ".join(command_argv or sys.argv) + "\n",
+            encoding="utf-8",
+        )
         run.log_path.write_text("live\n", encoding="utf-8")
 
         def before_start(context):
             nonlocal recording
-            metadata.update({
-                "camera_ready": _asdict(ready),
-                "dmd_ready": True,
-                "timing_a": context.get("state_a", {}).get("timing"),
-                "timing_b": context.get("state_b", {}).get("timing"),
-            })
-            if accumulation_window_us["value"] is None:
-                timing = context.get("state_a", {}).get("timing") or {}
-                accumulation_window_us["value"] = timing.get("exposure_us")
-            metadata["accumulation_window_us"] = accumulation_window_us["value"]
+            _update_before_start_metadata(metadata, ready, context, accumulation_window_us)
+            metadata["camera_pre_capture_flush"] = flush_stale_batches(
+                capture,
+                reads=args.camera_flush_reads,
+                include_triggers=True,
+            )
             if recording is None:
-                recording = AsyncCapture(
+                recording = _start_recording(
+                    args,
                     capture,
                     writer,
-                    expected_trigger_count=expected_trigger_count(args),
-                    timeout_s=max(1, _pair_runtime_seconds(args)),
-                    on_events=lambda batch: append_batch_records(event_records, batch, as_numpy=True),
-                    on_triggers=lambda batch: append_batch_records(trigger_records, batch),
-                    record_fn=record_until_trigger_count,
-                    post_trigger_event_batches=args.camera_post_trigger_event_batches,
+                    event_records,
+                    trigger_records,
+                    accumulation_window_us["value"],
                 )
-                recording.start()
             write_run_metadata(
                 run,
                 metadata,
-                artifacts=["raw.aedat4", "metadata.json"],
+                artifacts=["raw.aedat4",
+                           "metadata.json"],
             )
 
         _run_pair_with_callback(_to_pair_runtime_args(args), before_start)
         if recording is not None:
             recording.stop()
             capture_result = recording.join()
-            artifact_summary = write_capture_artifacts(
+            artifact_summary = _write_capture_artifacts_for_sync_check(
+                args,
                 run,
-                events=event_records,
-                triggers=trigger_records,
-                resolution=tuple(ready.event_resolution),
-                window_us=accumulation_window_us["value"] or 0,
-                polarity_mode=args.polarity_mode,
-                event_noise_filter=event_filter,
-                save_filtered_events=args.save_filtered_events,
+                ready,
+                event_records,
+                trigger_records,
+                event_filter,
+                accumulation_window_us["value"],
             )
             metadata["artifact_summary"] = artifact_summary
             if "event_noise_filter" in artifact_summary:
@@ -384,37 +609,25 @@ def live(args: argparse.Namespace) -> int:
             except BaseException as exc:
                 metadata["capture_error"] = repr(exc)
         if capture_result is not None:
-            metadata["capture"] = _asdict(capture_result)
-            artifacts = [
-                "raw.aedat4",
-                "metadata.json",
-                "command.txt",
-                "run.log",
-                "timing.json",
-            ]
-            if artifact_summary is not None:
-                artifacts.extend([
-                    "triggers.csv",
-                    "accumulated.npy",
-                    "contact_sheet.png",
-                    "summary.json",
-                ])
-                artifacts.extend(artifact_summary.get("frame_artifacts", []))
-                artifacts.extend(artifact_summary.get("filtered_frame_artifacts", []))
-                if artifact_summary.get("filtered_contact_sheet_artifact"):
-                    artifacts.append(artifact_summary["filtered_contact_sheet_artifact"])
-                if artifact_summary.get("filtered_events_artifact"):
-                    artifacts.append(artifact_summary["filtered_events_artifact"])
+            metadata["capture"] = metadata_dict(capture_result)
             write_run_metadata(
                 run,
                 metadata,
-                artifacts=artifacts,
+                artifacts=final_capture_artifacts(artifact_summary),
             )
         if recording is not None:
             recording = None
+
+
+def live(args: argparse.Namespace) -> int:
+    run = create_run_directory("sync-check", args.output_root, timestamp=args.timestamp)
+    capture = None
+    writer = None
+    try:
+        capture, writer, ready = _open_ready_camera(run, args)
+        return live_capture(args, run, capture, writer, ready)
+    finally:
         resources = {"writer": writer, "capture": capture}
-        writer = None
-        capture = None
         close_camera_resources(
             resources,
             shutdown_streams=args.camera_shutdown_streams,

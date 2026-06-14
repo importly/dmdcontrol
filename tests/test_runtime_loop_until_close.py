@@ -5,6 +5,7 @@ from dmdcontrol.runtime.loop import run_render_loop
 
 
 class _Engine:
+
     def __init__(self):
         self.displayed = 0
 
@@ -16,6 +17,7 @@ class _Engine:
 
 
 class RuntimeLoopUntilCloseTests(unittest.TestCase):
+
     def test_runtime_seconds_zero_runs_until_window_close(self):
         engine = _Engine()
         args = types.SimpleNamespace(runtime_seconds=0, verbose=0)

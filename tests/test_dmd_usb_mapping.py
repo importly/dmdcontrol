@@ -24,6 +24,7 @@ ID_MODEL_ID=c900
 
 
 class _FakeUsbDevice:
+
     def __init__(self, bus, address, port_numbers):
         self.bus = bus
         self.address = address
@@ -31,6 +32,7 @@ class _FakeUsbDevice:
 
 
 class DmdUsbMappingTests(unittest.TestCase):
+
     def test_parse_udev_properties_and_physical_path(self):
         props = parse_udevadm_properties(UDEV_HIDRAW0)
 
@@ -46,12 +48,11 @@ class DmdUsbMappingTests(unittest.TestCase):
         self.assertEqual(usb_ids_from_properties(props), (0x0451, 0xC900))
 
         hid_props = parse_udevadm_properties(
-            "HID_ID=0003:00000451:0000C900\nDEVNAME=/dev/hidraw1\n"
-        )
+            "HID_ID=0003:00000451:0000C900\nDEVNAME=/dev/hidraw1\n")
         self.assertEqual(usb_ids_from_properties(hid_props), (0x0451, 0xC900))
 
     def test_physical_usb_path_parses_port_topology(self):
-        self.assertEqual(parse_physical_usb_path("usb1/1-8"), (1, (8,)))
+        self.assertEqual(parse_physical_usb_path("usb1/1-8"), (1, (8, )))
         self.assertEqual(parse_physical_usb_path("usb2/2-4.3"), (2, (4, 3)))
 
     def test_resolve_dmd_mapping_from_json(self):
@@ -67,10 +68,7 @@ class DmdUsbMappingTests(unittest.TestCase):
                                 "xrandr_output": "DP-2",
                                 "glfw_monitor_index": 0,
                                 "target_hz": 60,
-                            }
-                        }
-                    }
-                ),
+                            }}}),
                 encoding="utf-8",
             )
 
@@ -97,9 +95,7 @@ class DmdUsbMappingTests(unittest.TestCase):
                     "id_path": props["ID_PATH"],
                     "devpath": props["DEVPATH"],
                     "physical_path": physical_path_from_devpath(props["DEVPATH"]),
-                }
-            ]
-        )
+                }])
 
         self.assertIn("Found 1 DLPC900 USB device", text)
         self.assertIn("vidpid: 0451:c900", text)
@@ -109,14 +105,15 @@ class DmdUsbMappingTests(unittest.TestCase):
         self.assertIn("suggested_config_key: pci-0000:03:00.0-usb-0:1:1.0", text)
 
     def test_select_pyusb_device_falls_back_to_configured_physical_port(self):
-        expected = _FakeUsbDevice(bus=1, address=18, port_numbers=(1,))
-        other = _FakeUsbDevice(bus=1, address=19, port_numbers=(8,))
+        expected = _FakeUsbDevice(bus=1, address=18, port_numbers=(1, ))
+        other = _FakeUsbDevice(bus=1, address=19, port_numbers=(8, ))
 
         selected = select_pyusb_device_for_mapping(
             "pci-0000:03:00.0-usb-0:1:1.0",
             usb_devpath_contains="/usb1/1-1/1-1:1.0/",
             candidates=[],
-            pyusb_devices=[other, expected],
+            pyusb_devices=[other,
+                           expected],
         )
 
         self.assertIs(selected, expected)
