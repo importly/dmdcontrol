@@ -41,15 +41,23 @@ def test_sync_sweep_dry_run_creates_one_run_per_manifest_row(tmp_path):
     _write_manifest(
         manifest,
         [
-            _row(tmp_path, "sweep-000", 600, 0.0),
-            _row(tmp_path, "sweep-001", 1000, 0.05),
+            _row(tmp_path,
+                 "sweep-000",
+                 600,
+                 0.0),
+            _row(tmp_path,
+                 "sweep-001",
+                 1000,
+                 0.05),
         ],
     )
 
     assert sync_sweep.main(["--dry-run", "--manifest", str(manifest)]) == 0
 
-    first = json.loads((tmp_path / "sweep-000-sync-check" / "metadata.json").read_text(encoding="utf-8"))
-    second = json.loads((tmp_path / "sweep-001-sync-check" / "metadata.json").read_text(encoding="utf-8"))
+    first = json.loads(
+        (tmp_path / "sweep-000-sync-check" / "metadata.json").read_text(encoding="utf-8"))
+    second = json.loads(
+        (tmp_path / "sweep-001-sync-check" / "metadata.json").read_text(encoding="utf-8"))
     assert first["dry_run"] is True
     assert first["numbers_exposure_us"] == 600
     assert first["trigger_policy"]["delay_fraction"] == 0.0
@@ -71,18 +79,23 @@ def test_camera_sync_sweep_cli_dry_run_creates_artifacts(tmp_path):
         str(manifest),
     ]) == 0
 
-    metadata = json.loads((tmp_path / "sweep-000-sync-check" / "metadata.json").read_text(encoding="utf-8"))
+    metadata = json.loads(
+        (tmp_path / "sweep-000-sync-check" / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["number_sequence"] == [1, 2, 3, 4, 5]
     assert metadata["numbers_exposure_us"] == 600
 
 
 def test_sync_sweep_forwards_accumulation_cycle_options_from_manifest(tmp_path):
-    argv = sync_sweep._row_sync_check_argv({
-        **_row(tmp_path, "sweep-000", 600, 0.0),
-        "accumulation_cycles": "2",
-        "trigger_cluster_us": "0",
-        "cycle_selection": "strongest",
-    })
+    argv = sync_sweep._row_sync_check_argv(
+        {
+            **_row(tmp_path,
+                   "sweep-000",
+                   600,
+                   0.0),
+            "accumulation_cycles": "2",
+            "trigger_cluster_us": "0",
+            "cycle_selection": "strongest",
+        })
 
     assert argv[argv.index("--accumulation-cycles") + 1] == "2"
     assert "--trigger-cluster-us" not in argv
@@ -94,8 +107,14 @@ def test_sync_sweep_live_opens_camera_once_for_all_rows(tmp_path, monkeypatch):
     _write_manifest(
         manifest,
         [
-            _row(tmp_path, "sweep-000", 600, 0.0),
-            _row(tmp_path, "sweep-001", 1000, 0.05),
+            _row(tmp_path,
+                 "sweep-000",
+                 600,
+                 0.0),
+            _row(tmp_path,
+                 "sweep-001",
+                 1000,
+                 0.05),
         ],
     )
     calls = {

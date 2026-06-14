@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOKS = ROOT / "notebooks"
 
@@ -17,10 +16,7 @@ def _load_notebook(name):
 
 
 def _joined_source(notebook):
-    return "\n".join(
-        "".join(cell.get("source", []))
-        for cell in notebook["cells"]
-    )
+    return "\n".join("".join(cell.get("source", [])) for cell in notebook["cells"])
 
 
 def test_timing_sweep_notebooks_exist_and_are_parseable():

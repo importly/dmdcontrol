@@ -33,12 +33,13 @@ def test_reprocess_main_writes_derived_artifacts_from_reader(monkeypatch, tmp_pa
     run_dir = tmp_path / "source-sync-check"
     run_dir.mkdir()
     (run_dir / "metadata.json").write_text(
-        json.dumps({
-            "accumulation_window_us": 20,
-            "polarity_mode": "positive",
-            "expected_trigger_count": 2,
-            "accumulation_cycles": 1,
-        }),
+        json.dumps(
+            {
+                "accumulation_window_us": 20,
+                "polarity_mode": "positive",
+                "expected_trigger_count": 2,
+                "accumulation_cycles": 1,
+            }),
         encoding="utf-8",
     )
     raw_path = run_dir / "raw.aedat4"
@@ -46,10 +47,23 @@ def test_reprocess_main_writes_derived_artifacts_from_reader(monkeypatch, tmp_pa
 
     events = np.array(
         [
-            (105, 1, 1, True),
-            (125, 2, 1, True),
+            (105,
+             1,
+             1,
+             True),
+            (125,
+             2,
+             1,
+             True),
         ],
-        dtype=[("timestamp", np.int64), ("x", np.int16), ("y", np.int16), ("polarity", np.bool_)],
+        dtype=[("timestamp",
+                np.int64),
+               ("x",
+                np.int16),
+               ("y",
+                np.int16),
+               ("polarity",
+                np.bool_)],
     )
 
     def fake_read(path):
@@ -57,23 +71,29 @@ def test_reprocess_main_writes_derived_artifacts_from_reader(monkeypatch, tmp_pa
         return Aedat4RecordingData(
             events=[events],
             triggers=[
-                TriggerRecord(timestamp=100, edge="rising"),
-                TriggerRecord(timestamp=120, edge="rising"),
+                TriggerRecord(timestamp=100,
+                              edge="rising"),
+                TriggerRecord(timestamp=120,
+                              edge="rising"),
             ],
-            resolution=(4, 3),
-            stats={"event_count": 2, "trigger_count": 2},
+            resolution=(4,
+                        3),
+            stats={
+                "event_count": 2,
+                "trigger_count": 2},
         )
 
     monkeypatch.setattr("dmdcontrol.camera.reprocess_aedat4.read_aedat4_recording", fake_read)
     output_dir = tmp_path / "derived"
 
-    assert main([
-        str(run_dir),
-        "--output-dir",
-        str(output_dir),
-        "--accumulation-start-offset-us",
-        "5",
-    ]) == 0
+    assert main(
+        [
+            str(run_dir),
+            "--output-dir",
+            str(output_dir),
+            "--accumulation-start-offset-us",
+            "5",
+        ]) == 0
 
     accumulated = np.load(output_dir / "accumulated.npy")
     summary = json.loads((output_dir / "summary.json").read_text(encoding="utf-8"))

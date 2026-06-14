@@ -6,6 +6,7 @@ from dmdcontrol.camera.pair_capture import _BoundedArtifactBuffer, build_parser,
 
 
 class FakeNumpyBatch:
+
     def __init__(self, array):
         self.array = array
 
@@ -15,12 +16,19 @@ class FakeNumpyBatch:
 
 def test_bounded_artifact_buffer_snapshots_numpy_event_batches():
     source = np.array(
-        [(100, 2, 1, True)],
+        [(100,
+          2,
+          1,
+          True)],
         dtype=[
-            ("timestamp", np.int64),
-            ("x", np.int16),
-            ("y", np.int16),
-            ("polarity", np.bool_),
+            ("timestamp",
+             np.int64),
+            ("x",
+             np.int16),
+            ("y",
+             np.int16),
+            ("polarity",
+             np.bool_),
         ],
     )
     buffer = _BoundedArtifactBuffer(max_rising_triggers=None, window_us=10)
@@ -35,25 +43,26 @@ def test_bounded_artifact_buffer_snapshots_numpy_event_batches():
 
 
 def test_pair_capture_parser_accepts_requested_command_shape():
-    args = build_parser().parse_args([
-        "--dry-run-timing",
-        "--test",
-        "a-kernel-b-static",
-        "--test-b",
-        "dot",
-        "--b-dot-x",
-        "960",
-        "--b-dot-y",
-        "540",
-        "--b-dot-radius",
-        "40",
-        "--kernel-px",
-        "1080",
-        "--kernel-exposure-us",
-        "3000",
-        "--runtime-seconds",
-        "999",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--test",
+            "a-kernel-b-static",
+            "--test-b",
+            "dot",
+            "--b-dot-x",
+            "960",
+            "--b-dot-y",
+            "540",
+            "--b-dot-radius",
+            "40",
+            "--kernel-px",
+            "1080",
+            "--kernel-exposure-us",
+            "3000",
+            "--runtime-seconds",
+            "999",
+        ])
 
     assert args.dry_run_timing is True
     assert args.test == "a-kernel-b-static"
@@ -67,20 +76,21 @@ def test_pair_capture_parser_accepts_requested_command_shape():
 
 
 def test_pair_capture_parser_accepts_event_noise_filter_options():
-    args = build_parser().parse_args([
-        "--dry-run-timing",
-        "--event-noise-filter",
-        "local-support",
-        "--event-filter-delta-us",
-        "50000",
-        "--event-filter-window-px",
-        "3",
-        "--event-filter-threshold",
-        "2",
-        "--event-filter-polarity",
-        "same",
-        "--save-filtered-events",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--event-noise-filter",
+            "local-support",
+            "--event-filter-delta-us",
+            "50000",
+            "--event-filter-window-px",
+            "3",
+            "--event-filter-threshold",
+            "2",
+            "--event-filter-polarity",
+            "same",
+            "--save-filtered-events",
+        ])
 
     assert args.event_noise_filter == "local-support"
     assert args.event_filter_delta_us == 50000
@@ -122,11 +132,12 @@ def test_pair_capture_parser_uses_mentor_style_camera_lifecycle_by_default():
 
 
 def test_pair_capture_parser_accepts_power_cycle_command():
-    args = build_parser().parse_args([
-        "--dry-run-timing",
-        "--camera-power-cycle-command",
-        "uhubctl -l 1-2 -p 3 -a cycle -d 2",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--camera-power-cycle-command",
+            "uhubctl -l 1-2 -p 3 -a cycle -d 2",
+        ])
 
     assert args.camera_power_cycle_command == "uhubctl -l 1-2 -p 3 -a cycle -d 2"
 
@@ -142,36 +153,37 @@ def test_pair_capture_parser_accepts_name_override_alias():
 
 
 def test_pair_capture_dry_run_creates_run_artifacts(tmp_path):
-    args = build_parser().parse_args([
-        "--dry-run-timing",
-        "--output-root",
-        str(tmp_path),
-        "--timestamp",
-        "20260527-120104",
-        "--test",
-        "a-kernel-b-static",
-        "--test-b",
-        "dot",
-        "--b-dot-x",
-        "960",
-        "--b-dot-y",
-        "540",
-        "--b-dot-radius",
-        "40",
-        "--kernel-px",
-        "1080",
-        "--kernel-exposure-us",
-        "3000",
-        "--runtime-seconds",
-        "999",
-        "--trigger-out-2-delay-fraction",
-        "0.05",
-        "--dmd-config",
-        "dmd_devices.json",
-        "--hz",
-        "60",
-        "-vv",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--output-root",
+            str(tmp_path),
+            "--timestamp",
+            "20260527-120104",
+            "--test",
+            "a-kernel-b-static",
+            "--test-b",
+            "dot",
+            "--b-dot-x",
+            "960",
+            "--b-dot-y",
+            "540",
+            "--b-dot-radius",
+            "40",
+            "--kernel-px",
+            "1080",
+            "--kernel-exposure-us",
+            "3000",
+            "--runtime-seconds",
+            "999",
+            "--trigger-out-2-delay-fraction",
+            "0.05",
+            "--dmd-config",
+            "dmd_devices.json",
+            "--hz",
+            "60",
+            "-vv",
+        ])
 
     run = dry_run(args)
 
@@ -229,15 +241,16 @@ def test_pair_capture_dry_run_creates_run_artifacts(tmp_path):
 
 
 def test_pair_capture_dry_run_records_accumulation_trigger_limit(tmp_path):
-    args = build_parser().parse_args([
-        "--dry-run-timing",
-        "--output-root",
-        str(tmp_path),
-        "--timestamp",
-        "20260527-120109",
-        "--max-accumulation-triggers",
-        "64",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--output-root",
+            str(tmp_path),
+            "--timestamp",
+            "20260527-120109",
+            "--max-accumulation-triggers",
+            "64",
+        ])
 
     run = dry_run(args)
 
@@ -246,54 +259,62 @@ def test_pair_capture_dry_run_records_accumulation_trigger_limit(tmp_path):
 
 
 def test_pair_capture_dry_run_records_event_filter_config(tmp_path):
-    args = build_parser().parse_args([
-        "--dry-run-timing",
-        "--output-root",
-        str(tmp_path),
-        "--timestamp",
-        "20260527-120108",
-        "--event-noise-filter",
-        "local-support",
-        "--event-filter-delta-us",
-        "50000",
-        "--event-filter-window-px",
-        "3",
-        "--event-filter-threshold",
-        "2",
-        "--event-filter-polarity",
-        "same",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--output-root",
+            str(tmp_path),
+            "--timestamp",
+            "20260527-120108",
+            "--event-noise-filter",
+            "local-support",
+            "--event-filter-delta-us",
+            "50000",
+            "--event-filter-window-px",
+            "3",
+            "--event-filter-threshold",
+            "2",
+            "--event-filter-polarity",
+            "same",
+        ])
 
     run = dry_run(args)
 
     metadata = json.loads(run.metadata_path.read_text(encoding="utf-8"))
     assert metadata["event_noise_filter"] == {
-        "algorithm": "centered-local-support",
-        "delta_t_us": 50000,
-        "enabled": True,
+        "algorithm":
+        "centered-local-support",
+        "delta_t_us":
+        50000,
+        "enabled":
+        True,
         "note": (
             "Practical notebook-validated local support filter; "
-            "not a source-faithful DV Runtime YNoise implementation."
-        ),
-        "polarity": "same",
-        "threshold": 2,
-        "window_px": 3,
+            "not a source-faithful DV Runtime YNoise implementation."),
+        "polarity":
+        "same",
+        "threshold":
+        2,
+        "window_px":
+        3,
     }
 
 
 def test_camera_pair_capture_cli_dry_run_creates_artifacts(tmp_path):
     from dmdcontrol.cli.main import main
 
-    assert main([
-        "camera",
-        "pair-capture",
-        "--dry-run-timing",
-        "--output-root",
-        str(tmp_path),
-        "--timestamp",
-        "20260527-120105",
-    ]) == 0
+    assert main(
+        [
+            "camera",
+            "pair-capture",
+            "--dry-run-timing",
+            "--output-root",
+            str(tmp_path),
+            "--timestamp",
+            "20260527-120105",
+        ]) == 0
 
-    metadata = json.loads((tmp_path / "20260527-120105-pair-capture" / "metadata.json").read_text(encoding="utf-8"))
+    metadata = json.loads(
+        (tmp_path / "20260527-120105-pair-capture" / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["mode"] == "pair-capture"
     assert metadata["expected_shape"]["kernel_count"] == 512

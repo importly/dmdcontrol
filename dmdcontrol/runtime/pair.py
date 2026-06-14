@@ -70,6 +70,7 @@ class PairConfig:
 
 
 class _DryRunDLPC:
+
     def get_display_dimensions(self):
         return None
 
@@ -117,30 +118,24 @@ def resolve_pair_config(config_path=None, target_hz=None):
     dmd_b = resolve_dmd_mapping("B", config_path)
     for mapping in (dmd_a, dmd_b):
         if not mapping.xrandr_output:
-            raise ValueError(
-                f"DMD {mapping.name} must define xrandr_output for paired runs."
-            )
+            raise ValueError(f"DMD {mapping.name} must define xrandr_output for paired runs.")
         if not mapping.usb_id_path:
-            raise ValueError(
-                f"DMD {mapping.name} must define usb_id_path for paired runs."
-            )
+            raise ValueError(f"DMD {mapping.name} must define usb_id_path for paired runs.")
 
-    configured_hz = {
-        hz for hz in (dmd_a.target_hz, dmd_b.target_hz) if hz is not None
-    }
+    configured_hz = {hz for hz in (dmd_a.target_hz, dmd_b.target_hz) if hz is not None}
     if len(configured_hz) > 1:
-        raise ValueError(
-            f"Paired DMD target_hz values must match, got {sorted(configured_hz)}"
-        )
+        raise ValueError(f"Paired DMD target_hz values must match, got {sorted(configured_hz)}")
     resolved_hz = int(target_hz or next(iter(configured_hz), DEFAULT_HZ))
     return PairConfig(dmd_a=dmd_a, dmd_b=dmd_b, target_hz=resolved_hz)
 
 
 def _build_parser():
-    parser = argparse.ArgumentParser(
-        description="Dual DLPC900 paired Video Pattern Mode runtime"
-    )
-    parser.add_argument("--hz", type=int, default=None, help=f"Target Hz, default from dmd_devices.json or {DEFAULT_HZ}")
+    parser = argparse.ArgumentParser(description="Dual DLPC900 paired Video Pattern Mode runtime")
+    parser.add_argument(
+        "--hz",
+        type=int,
+        default=None,
+        help=f"Target Hz, default from dmd_devices.json or {DEFAULT_HZ}")
     parser.add_argument("--dmd-config", default=None, help="Path to DMD mapping config")
     parser.add_argument("--test", choices=PAIR_TESTS, default="checkerboard")
     parser.add_argument(
@@ -172,7 +167,8 @@ def _build_parser():
     )
     parser.add_argument(
         "--b-dot-shape",
-        choices=("circle", "square"),
+        choices=("circle",
+                 "square"),
         default="circle",
     )
     parser.add_argument("--b-dot-invert", action="store_true")
@@ -237,8 +233,7 @@ def _build_parser():
         help=(
             "Numbers paired recipe: zero-based bitplane indexes in chronological "
             "display order. Use 1,2,3,4,0 if the first five captured triggers "
-            "visually show 2,3,4,5,1 for --numbers 1,2,3,4,5."
-        ),
+            "visually show 2,3,4,5,1 for --numbers 1,2,3,4,5."),
     )
     parser.add_argument(
         "--count-start",
@@ -264,7 +259,10 @@ def _build_parser():
         default=None,
         help="A-count paired recipe: optional per-count LUT exposure override",
     )
-    parser.add_argument("--wake-dp", action="store_true", help="Wake both DP receivers before runtime")
+    parser.add_argument(
+        "--wake-dp",
+        action="store_true",
+        help="Wake both DP receivers before runtime")
     parser.add_argument(
         "--dual-pixel",
         action="store_true",
@@ -329,7 +327,8 @@ def _validate_pair_args(args):
         return
     if _is_numbers_recipe(args.test):
         if args.test == A_NUMBERS_B_STATIC_PAIR_TEST and args.test_a:
-            raise SystemExit("--test-a is not valid for a-numbers-b-static; A is the numbers stream")
+            raise SystemExit(
+                "--test-a is not valid for a-numbers-b-static; A is the numbers stream")
         if len(args.numbers) > BITPLANES:
             raise SystemExit(f"--numbers can contain at most {BITPLANES} entries")
         if args.numbers_bitplane_order is not None:
@@ -337,8 +336,7 @@ def _validate_pair_args(args):
                 raise SystemExit("--numbers-bitplane-order length must match --numbers length")
             if sorted(args.numbers_bitplane_order) != list(range(len(args.numbers))):
                 raise SystemExit(
-                    "--numbers-bitplane-order must be a zero-based permutation of --numbers slots"
-                )
+                    "--numbers-bitplane-order must be a zero-based permutation of --numbers slots")
         return
     if args.test not in STATIC_PAIR_TESTS and (args.test_a or args.test_b):
         raise SystemExit("--test-a/--test-b are only valid for static paired tests")
@@ -365,8 +363,7 @@ def _validate_count_recipe_args(args):
     frame_count = count_total // args.count_slots_per_frame
     if frame_count > MAX_COUNT_SEQUENCE_FRAMES:
         raise SystemExit(
-            f"a-count-b-static can span at most {MAX_COUNT_SEQUENCE_FRAMES} VSYNC frames"
-        )
+            f"a-count-b-static can span at most {MAX_COUNT_SEQUENCE_FRAMES} VSYNC frames")
 
 
 def _kernel_lut_override(args, target_hz):
@@ -375,7 +372,9 @@ def _kernel_lut_override(args, target_hz):
         kernel_exposure_us=args.kernel_exposure_us,
         target_hz=target_hz,
         sequence_utilization=args.seq_utilization,
-        dark_time_us=getattr(args, "dark_time_us", None),
+        dark_time_us=getattr(args,
+                             "dark_time_us",
+                             None),
     )
 
 
@@ -396,7 +395,9 @@ def _numbers_provider_kwargs(args):
         "test_b": args.test_b,
         "numbers": args.numbers,
         "numbers_size_px": args.numbers_size_px,
-        "numbers_bitplane_order": getattr(args, "numbers_bitplane_order", None),
+        "numbers_bitplane_order": getattr(args,
+                                          "numbers_bitplane_order",
+                                          None),
         "numbers_exposure_us": args.numbers_exposure_us,
         "b_dot_x": args.b_dot_x,
         "b_dot_y": args.b_dot_y,
@@ -474,8 +475,7 @@ def _make_runtime_pair_frame_provider(args, engine, target_hz):
         logger.info(
             f"[+] A-kernel frames ready: {metadata['cycle_vsyncs']} VSYNC frames per cycle "
             f"({metadata['leader_frames']} leader + {metadata['payload_vsyncs']} payload/end-marker), "
-            f"{metadata['cycle_fires']} bitplane fires."
-        )
+            f"{metadata['cycle_fires']} bitplane fires.")
         frame_provider_a = KernelFrameProvider(
             kernel_frames,
             black_frame=metadata["black_frame"],
@@ -533,16 +533,14 @@ def _dry_run_timing(args, pair_config):
     )
     logger.info(
         f"[DRY RUN] USB: A id_path={pair_config.dmd_a.usb_id_path}, "
-        f"B id_path={pair_config.dmd_b.usb_id_path}."
-    )
+        f"B id_path={pair_config.dmd_b.usb_id_path}.")
     if args.test == CALIBRATION_DOT_PAIR_TEST:
         logger.info(
             f"[DRY RUN] Pair content: A=calibr-square control_file="
             f"{args.a_calibr_square_control_file or '(none)'}, "
             f"flicker=every-other-frame, "
             f"B=dot x={args.b_dot_x}, y={args.b_dot_y}, radius={args.b_dot_radius}, "
-            f"shape={args.b_dot_shape}, invert={args.b_dot_invert}."
-        )
+            f"shape={args.b_dot_shape}, invert={args.b_dot_invert}.")
     elif args.test == KERNEL_STATIC_PAIR_TEST:
         slots = timing["entries_count"]
         pad = (slots - (512 % slots)) % slots
@@ -552,20 +550,17 @@ def _dry_run_timing(args, pair_config):
         logger.info(
             f"[DRY RUN] Pair content: A=kernel kernel_px={args.kernel_px}, "
             f"leader_frames={args.kernel_leader_frames}, blank_end_frame={args.kernel_blank_end_frame}, "
-            f"single_shot={args.kernel_single_shot}; B={args.test_b or 'checkerboard'} static."
-        )
+            f"single_shot={args.kernel_single_shot}; B={args.test_b or 'checkerboard'} static.")
         logger.info(
             f"[DRY RUN] A-kernel cycle: {cycle_vsyncs} VSYNC frames, "
             f"{args.kernel_leader_frames * slots} leader fires, 512 kernels, {pad} pad fires"
-            f"{', ' + str(slots) + ' end-marker fires' if args.kernel_blank_end_frame else ''}."
-        )
+            f"{', ' + str(slots) + ' end-marker fires' if args.kernel_blank_end_frame else ''}.")
     elif _is_numbers_recipe(args.test):
         logger.info(
             f"[DRY RUN] Pair content: numbers={','.join(str(n) for n in args.numbers)}, "
             f"bitplane_order={','.join(str(i) for i in args.numbers_bitplane_order) if args.numbers_bitplane_order is not None else 'default'}, "
             f"per-bitplane exposure={args.numbers_exposure_us or timing['exposure_us']}us, "
-            f"size_px={args.numbers_size_px or 'default'} on both DMDs."
-        )
+            f"size_px={args.numbers_size_px or 'default'} on both DMDs.")
     elif _is_count_recipe(args.test):
         payload_vsyncs = count_sequence_frame_count(
             args.count_start,
@@ -576,23 +571,19 @@ def _dry_run_timing(args, pair_config):
             f"[DRY RUN] Pair content: A=count {args.count_start}..{args.count_end}, "
             f"slots_per_frame={args.count_slots_per_frame}, "
             f"per-count exposure={args.count_exposure_us or timing['exposure_us']}us, "
-            f"payload_vsyncs={payload_vsyncs}; B={args.test_b or 'dot'} static."
-        )
+            f"payload_vsyncs={payload_vsyncs}; B={args.test_b or 'dot'} static.")
     elif args.test in STATIC_PAIR_TESTS:
         logger.info(
             f"[DRY RUN] Pair content: test={args.test}, test_a={args.test_a or args.test}, "
-            f"test_b={args.test_b or args.test}, dot_radius={args.dot_radius}."
-        )
+            f"test_b={args.test_b or args.test}, dot_radius={args.dot_radius}.")
     else:
         logger.info(
-            f"[DRY RUN] Pair content: dynamic test={args.test}, one shared frame index/timebase."
-        )
+            f"[DRY RUN] Pair content: dynamic test={args.test}, one shared frame index/timebase.")
     logger.info(
         f"[DRY RUN] Pattern LUT: {len(entries)} entries, exposure={timing['exposure_us']}us, "
         f"dark={timing['dark_us']}us, sequence={timing['total_sequence_us']:.1f}/"
         f"{timing['usable_frame_period_us']:.1f}us usable, "
-        f"effective VSYNC={timing['effective_frame_hz']:.3f}Hz."
-    )
+        f"effective VSYNC={timing['effective_frame_hz']:.3f}Hz.")
     logger.info(
         f"[DRY RUN] TRIG_OUT_2 mode: {timing['trig2_mode']}; expected pulses/s="
         f"{timing['effective_frame_hz'] if args.trig2_frame_zero else timing['effective_binary_rate_hz']:.1f}."
@@ -605,8 +596,7 @@ def _dry_run_timing(args, pair_config):
     logger.info(
         f"[DRY RUN] TRIG_OUT_2 rising edge delay={trigger_timing['rising_delay_us']}us, "
         f"falling={trigger_timing['falling_delay_us']}us "
-        f"({trigger_timing['delay_fraction']:.3f} of {trigger_timing['delay_basis']})."
-    )
+        f"({trigger_timing['delay_fraction']:.3f} of {trigger_timing['delay_basis']}).")
 
 
 def _live_preview_metadata_for_frame(base_metadata, provider):
@@ -658,13 +648,13 @@ def _build_live_preview_metadata(args, pair_config, state_a, state_b):
 
 
 def _run_pair_render_loop(
-        dlpc_a,
-        dlpc_b,
-        engine,
-        provider,
-        args,
-        preview_poster=None,
-        preview_metadata=None,
+    dlpc_a,
+    dlpc_b,
+    engine,
+    provider,
+    args,
+    preview_poster=None,
+    preview_metadata=None,
 ):
     end_t = None if args.runtime_seconds <= 0 else time.time() + args.runtime_seconds
     while (end_t is None or time.time() < end_t) and not engine.should_close():
@@ -674,7 +664,8 @@ def _run_pair_render_loop(
             preview_poster.maybe_post_pair(
                 frame_a,
                 frame_b,
-                metadata=_live_preview_metadata_for_frame(preview_metadata, provider),
+                metadata=_live_preview_metadata_for_frame(preview_metadata,
+                                                          provider),
             )
 
 
@@ -720,8 +711,7 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
 
     logger.info(
         f"[+] Paired DMD layout: B {pair_config.dmd_b.xrandr_output} left +0+0, "
-        f"A {pair_config.dmd_a.xrandr_output} right +{DMD_WIDTH}+0"
-    )
+        f"A {pair_config.dmd_a.xrandr_output} right +{DMD_WIDTH}+0")
     engine = None
     dlpc_a = None
     dlpc_b = None
@@ -782,13 +772,14 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
         live_preview_metadata = _build_live_preview_metadata(args, pair_config, state_a, state_b)
 
         if before_sequencer_start is not None:
-            before_sequencer_start({
-                "args": args,
-                "pair_config": pair_config,
-                "state_a": state_a,
-                "state_b": state_b,
-                "preview_metadata": live_preview_metadata,
-            })
+            before_sequencer_start(
+                {
+                    "args": args,
+                    "pair_config": pair_config,
+                    "state_a": state_a,
+                    "state_b": state_b,
+                    "preview_metadata": live_preview_metadata,
+                })
 
         logger.info("[+] Starting both DLPC900 sequencers from paired software barrier...")
         start_loaded_pattern_sequences(dlpc_a, dlpc_b, post_start_delay_s=0.0, verify=True)
@@ -804,7 +795,8 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
             preview_poster.maybe_post_pair(
                 first_a,
                 first_b,
-                metadata=_live_preview_metadata_for_frame(live_preview_metadata, provider),
+                metadata=_live_preview_metadata_for_frame(live_preview_metadata,
+                                                          provider),
                 force=True,
             )
         _run_pair_render_loop(

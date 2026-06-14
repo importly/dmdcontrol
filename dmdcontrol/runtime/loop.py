@@ -87,7 +87,8 @@ def _maybe_recover_abort(dlpc, sequence_state, args, now_monotonic, last_abort_r
         dlpc.start_pattern_display(0)
         time.sleep(0.05)
         if not ensure_video_pattern_mode(dlpc, retries=2, poll_timeout_s=1.0):
-            logger.warning("[WATCHDOG] Auto-recover failed to latch Video Pattern Mode before re-arm.")
+            logger.warning(
+                "[WATCHDOG] Auto-recover failed to latch Video Pattern Mode before re-arm.")
         else:
             apply_pattern_sequence(dlpc, sequence_state["entries"])
             logger.warning("[WATCHDOG] Auto-recover sequence re-arm issued.")
@@ -96,7 +97,14 @@ def _maybe_recover_abort(dlpc, sequence_state, args, now_monotonic, last_abort_r
     return now_monotonic
 
 
-def run_render_loop(dlpc, engine, frame_provider, args, sequence_state, video_writer=None, cv2_module=None):
+def run_render_loop(
+        dlpc,
+        engine,
+        frame_provider,
+        args,
+        sequence_state,
+        video_writer=None,
+        cv2_module=None):
     """Run the main render loop.
 
     frame_provider: callable() -> packed frame (np.ndarray).
@@ -125,8 +133,13 @@ def run_render_loop(dlpc, engine, frame_provider, args, sequence_state, video_wr
                 hw = dlpc.get_hardware_status()
                 logger.debug(_format_watchdog_status(mode, ms, hw))
                 last_abort_recover_at = _maybe_recover_abort(
-                    dlpc, sequence_state, args, now_monotonic, last_abort_recover_at, hw, ms
-                )
+                    dlpc,
+                    sequence_state,
+                    args,
+                    now_monotonic,
+                    last_abort_recover_at,
+                    hw,
+                    ms)
                 watchdog_last = now_monotonic
 
         if video_writer is not None:

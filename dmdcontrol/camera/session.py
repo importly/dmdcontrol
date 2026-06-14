@@ -28,7 +28,8 @@ def _ready_with_initial_flush(ready, initial_flush):
 def _open_configured_camera_capture(args):
     import dv_processing as dv
 
-    power_cycle_command = args.camera_power_cycle_command or os.environ.get("DMD_CAMERA_POWER_CYCLE_COMMAND")
+    power_cycle_command = args.camera_power_cycle_command or os.environ.get(
+        "DMD_CAMERA_POWER_CYCLE_COMMAND")
     power_cycle_info = run_power_cycle_command(power_cycle_command)
     usb_reset_info = reset_camera_usb(dv, enabled=args.camera_usb_reset)
     camera_open_method = getattr(args, "camera_open_method", "modern")
@@ -36,10 +37,9 @@ def _open_configured_camera_capture(args):
     writer = None
     try:
         rearm_info = (
-            rearm_camera_streams(capture)
-            if getattr(args, "camera_stream_rearm", False)
-            else None
-        )
+            rearm_camera_streams(capture) if getattr(args,
+                                                     "camera_stream_rearm",
+                                                     False) else None)
         configure_camera_performance(
             capture,
             bias_sensitivity=args.bias_sensitivity,

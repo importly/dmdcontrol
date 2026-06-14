@@ -51,7 +51,13 @@ def nonnegative_float(value: str) -> float:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Open a DVXplorer once and capture multiple same-handle liveness windows."
+        description="Open a DVXplorer once and capture multiple same-handle liveness windows.")
+    parser.add_argument(
+        "--prestate",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Pre-run state metadata to include in stats.json; repeat for multiple fields.",
     )
     parser.add_argument(
         "--output-root",
@@ -160,12 +166,12 @@ def drain_camera(camera, seconds: float) -> dict[str, int]:
 
 
 def capture_window(
-        camera,
-        label: str,
-        out_dir: Path,
-        *,
-        seconds: float,
-        percentile: float,
+    camera,
+    label: str,
+    out_dir: Path,
+    *,
+    seconds: float,
+    percentile: float,
 ) -> dict:
     width, height = map(int, camera.getEventResolution())
     accum = np.zeros((height, width), dtype=np.uint32)
@@ -177,12 +183,18 @@ def capture_window(
     none_count = 0
     first_ts = None
     last_ts = None
+    wall_bins = [0 for _ in range(max(1, math.ceil(seconds)))]
 
     print(f"\n=== {label} ===")
     print("Move laser/flashlight/diffuse spot during this window.")
 
-    deadline = _monotonic_seconds() + seconds
-    while _monotonic_seconds() < deadline:
+    window_start = _monotonic_seconds()
+    deadline = window_start + seconds
+    while True:
+        now = _monotonic_seconds()
+        if now >= deadline:
+            break
+
         batch = camera.getNextEventBatch()
         if batch is None:
             none_count += 1
@@ -190,10 +202,15 @@ def capture_window(
             continue
 
         batches += 1
+        batch_len = None
         try:
-            total += len(batch)
+            batch_len = len(batch)
         except TypeError:
             pass
+        if batch_len is not None:
+            total += batch_len
+            bin_index = min(int(now - window_start), len(wall_bins) - 1)
+            wall_bins[bin_index] += batch_len
 
         time_range = _batch_time_range_us(batch)
         if time_range is not None:
@@ -217,6 +234,10 @@ def capture_window(
             if 0 <= x < width and 0 <= y < height:
                 accum[y, x] += 1
 
+    camera_span_s = None
+    if first_ts is not None and last_ts is not None:
+        camera_span_s = (last_ts - first_ts) / 1_000_000.0
+
     pgm_path = out_dir / f"{label}.pgm"
     png_path = out_dir / f"{label}.png"
     npy_path = out_dir / f"{label}.npy"
@@ -235,8 +256,10 @@ def capture_window(
         "none_count": int(none_count),
         "nonzero_pixels": int(np.count_nonzero(accum)),
         "max_pixel": int(accum.max()) if accum.size else 0,
+        "wall_second_event_bins": [int(value) for value in wall_bins],
         "first_ts": first_ts,
         "last_ts": last_ts,
+        "camera_span_s": camera_span_s,
         "pgm": str(pgm_path),
         "png": str(png_path),
         "npy": str(npy_path),
@@ -250,6 +273,22 @@ def _apply_threshold(camera, threshold: int) -> None:
         method = getattr(camera, name, None)
         if callable(method):
             method(threshold)
+
+
+def parse_prestate(values: list[str]) -> dict:
+    fields = {}
+    notes = []
+    for value in values:
+        if "=" not in value:
+            notes.append(value)
+            continue
+        key, parsed = value.split("=", 1)
+        key = key.strip()
+        if key:
+            fields[key] = parsed.strip()
+        else:
+            notes.append(value)
+    return {"fields": fields, "notes": notes}
 
 
 def run(argv: list[str] | None = None) -> int:
@@ -269,50 +308,58 @@ def run(argv: list[str] | None = None) -> int:
     open_count = 0
     camera = dv.io.camera.open(descriptors[0])
     open_count += 1
-    print("opened:", camera.getCameraName() if hasattr(camera, "getCameraName") else type(camera))
-    print("resolution:", tuple(camera.getEventResolution()))
+    try:
+        print("opened:", camera.getCameraName() if hasattr(camera, "getCameraName") else type(camera))
+        print("resolution:", tuple(camera.getEventResolution()))
 
-    if not args.skip_threshold:
-        _apply_threshold(camera, args.threshold)
+        if not args.skip_threshold:
+            _apply_threshold(camera, args.threshold)
 
-    drain_stats = drain_camera(camera, args.drain_seconds)
-    print("drain:", json.dumps(drain_stats))
+        drain_stats = drain_camera(camera, args.drain_seconds)
+        print("drain:", json.dumps(drain_stats))
 
-    windows = []
-    for index in range(1, args.windows + 1):
-        label = f"window_{index:02d}_same_handle"
-        windows.append(
-            capture_window(
-                camera,
-                label,
-                out_dir,
-                seconds=args.duration_seconds,
-                percentile=args.percentile,
-            )
-        )
-        if index < args.windows and args.gap_seconds > 0:
-            time.sleep(args.gap_seconds)
+        windows = []
+        for index in range(1, args.windows + 1):
+            label = f"window_{index:02d}_same_handle"
+            windows.append(
+                capture_window(
+                    camera,
+                    label,
+                    out_dir,
+                    seconds=args.duration_seconds,
+                    percentile=args.percentile,
+                ))
+            if index < args.windows and args.gap_seconds > 0:
+                time.sleep(args.gap_seconds)
 
-    stats = {
-        "summary": {
-            "camera_opens": open_count,
-            "output_dir": str(out_dir),
-            "windows": args.windows,
-            "duration_seconds": args.duration_seconds,
-            "gap_seconds": args.gap_seconds,
-            "drain_seconds": args.drain_seconds,
-            "threshold": args.threshold,
-            "threshold_applied": not args.skip_threshold,
-            "drain": drain_stats,
-        },
-        "windows": windows,
-    }
-    stats_path = out_dir / "stats.json"
-    stats_path.write_text(json.dumps(stats, indent=2), encoding="utf-8")
+        stats = {
+            "summary": {
+                "prestate": parse_prestate(args.prestate),
+                "camera_opens": open_count,
+                "output_dir": str(out_dir),
+                "windows": args.windows,
+                "duration_seconds": args.duration_seconds,
+                "gap_seconds": args.gap_seconds,
+                "drain_seconds": args.drain_seconds,
+                "threshold": args.threshold,
+                "threshold_applied": not args.skip_threshold,
+                "drain": drain_stats,
+            },
+            "windows": windows,
+        }
+        stats_path = out_dir / "stats.json"
+        stats_path.write_text(json.dumps(stats, indent=2), encoding="utf-8")
 
-    print("\nOUT:", out_dir)
-    print("stats:", stats_path)
-    return 0
+        print("\nOUT:", out_dir)
+        print("stats:", stats_path)
+        return 0
+    finally:
+        try:
+            del camera
+        except Exception:
+            pass
+        import gc
+        gc.collect()
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ from dmdcontrol.support.logging import logger
 
 
 class PatternEngine:
+
     def __init__(self, width=DMD_WIDTH, height=DMD_HEIGHT, monitor_index=0, fps=TARGET_HZ):
         self.width = width
         self.height = height
@@ -32,25 +33,20 @@ class PatternEngine:
 
         if not monitors:
             raise TimeoutError(
-                "GLFW found no monitors after 5 seconds. Is the display connected and X11 running?"
-            )
+                "GLFW found no monitors after 5 seconds. Is the display connected and X11 running?")
 
         if len(monitors) > monitor_index:
             monitor = monitors[monitor_index]
         else:
             monitor = monitors[0]
-            logger.warning(
-                f"[WARNING] Monitor {monitor_index} not found, using primary."
-            )
+            logger.warning(f"[WARNING] Monitor {monitor_index} not found, using primary.")
 
         glfw.window_hint(glfw.DECORATED, glfw.FALSE)
         glfw.window_hint(glfw.RESIZABLE, glfw.FALSE)
         glfw.window_hint(glfw.AUTO_ICONIFY, glfw.FALSE)
         glfw.window_hint(glfw.REFRESH_RATE, self.fps)
 
-        self.window = glfw.create_window(
-            width, height, "DLPC900 Pattern Engine", monitor, None
-        )
+        self.window = glfw.create_window(width, height, "DLPC900 Pattern Engine", monitor, None)
 
         if not self.window:
             glfw.terminate()
@@ -63,8 +59,7 @@ class PatternEngine:
         if mode is not None:
             logger.info(
                 f"[+] GLFW video mode: {mode.size.width}x{mode.size.height} @ {mode.refresh_rate}Hz "
-                f"(requested {width}x{height} @ {self.fps}Hz)"
-            )
+                f"(requested {width}x{height} @ {self.fps}Hz)")
 
         # Verify 1:1 Framebuffer scaling
         fb_w, fb_h = glfw.get_framebuffer_size(self.window)
@@ -111,7 +106,8 @@ class PatternEngine:
         """
         if len(binary_images) > 8:
             logger.warning(
-                "[WARNING] pack_patterns_safe_8bit received more than 8 patterns. Only the first 8 will be used.")
+                "[WARNING] pack_patterns_safe_8bit received more than 8 patterns. Only the first 8 will be used."
+            )
 
         gray = np.zeros((self.height, self.width), dtype=np.uint8)
         for i in range(min(8, len(binary_images))):
@@ -133,8 +129,7 @@ class PatternEngine:
         """
         if rgb_array.shape[:2] != (self.height, self.width):
             raise ValueError(
-                f"RGB array must be {self.height}x{self.width}, got {rgb_array.shape[:2]}"
-            )
+                f"RGB array must be {self.height}x{self.width}, got {rgb_array.shape[:2]}")
 
         patterns = []
         # Green channel: bits 0-7
@@ -227,8 +222,15 @@ class PatternEngine:
         import random
         # Initialize snake state if it doesn't exist
         if not hasattr(self, 'snake_pos'):
-            self.snake_pos = [(grid_w // 2, grid_h // 2), (grid_w // 2 - 1, grid_h // 2),
-                              (grid_w // 2 - 2, grid_h // 2), (grid_w // 2 - 3, grid_h // 2)]
+            self.snake_pos = [
+                (grid_w // 2,
+                 grid_h // 2),
+                (grid_w // 2 - 1,
+                 grid_h // 2),
+                (grid_w // 2 - 2,
+                 grid_h // 2),
+                (grid_w // 2 - 3,
+                 grid_h // 2)]
             self.snake_dir = (1, 0)
 
         # Move snake
@@ -262,7 +264,8 @@ class PatternEngine:
         if frame_2d.shape != (self.height, self.width):
             padded = np.zeros((self.height, self.width), dtype=np.uint8)
             h, w = frame_2d.shape
-            padded[:min(h, self.height), :min(w, self.width)] = frame_2d[:min(h, self.height), :min(w, self.width)]
+            padded[:min(h, self.height), :min(w, self.width)] = frame_2d[:min(h, self.height), :min(
+                w, self.width)]
             frame_2d = padded
 
         # Return directly packed RGB frame (pure Grayscale for chroma bypass)
@@ -292,7 +295,16 @@ class PatternEngine:
         text_x = (self.width - text_size[0]) // 2
         text_y = (self.height + text_size[1]) // 2
 
-        cv2.putText(canvas, time_str, (text_x, text_y), font, font_scale, color, thickness, cv2.LINE_AA)
+        cv2.putText(
+            canvas,
+            time_str,
+            (text_x,
+             text_y),
+            font,
+            font_scale,
+            color,
+            thickness,
+            cv2.LINE_AA)
 
         # flip the image Y axis
         # canvas = np.flip(canvas, axis=0)
@@ -331,7 +343,7 @@ class PatternEngine:
             bx_start = x_start + (i * block_w)
             bx_end = min(x_start + sub_width, bx_start + block_w)
 
-            img[y_start: y_start + sub_height, bx_start:bx_end] = 1
+            img[y_start:y_start + sub_height, bx_start:bx_end] = 1
             patterns.append(img)
         return patterns
 
@@ -341,9 +353,9 @@ class PatternEngine:
             img = np.zeros((self.height, self.width), dtype=np.uint8)
             y_start = (self.height - sub_height) // 2
             x_start = (self.width - sub_width) // 2
-            img[y_start: y_start + sub_height, x_start: x_start + sub_width] = (
-                    np.random.rand(sub_height, sub_width) > 0.5
-            ).astype(np.uint8)
+            img[y_start:y_start + sub_height,
+                x_start:x_start + sub_width] = (np.random.rand(sub_height,
+                                                               sub_width) > 0.5).astype(np.uint8)
             patterns.append(img)
         return patterns
 
@@ -358,9 +370,7 @@ class PatternEngine:
         if kernel_px % 3 != 0:
             raise ValueError(f"kernel_px ({kernel_px}) must be a multiple of 3")
         if kernel_px > min(self.width, self.height):
-            raise ValueError(
-                f"kernel_px ({kernel_px}) exceeds frame {self.width}x{self.height}"
-            )
+            raise ValueError(f"kernel_px ({kernel_px}) exceeds frame {self.width}x{self.height}")
         cell = kernel_px // 3
         x0 = (self.width - kernel_px) // 2
         y0 = (self.height - kernel_px) // 2
@@ -371,7 +381,7 @@ class PatternEngine:
                 if k & (1 << bit):
                     row, col = bit // 3, bit % 3
                     yy, xx = y0 + row * cell, x0 + col * cell
-                    m[yy: yy + cell, xx: xx + cell] = 1
+                    m[yy:yy + cell, xx:xx + cell] = 1
             masks.append(m)
         return masks
 
@@ -394,18 +404,16 @@ class PatternEngine:
         padded = list(masks) + [black_mask] * pad
         unused = [black_mask] * (24 - slots_per_frame)
         frames = [
-            self.pack_patterns(padded[i: i + slots_per_frame] + unused)
-            for i in range(0, len(padded), slots_per_frame)
-        ]
+            self.pack_patterns(padded[i:i + slots_per_frame] + unused)
+            for i in range(0, len(padded), slots_per_frame)]
         if blank_end_frame:
             frames.append(self.pack_patterns([black_mask] * 24))
         return frames
 
     def should_close(self):
         return (
-                glfw.window_should_close(self.window)
-                or glfw.get_key(self.window, glfw.KEY_ESCAPE) == glfw.PRESS
-        )
+            glfw.window_should_close(self.window) or glfw.get_key(self.window,
+                                                                  glfw.KEY_ESCAPE) == glfw.PRESS)
 
     def cleanup(self):
         glfw.terminate()

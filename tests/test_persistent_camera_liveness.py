@@ -7,6 +7,7 @@ from debug_scripts import persistent_camera_liveness
 
 
 class FakeEvent:
+
     def __init__(self, x, y, polarity, timestamp):
         self.x = x
         self.y = y
@@ -15,6 +16,7 @@ class FakeEvent:
 
 
 class FakeBatch(list):
+
     def getLowestTime(self):
         return min(event.timestamp for event in self)
 
@@ -23,6 +25,7 @@ class FakeBatch(list):
 
 
 class FakeCamera:
+
     def __init__(self):
         self.calls = []
         self.opened = True
@@ -30,10 +33,23 @@ class FakeCamera:
         self.threshold_off = None
         self.batches = [
             None,
-            FakeBatch([FakeEvent(1, 1, True, 100), FakeEvent(2, 2, False, 101)]),
-            FakeBatch([FakeEvent(3, 3, True, 200)]),
+            FakeBatch([FakeEvent(1,
+                                 1,
+                                 True,
+                                 100),
+                       FakeEvent(2,
+                                 2,
+                                 False,
+                                 101)]),
+            FakeBatch([FakeEvent(3,
+                                 3,
+                                 True,
+                                 200)]),
             None,
-            FakeBatch([FakeEvent(4, 4, True, 300)]),
+            FakeBatch([FakeEvent(4,
+                                 4,
+                                 True,
+                                 300)]),
         ]
 
     def getCameraName(self):
@@ -75,8 +91,7 @@ def test_persistent_liveness_opens_once_and_writes_per_window_stats(tmp_path, mo
             camera=SimpleNamespace(
                 discover=lambda: [SimpleNamespace(serialNumber="DXBFAKE")],
                 open=lambda descriptor: opens.append(descriptor) or camera,
-            )
-        ),
+            )),
     )
 
     monkeypatch.setitem(sys.modules, "dv_processing", fake_dv)
@@ -84,21 +99,31 @@ def test_persistent_liveness_opens_once_and_writes_per_window_stats(tmp_path, mo
     monkeypatch.setattr(
         persistent_camera_liveness,
         "_monotonic_seconds",
-        _fake_clock([0.0, 0.2, 0.5, 0.6, 0.9, 1.2, 1.3, 1.6, 1.9, 2.2]),
+        _fake_clock([0.0,
+                     0.2,
+                     0.5,
+                     0.6,
+                     0.9,
+                     1.2,
+                     1.3,
+                     1.6,
+                     1.9,
+                     2.2]),
     )
 
-    result = persistent_camera_liveness.run([
-        "--output-root",
-        str(tmp_path),
-        "--name",
-        "same_handle",
-        "--windows",
-        "2",
-        "--duration-seconds",
-        "0.5",
-        "--gap-seconds",
-        "0.1",
-    ])
+    result = persistent_camera_liveness.run(
+        [
+            "--output-root",
+            str(tmp_path),
+            "--name",
+            "same_handle",
+            "--windows",
+            "2",
+            "--duration-seconds",
+            "0.5",
+            "--gap-seconds",
+            "0.1",
+        ])
 
     assert result == 0
     assert len(opens) == 1

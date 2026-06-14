@@ -8,6 +8,7 @@ from debug_scripts import persistent_camera_liveness_official
 
 
 class FakeBatch(list):
+
     def __init__(self, size, lo, hi):
         super().__init__(range(size))
         self.lo = lo
@@ -21,11 +22,18 @@ class FakeBatch(list):
 
 
 class FakeCamera:
+
     def __init__(self):
         self.batches = [
-            FakeBatch(2, 100, 120),
-            FakeBatch(3, 200, 230),
-            FakeBatch(4, 400, 450),
+            FakeBatch(2,
+                      100,
+                      120),
+            FakeBatch(3,
+                      200,
+                      230),
+            FakeBatch(4,
+                      400,
+                      450),
         ]
         self.threshold_on = None
         self.threshold_off = None
@@ -104,6 +112,7 @@ class FakeAccumulator:
 
 
 class FakeSlicer:
+
     def doEveryTimeInterval(self, interval, callback):
         self.interval = interval
         self.callback = callback
@@ -134,11 +143,8 @@ def test_official_liveness_uses_one_open_and_writes_accumulator_pngs(tmp_path, m
         __file__="fake-dv.py",
         Accumulator=FakeAccumulator,
         EventStreamSlicer=FakeSlicer,
-        io=SimpleNamespace(
-            camera=SimpleNamespace(
-                open=lambda: opens.append("open") or camera,
-            )
-        ),
+        io=SimpleNamespace(camera=SimpleNamespace(open=lambda: opens.append("open") or camera,
+                                                  )),
     )
 
     monkeypatch.setitem(sys.modules, "dv_processing", fake_dv)
@@ -146,23 +152,30 @@ def test_official_liveness_uses_one_open_and_writes_accumulator_pngs(tmp_path, m
     monkeypatch.setattr(
         persistent_camera_liveness_official,
         "_monotonic_seconds",
-        _fake_clock([0.0, 0.1, 0.2, 0.6, 0.7, 0.8, 1.3]),
+        _fake_clock([0.0,
+                     0.1,
+                     0.2,
+                     0.6,
+                     0.7,
+                     0.8,
+                     1.3]),
     )
 
-    result = persistent_camera_liveness_official.run([
-        "--output-root",
-        str(tmp_path),
-        "--name",
-        "official_same_handle",
-        "--windows",
-        "2",
-        "--duration-seconds",
-        "0.5",
-        "--gap-seconds",
-        "0.1",
-        "--set-dvxplorer-defaults",
-        "--ignore-polarity",
-    ])
+    result = persistent_camera_liveness_official.run(
+        [
+            "--output-root",
+            str(tmp_path),
+            "--name",
+            "official_same_handle",
+            "--windows",
+            "2",
+            "--duration-seconds",
+            "0.5",
+            "--gap-seconds",
+            "0.1",
+            "--set-dvxplorer-defaults",
+            "--ignore-polarity",
+        ])
 
     assert result == 0
     assert opens == ["open"]

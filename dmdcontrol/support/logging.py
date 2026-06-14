@@ -24,9 +24,9 @@ def setup_logger(verbosity=0, verbose=None):
         level=level,
         format="%(message)s",
         datefmt="[%X]",
-        handlers=[
-            RichHandler(rich_tracebacks=True, show_path=verbosity >= 2, console=console)
-        ],
+        handlers=[RichHandler(rich_tracebacks=True,
+                              show_path=verbosity >= 2,
+                              console=console)],
         force=True,
     )
 

@@ -47,7 +47,13 @@ def nonnegative_float(value: str) -> float:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Open a DVXplorer once and run official-style accumulator windows."
+        description="Open a DVXplorer once and run official-style accumulator windows.")
+    parser.add_argument(
+        "--prestate",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Pre-run state metadata to include in stats.json; repeat for multiple fields.",
     )
     parser.add_argument(
         "--output-root",
@@ -71,7 +77,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--camera-open-method",
-        choices=["open", "dvxplorer"],
+        choices=["open",
+                 "dvxplorer"],
         default="open",
         help="Use dv.io.camera.open() or dv.io.camera.DVXplorer().",
     )
@@ -79,7 +86,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--set-dvxplorer-defaults",
         action="store_true",
         default=False,
-        help="Set threshold 9/9, VARIABLE_5000, global hold true, and global reset false when available.",
+        help=
+        "Set threshold 9/9, VARIABLE_5000, global hold true, and global reset false when available.",
     )
     parser.add_argument(
         "--threshold",
@@ -93,7 +101,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-potential", type=float, default=1.0)
     parser.add_argument(
         "--decay-function",
-        choices=["EXPONENTIAL", "LINEAR", "STEP", "NONE"],
+        choices=["EXPONENTIAL",
+                 "LINEAR",
+                 "STEP",
+                 "NONE"],
         default="LINEAR",
         help="Accumulator decay function; official sample uses LINEAR.",
     )
@@ -178,6 +189,22 @@ def _set_dvxplorer_defaults(dv, camera, threshold: int) -> None:
     _call_if_available(camera, "setGlobalReset", False)
 
 
+def parse_prestate(values: list[str]) -> dict:
+    fields = {}
+    notes = []
+    for value in values:
+        if "=" not in value:
+            notes.append(value)
+            continue
+        key, parsed = value.split("=", 1)
+        key = key.strip()
+        if key:
+            fields[key] = parsed.strip()
+        else:
+            notes.append(value)
+    return {"fields": fields, "notes": notes}
+
+
 def _configure_accumulator(dv, camera, args):
     accumulator = dv.Accumulator(camera.getEventResolution())
     accumulator.setEventContribution(args.event_contribution)
@@ -231,11 +258,10 @@ def _write_png(path: Path, image) -> None:
 
 def _png_chunk(kind, data):
     return (
-        struct.pack(">I", len(data))
-        + kind
-        + data
-        + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-    )
+        struct.pack(">I",
+                    len(data)) + kind + data +
+        struct.pack(">I",
+                    zlib.crc32(kind + data) & 0xFFFFFFFF))
 
 
 def capture_official_window(dv, camera, label: str, out_dir: Path, args) -> dict:
@@ -264,12 +290,18 @@ def capture_official_window(dv, camera, label: str, out_dir: Path, args) -> dict
     none_count = 0
     first_ts = None
     last_ts = None
+    wall_bins = [0 for _ in range(max(1, math.ceil(args.duration_seconds)))]
 
     print(f"\n=== {label} ===")
     print("Move laser/flashlight/diffuse spot during this official accumulator window.")
 
-    deadline = _monotonic_seconds() + args.duration_seconds
-    while _monotonic_seconds() < deadline and _camera_running(camera):
+    window_start = _monotonic_seconds()
+    deadline = window_start + args.duration_seconds
+    while True:
+        now = _monotonic_seconds()
+        if now >= deadline:
+            break
+
         events = camera.getNextEventBatch()
         if events is None:
             none_count += 1
@@ -277,10 +309,15 @@ def capture_official_window(dv, camera, label: str, out_dir: Path, args) -> dict
             continue
 
         batch_count += 1
+        batch_len = None
         try:
-            total_events += len(events)
+            batch_len = len(events)
         except TypeError:
             pass
+        if batch_len is not None:
+            total_events += batch_len
+            bin_index = min(int(now - window_start), len(wall_bins) - 1)
+            wall_bins[bin_index] += batch_len
 
         time_range = _batch_time_range_us(events)
         if time_range is not None:
@@ -298,6 +335,10 @@ def capture_official_window(dv, camera, label: str, out_dir: Path, args) -> dict
     if str(final_png) not in saved_pngs:
         saved_pngs.append(str(final_png))
 
+    camera_span_s = None
+    if first_ts is not None and last_ts is not None:
+        camera_span_s = (last_ts - first_ts) / 1_000_000.0
+
     stats = {
         "label": label,
         "seconds": args.duration_seconds,
@@ -305,8 +346,10 @@ def capture_official_window(dv, camera, label: str, out_dir: Path, args) -> dict
         "batches": int(batch_count),
         "none_count": int(none_count),
         "frame_count": int(frame_count),
+        "wall_second_event_bins": [int(value) for value in wall_bins],
         "first_ts": first_ts,
         "last_ts": last_ts,
+        "camera_span_s": camera_span_s,
         "final_png": str(final_png),
         "saved_pngs": saved_pngs,
     }
@@ -331,12 +374,14 @@ def run(argv: list[str] | None = None) -> int:
         print("[official_accu] capture type:", type(camera))
         print(
             "[official_accu] camera name:",
-            camera.getCameraName() if hasattr(camera, "getCameraName") else "unknown",
+            camera.getCameraName() if hasattr(camera,
+                                              "getCameraName") else "unknown",
         )
         print("[official_accu] isRunning:", _camera_running(camera))
         print(
             "[official_accu] event stream:",
-            camera.isEventStreamAvailable() if hasattr(camera, "isEventStreamAvailable") else "unknown",
+            camera.isEventStreamAvailable() if hasattr(camera,
+                                                       "isEventStreamAvailable") else "unknown",
         )
 
         if hasattr(camera, "isEventStreamAvailable") and not camera.isEventStreamAvailable():
@@ -355,6 +400,7 @@ def run(argv: list[str] | None = None) -> int:
 
         stats = {
             "summary": {
+                "prestate": parse_prestate(args.prestate),
                 "camera_opens": camera_opens,
                 "output_dir": str(out_dir),
                 "camera_open_method": args.camera_open_method,
@@ -382,11 +428,12 @@ def run(argv: list[str] | None = None) -> int:
         print("[official_accu] stats:", stats_path)
         return 0
     finally:
-        pass
-        # try:
-        #     del camera
-        # except Exception:
-        #     pass
+        try:
+            del camera
+        except Exception:
+            pass
+        import gc
+        gc.collect()
 
 
 if __name__ == "__main__":

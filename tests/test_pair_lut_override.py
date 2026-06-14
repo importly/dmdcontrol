@@ -19,7 +19,11 @@ def test_lut_override_a_numbers_b_static_returns_digit_count():
     # Test with explicitly provided exposure
     args_1 = types.SimpleNamespace(
         test=A_NUMBERS_B_STATIC_PAIR_TEST,
-        numbers=[1, 2, 3, 4, 5],
+        numbers=[1,
+                 2,
+                 3,
+                 4,
+                 5],
         numbers_exposure_us=3000,
     )
     entries_count_1, exposure_1 = _lut_override(args_1, target_hz=60)
@@ -29,7 +33,9 @@ def test_lut_override_a_numbers_b_static_returns_digit_count():
     # Test with 3 numbers and auto-computed exposure (None)
     args_2 = types.SimpleNamespace(
         test=A_NUMBERS_B_STATIC_PAIR_TEST,
-        numbers=[1, 2, 3],
+        numbers=[1,
+                 2,
+                 3],
         numbers_exposure_us=None,
     )
     entries_count_2, exposure_2 = _lut_override(args_2, target_hz=60)
@@ -53,7 +59,11 @@ def test_lut_override_a_count_b_static_returns_count_slots():
 def test_lut_override_non_numbers_test_delegates_to_kernel():
     args = types.SimpleNamespace(
         test="some-other-test",
-        numbers=[1, 2, 3, 4, 5],
+        numbers=[1,
+                 2,
+                 3,
+                 4,
+                 5],
         numbers_exposure_us=3000,
         b_exposure_us=None,
         kernel_pairs=5,
@@ -69,21 +79,22 @@ def test_lut_override_non_numbers_test_delegates_to_kernel():
 def test_pair_runtime_parser_accepts_count_mode_options():
     from dmdcontrol.runtime import pair
 
-    args = pair._build_parser().parse_args([
-        "--dry-run-timing",
-        "--test",
-        A_COUNT_B_STATIC_PAIR_TEST,
-        "--test-b",
-        "dot",
-        "--count-start",
-        "1",
-        "--count-end",
-        "100",
-        "--count-slots-per-frame",
-        "2",
-        "--count-exposure-us",
-        "7000",
-    ])
+    args = pair._build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--test",
+            A_COUNT_B_STATIC_PAIR_TEST,
+            "--test-b",
+            "dot",
+            "--count-start",
+            "1",
+            "--count-end",
+            "100",
+            "--count-slots-per-frame",
+            "2",
+            "--count-exposure-us",
+            "7000",
+        ])
 
     assert args.count_start == 1
     assert args.count_end == 100
@@ -94,15 +105,16 @@ def test_pair_runtime_parser_accepts_count_mode_options():
 def test_pair_runtime_parser_accepts_numbers_bitplane_order():
     from dmdcontrol.runtime import pair
 
-    args = pair._build_parser().parse_args([
-        "--dry-run-timing",
-        "--test",
-        A_NUMBERS_B_STATIC_PAIR_TEST,
-        "--numbers",
-        "1,2,3,4,5",
-        "--numbers-bitplane-order",
-        "1,2,3,4,0",
-    ])
+    args = pair._build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--test",
+            A_NUMBERS_B_STATIC_PAIR_TEST,
+            "--numbers",
+            "1,2,3,4,5",
+            "--numbers-bitplane-order",
+            "1,2,3,4,0",
+        ])
 
     assert args.numbers == [1, 2, 3, 4, 5]
     assert args.numbers_bitplane_order == [1, 2, 3, 4, 0]
@@ -111,13 +123,14 @@ def test_pair_runtime_parser_accepts_numbers_bitplane_order():
 def test_pair_runtime_parser_accepts_static_dot_radius():
     from dmdcontrol.runtime import pair
 
-    args = pair._build_parser().parse_args([
-        "--dry-run-timing",
-        "--test",
-        "dot",
-        "--dot-radius",
-        "17",
-    ])
+    args = pair._build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--test",
+            "dot",
+            "--dot-radius",
+            "17",
+        ])
 
     assert args.dot_radius == 17
 
@@ -136,17 +149,49 @@ def test_static_dot_radius_applies_to_both_dmds():
 
 
 @pytest.mark.parametrize(
-    ("argv", "message"),
+    ("argv",
+     "message"),
     [
-        (["--test", A_COUNT_B_STATIC_PAIR_TEST, "--count-start", "5", "--count-end", "4"], "--count-start must be <= --count-end"),
-        (["--test", A_COUNT_B_STATIC_PAIR_TEST, "--count-slots-per-frame", "0"], "--count-slots-per-frame must be in the range"),
-        (["--test", A_COUNT_B_STATIC_PAIR_TEST, "--test-a", "dot"], "--test-a is not valid for a-count-b-static"),
         (
-            ["--test", A_COUNT_B_STATIC_PAIR_TEST, "--count-start", "1", "--count-end", "5", "--count-slots-per-frame", "2"],
+            ["--test",
+             A_COUNT_B_STATIC_PAIR_TEST,
+             "--count-start",
+             "5",
+             "--count-end",
+             "4"],
+            "--count-start must be <= --count-end"),
+        (
+            ["--test",
+             A_COUNT_B_STATIC_PAIR_TEST,
+             "--count-slots-per-frame",
+             "0"],
+            "--count-slots-per-frame must be in the range"),
+        (
+            ["--test",
+             A_COUNT_B_STATIC_PAIR_TEST,
+             "--test-a",
+             "dot"],
+            "--test-a is not valid for a-count-b-static"),
+        (
+            [
+                "--test",
+                A_COUNT_B_STATIC_PAIR_TEST,
+                "--count-start",
+                "1",
+                "--count-end",
+                "5",
+                "--count-slots-per-frame",
+                "2"],
             "divisible by --count-slots-per-frame",
         ),
         (
-            ["--test", A_COUNT_B_STATIC_PAIR_TEST, "--count-end", "130", "--count-slots-per-frame", "2"],
+            [
+                "--test",
+                A_COUNT_B_STATIC_PAIR_TEST,
+                "--count-end",
+                "130",
+                "--count-slots-per-frame",
+                "2"],
             "at most 64 VSYNC frames",
         ),
     ],
@@ -176,7 +221,9 @@ def test_a_numbers_b_static_runtime_forwards_b_static_geometry(monkeypatch):
     args = types.SimpleNamespace(
         test=A_NUMBERS_B_STATIC_PAIR_TEST,
         test_b="dot",
-        numbers=[1, 2, 3],
+        numbers=[1,
+                 2,
+                 3],
         numbers_size_px=123,
         numbers_exposure_us=600,
         b_dot_x=955,
@@ -186,10 +233,13 @@ def test_a_numbers_b_static_runtime_forwards_b_static_geometry(monkeypatch):
         b_dot_invert=False,
     )
 
-    result = pair._make_runtime_pair_frame_provider(args, engine=types.SimpleNamespace(window=None), target_hz=60)
+    result = pair._make_runtime_pair_frame_provider(
+        args,
+        engine=types.SimpleNamespace(window=None),
+        target_hz=60)
 
     assert result is provider
-    assert captured["args"] == (A_NUMBERS_B_STATIC_PAIR_TEST,)
+    assert captured["args"] == (A_NUMBERS_B_STATIC_PAIR_TEST, )
     assert captured["kwargs"]["test_b"] == "dot"
     assert captured["kwargs"]["numbers"] == [1, 2, 3]
     assert captured["kwargs"]["numbers_size_px"] == 123
@@ -227,10 +277,13 @@ def test_a_count_b_static_runtime_forwards_count_geometry(monkeypatch):
         b_dot_invert=False,
     )
 
-    result = pair._make_runtime_pair_frame_provider(args, engine=types.SimpleNamespace(window=None), target_hz=60)
+    result = pair._make_runtime_pair_frame_provider(
+        args,
+        engine=types.SimpleNamespace(window=None),
+        target_hz=60)
 
     assert result is provider
-    assert captured["args"] == (A_COUNT_B_STATIC_PAIR_TEST,)
+    assert captured["args"] == (A_COUNT_B_STATIC_PAIR_TEST, )
     assert captured["kwargs"]["test_b"] == "dot"
     assert captured["kwargs"]["count_start"] == 1
     assert captured["kwargs"]["count_end"] == 100
@@ -258,8 +311,10 @@ def test_pair_live_preview_metadata_includes_count_mode():
     pair_config = types.SimpleNamespace(
         dmd_a=types.SimpleNamespace(xrandr_output="DP-2"),
         dmd_b=types.SimpleNamespace(xrandr_output="DP-0"),
-        offset_a=(1920, 0),
-        offset_b=(0, 0),
+        offset_a=(1920,
+                  0),
+        offset_b=(0,
+                  0),
         target_hz=60,
     )
 
@@ -275,17 +330,18 @@ def test_pair_live_preview_metadata_includes_count_mode():
 
 def test_pair_dry_run_timing_rejects_numbers_sequence_when_dark_time_exceeds_budget():
     with pytest.raises(ValueError, match="need .* usable"):
-        main([
-            "--dry-run-timing",
-            "--test",
-            A_NUMBERS_B_STATIC_PAIR_TEST,
-            "--numbers",
-            "1,2,3,4,5",
-            "--numbers-exposure-us",
-            "2900",
-            "--dark-time-us",
-            "500",
-        ])
+        main(
+            [
+                "--dry-run-timing",
+                "--test",
+                A_NUMBERS_B_STATIC_PAIR_TEST,
+                "--numbers",
+                "1,2,3,4,5",
+                "--numbers-exposure-us",
+                "2900",
+                "--dark-time-us",
+                "500",
+            ])
 
 
 def test_run_prepared_pair_starts_rendering_without_post_start_sleep(monkeypatch):
@@ -297,6 +353,7 @@ def test_run_prepared_pair_starts_rendering_without_post_start_sleep(monkeypatch
     dlpcs = []
 
     class FakeDLPC:
+
         def __init__(self, **kwargs):
             self.closed = False
             dlpcs.append(self)
@@ -314,6 +371,7 @@ def test_run_prepared_pair_starts_rendering_without_post_start_sleep(monkeypatch
             self.closed = True
 
     class FakeEngine:
+
         def __init__(self, fps):
             pass
 
@@ -324,19 +382,23 @@ def test_run_prepared_pair_starts_rendering_without_post_start_sleep(monkeypatch
             pass
 
     class FakeProvider:
+
         def initial_pair(self):
             return object(), object()
 
     monkeypatch.setattr(dlpc_module, "DLPC900", FakeDLPC)
     monkeypatch.setattr(paired_module, "PairedPatternEngine", FakeEngine)
     monkeypatch.setattr(pair, "_lut_override", lambda args, target_hz: (None, None))
-    monkeypatch.setattr(pair, "_make_runtime_pair_frame_provider", lambda args, engine, target_hz: FakeProvider())
+    monkeypatch.setattr(
+        pair,
+        "_make_runtime_pair_frame_provider", lambda args, engine, target_hz: FakeProvider())
     monkeypatch.setattr(pair, "_start_pair_pump", lambda engine, provider: (object(), object()))
     monkeypatch.setattr(pair, "_stop_pair_pump", lambda engine, pump_event, pump_thread: None)
     monkeypatch.setattr(
         pair,
         "prepare_dlpc900_for_video_pattern",
-        lambda *args, **kwargs: {"entries": [], "timing": {}},
+        lambda *args, **kwargs: {
+            "entries": [], "timing": {}},
     )
     monkeypatch.setattr(pair, "load_pattern_sequence", lambda dlpc, entries: None)
     monkeypatch.setattr(pair, "_build_live_preview_metadata", lambda *args, **kwargs: {})

@@ -11,6 +11,7 @@ from dmdcontrol.patterns.kernel import (
 
 
 class _Engine:
+
     def __init__(self, width=12, height=12):
         self.width = width
         self.height = height
@@ -27,6 +28,7 @@ class _Engine:
 
 
 class KernelRuntimeTests(unittest.TestCase):
+
     def test_compute_kernel_lut_override_clamps_to_bitplane_count(self):
         entries, exposure_us = compute_kernel_lut_override(
             enabled=True,
@@ -58,7 +60,8 @@ class KernelRuntimeTests(unittest.TestCase):
                 target_hz=60,
                 sequence_utilization=0.9,
             ),
-            (None, None),
+            (None,
+             None),
         )
 
     def test_generate_kernel_masks_builds_512_centered_masks(self):
@@ -90,8 +93,16 @@ class KernelRuntimeTests(unittest.TestCase):
 
     def test_kernel_frame_provider_loops_or_holds_black_after_single_shot(self):
         frames = [
-            np.full((2, 2, 3), 10, dtype=np.uint8),
-            np.full((2, 2, 3), 20, dtype=np.uint8),
+            np.full((2,
+                     2,
+                     3),
+                    10,
+                    dtype=np.uint8),
+            np.full((2,
+                     2,
+                     3),
+                    20,
+                    dtype=np.uint8),
         ]
         black = np.zeros((2, 2, 3), dtype=np.uint8)
 

@@ -93,11 +93,11 @@ dmd_wait_for_hotplug() {
     sleep 6
 }
 
-dmd_run_xinit() {
-    local script_dir="$1"
-    local xinitrc="$2"
-    shift 2
-    chmod +x "$xinitrc"
+dmd_run_xinit() { # the xinit function
+    local script_dir="$1" # uh we got where the run dir is
+    local xinitrc="$2" # the xinitrc thing?
+    shift 2 # what
+    chmod +x "$xinitrc" # making the xinitrc thing into 
     local pass_file="$script_dir/.env_pass"
     dmd_require_pass_file "$pass_file"
     sudo -S xinit "$xinitrc" "$@" -- :0 vt1 < "$pass_file"

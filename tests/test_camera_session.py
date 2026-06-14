@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 
 class FakeCapture:
+
     def __init__(self):
         self.event_reads = 0
         self.trigger_reads = 0
@@ -26,6 +27,7 @@ class FakeCapture:
 
 
 class FakeWriter:
+
     def __init__(self, path, capture):
         self.path = path
         self.capture = capture
@@ -55,8 +57,7 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
         io=SimpleNamespace(
             camera=SimpleNamespace(open=lambda: calls.append("open") or capture),
             MonoCameraWriter=FakeWriter,
-        )
-    )
+        ))
     run = SimpleNamespace(raw_recording_path=tmp_path / "raw.aedat4")
     ready = SimpleNamespace(event_resolution=(320, 240))
 
@@ -75,33 +76,33 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
     monkeypatch.setattr(
         session,
         "rearm_camera_streams",
-        lambda opened_capture: calls.append(("rearm", opened_capture is capture)) or {"rearmed": True},
+        lambda opened_capture: calls.append(
+            ("rearm", opened_capture is capture)) or {"rearmed": True},
     )
     monkeypatch.setattr(
         session,
         "configure_camera_performance",
         lambda opened_capture, bias_sensitivity, efps, prefer_legacy: calls.append(
-            ("performance", opened_capture is capture, bias_sensitivity, efps, prefer_legacy)
-        ),
+            ("performance", opened_capture is capture, bias_sensitivity, efps, prefer_legacy)),
     )
     monkeypatch.setattr(
         session,
         "configure_rising_edge_triggers",
-        lambda opened_capture: calls.append(("triggers", opened_capture is capture)) or {"configured": True},
+        lambda opened_capture: calls.append(
+            ("triggers", opened_capture is capture)) or {"configured": True},
     )
     monkeypatch.setattr(
         session,
         "validate_camera_ready",
-        lambda opened_capture, stream_rearm, usb_reset, power_cycle, trigger_configuration: calls.append(
+        lambda opened_capture, stream_rearm, usb_reset, power_cycle, trigger_configuration: calls.
+        append(
             (
                 "ready",
                 opened_capture is capture,
                 stream_rearm,
                 usb_reset,
                 power_cycle,
-                trigger_configuration,
-            )
-        ) or ready,
+                trigger_configuration, )) or ready,
     )
 
     opened_capture, writer, opened_ready = session.open_ready_camera(
@@ -123,19 +124,32 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
     assert capture.event_reads == 1
     assert capture.trigger_reads == 1
     assert calls == [
-        ("power", "cycle-camera"),
-        ("reset", True, True),
+        ("power",
+         "cycle-camera"),
+        ("reset",
+         True,
+         True),
         "open",
-        ("rearm", True),
-        ("performance", True, "low", "variable_5000", False),
-        ("triggers", True),
+        ("rearm",
+         True),
+        ("performance",
+         True,
+         "low",
+         "variable_5000",
+         False),
+        ("triggers",
+         True),
         (
             "ready",
             True,
-            {"rearmed": True},
-            {"enabled": True},
-            {"command": "cycle-camera"},
-            {"configured": True},
+            {
+                "rearmed": True},
+            {
+                "enabled": True},
+            {
+                "command": "cycle-camera"},
+            {
+                "configured": True},
         ),
     ]
 
@@ -148,6 +162,7 @@ def test_open_ready_camera_cleans_up_when_flush_fails(monkeypatch, tmp_path):
     writers = []
 
     class RecordingWriter(FakeWriter):
+
         def __init__(self, path, capture):
             super().__init__(path, capture)
             writers.append(self)
@@ -156,8 +171,7 @@ def test_open_ready_camera_cleans_up_when_flush_fails(monkeypatch, tmp_path):
         io=SimpleNamespace(
             camera=SimpleNamespace(open=lambda: capture),
             MonoCameraWriter=RecordingWriter,
-        )
-    )
+        ))
     run = SimpleNamespace(raw_recording_path=tmp_path / "raw.aedat4")
 
     monkeypatch.setitem(sys.modules, "dv_processing", fake_dv)
@@ -261,8 +275,7 @@ def test_open_ready_camera_can_use_legacy_camera_open_method(monkeypatch, tmp_pa
         session,
         "configure_camera_performance",
         lambda opened_capture, bias_sensitivity, efps, prefer_legacy: calls.append(
-            ("performance", opened_capture is capture, bias_sensitivity, efps, prefer_legacy)
-        ),
+            ("performance", opened_capture is capture, bias_sensitivity, efps, prefer_legacy)),
     )
     monkeypatch.setattr(session, "configure_rising_edge_triggers", lambda *args, **kwargs: None)
     monkeypatch.setattr(session, "validate_camera_ready", lambda *args, **kwargs: SimpleNamespace())
@@ -277,6 +290,12 @@ def test_open_ready_camera_can_use_legacy_camera_open_method(monkeypatch, tmp_pa
     )
 
     assert calls == [
-        ("open", True, "legacy"),
-        ("performance", True, "low", "variable_5000", True),
+        ("open",
+         True,
+         "legacy"),
+        ("performance",
+         True,
+         "low",
+         "variable_5000",
+         True),
     ]

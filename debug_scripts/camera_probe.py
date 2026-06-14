@@ -49,8 +49,7 @@ def positive_int(value: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Camera-only DVXplorer positive-event accumulation probe"
-    )
+        description="Camera-only DVXplorer positive-event accumulation probe")
     parser.add_argument(
         "--duration-seconds",
         type=positive_float,
@@ -72,19 +71,28 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--camera-open-method",
         default="modern",
-        choices=["modern", "legacy"],
+        choices=["modern",
+                 "legacy"],
         help="Camera API used to open the device. Use legacy to mirror mentor CameraCapture code.",
     )
     parser.add_argument(
         "--bias-sensitivity",
         default="default",
-        choices=["default", "verylow", "low", "high", "veryhigh"],
+        choices=["default",
+                 "verylow",
+                 "low",
+                 "high",
+                 "veryhigh"],
         help="Optional camera bias/sensitivity preset.",
     )
     parser.add_argument(
         "--efps",
         default="default",
-        choices=["default", "variable", "variable_5000", "constant_1000", "constant_100"],
+        choices=["default",
+                 "variable",
+                 "variable_5000",
+                 "constant_1000",
+                 "constant_100"],
         help="Optional DVXplorer readout/eFPS preset.",
     )
     parser.add_argument(
@@ -127,7 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
         dest="usb_reset",
         action="store_true",
         default=False,
-        help="Diagnostic: run a Linux USB device reset before opening the camera. Disabled by default.",
+        help=
+        "Diagnostic: run a Linux USB device reset before opening the camera. Disabled by default.",
     )
     parser.add_argument(
         "--no-usb-reset",
@@ -141,8 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Optional command run before camera open to power-cycle the USB port, "
             "for example: \"uhubctl -l 1-2 -p 3 -a cycle -d 2\". "
-            "Defaults to DMD_CAMERA_POWER_CYCLE_COMMAND when set."
-        ),
+            "Defaults to DMD_CAMERA_POWER_CYCLE_COMMAND when set."),
     )
     parser.add_argument(
         "--stream-rearm",
@@ -170,23 +178,26 @@ def write_png_gray8(path: Path, image_u8: np.ndarray) -> None:
 
     height, width = image_u8.shape
 
-    raw = b"".join(
-        b"\x00" + image_u8[y, :].tobytes()
-        for y in range(height)
-    )
+    raw = b"".join(b"\x00" + image_u8[y, :].tobytes() for y in range(height))
 
     def chunk(tag: bytes, data: bytes) -> bytes:
         return (
-            struct.pack(">I", len(data))
-            + tag
-            + data
-            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
-        )
+            struct.pack(">I",
+                        len(data)) + tag + data +
+            struct.pack(">I",
+                        zlib.crc32(tag + data) & 0xFFFFFFFF))
 
     png = b"\x89PNG\r\n\x1a\n"
     png += chunk(
         b"IHDR",
-        struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0),
+        struct.pack(">IIBBBBB",
+                    width,
+                    height,
+                    8,
+                    0,
+                    0,
+                    0,
+                    0),
     )
     png += chunk(b"IDAT", zlib.compress(raw, level=6))
     png += chunk(b"IEND", b"")
@@ -271,7 +282,8 @@ def run() -> int:
 
     print("[probe] dv_processing:", dv)
     print("[probe] dv_processing version:", getattr(dv, "__version__", "unknown"))
-    power_cycle_command = args.power_cycle_command or os.environ.get("DMD_CAMERA_POWER_CYCLE_COMMAND")
+    power_cycle_command = args.power_cycle_command or os.environ.get(
+        "DMD_CAMERA_POWER_CYCLE_COMMAND")
     print("[probe] power cycle:", run_power_cycle_command(power_cycle_command))
     print("[probe] usb reset:", reset_camera_usb(dv, enabled=args.usb_reset))
 
@@ -282,8 +294,7 @@ def run() -> int:
             f"  [{i}] "
             f"model={getattr(d, 'cameraModel', None)} "
             f"serial={getattr(d, 'serialNumber', None)} "
-            f"devAddress={getattr(d, 'devAddress', None)}"
-        )
+            f"devAddress={getattr(d, 'devAddress', None)}")
 
     if not descs and args.camera_open_method == "modern":
         raise RuntimeError("No camera discovered")
@@ -296,9 +307,15 @@ def run() -> int:
     )
 
     print("[probe] capture type:", type(capture))
-    print("[probe] name:", capture.getCameraName() if hasattr(capture, "getCameraName") else "unknown")
+    print(
+        "[probe] name:",
+        capture.getCameraName() if hasattr(capture,
+                                           "getCameraName") else "unknown")
     print("[probe] event stream:", capture.isEventStreamAvailable())
-    print("[probe] trigger stream:", capture.isTriggerStreamAvailable() if hasattr(capture, "isTriggerStreamAvailable") else "unknown")
+    print(
+        "[probe] trigger stream:",
+        capture.isTriggerStreamAvailable() if hasattr(capture,
+                                                      "isTriggerStreamAvailable") else "unknown")
     print("[probe] running:", capture.isRunning())
 
     if not capture.isEventStreamAvailable():
@@ -439,35 +456,60 @@ def run() -> int:
         write_png_gray8(linear_png, image_linear)
 
     stats = {
-        "duration_seconds_requested": args.duration_seconds,
-        "duration_seconds_elapsed": elapsed,
-        "resolution": [width, height],
-        "camera_open_method": args.camera_open_method,
-        "threshold": args.threshold,
-        "threshold_applied": not args.skip_threshold,
-        "bias_sensitivity": args.bias_sensitivity,
-        "efps": args.efps,
-        "total_events": int(total_events),
-        "positive_events": int(positive_events),
-        "negative_events": int(negative_events),
-        "positive_fraction": float(positive_events / total_events) if total_events else None,
-        "mean_total_event_rate_eps": float(total_events / elapsed) if elapsed > 0 else None,
-        "mean_positive_event_rate_eps": float(positive_events / elapsed) if elapsed > 0 else None,
-        "batch_count": int(batch_count),
-        "none_count": int(none_count),
-        "out_of_bounds_positive_events": int(out_of_bounds),
-        "nonzero_pixels": int(np.count_nonzero(accum_on)),
-        "max_pixel_count": int(accum_on.max()) if accum_on.size else 0,
-        "sum_accumulated_positive_events": int(accum_on.sum()),
-        "first_camera_ts_us": int(first_ts) if first_ts is not None else None,
-        "last_camera_ts_us": int(last_ts) if last_ts is not None else None,
-        "camera_ts_span_s": float((last_ts - first_ts) / 1e6)
-        if first_ts is not None and last_ts is not None
-        else None,
-        "monotonic_bad_batches": int(monotonic_bad_batches),
-        "output_log_png": str(log_png),
-        "output_counts_npy": str(npy_path),
-        "output_linear_png": str(linear_png) if linear_png else None,
+        "duration_seconds_requested":
+        args.duration_seconds,
+        "duration_seconds_elapsed":
+        elapsed,
+        "resolution": [width,
+                       height],
+        "camera_open_method":
+        args.camera_open_method,
+        "threshold":
+        args.threshold,
+        "threshold_applied":
+        not args.skip_threshold,
+        "bias_sensitivity":
+        args.bias_sensitivity,
+        "efps":
+        args.efps,
+        "total_events":
+        int(total_events),
+        "positive_events":
+        int(positive_events),
+        "negative_events":
+        int(negative_events),
+        "positive_fraction":
+        float(positive_events / total_events) if total_events else None,
+        "mean_total_event_rate_eps":
+        float(total_events / elapsed) if elapsed > 0 else None,
+        "mean_positive_event_rate_eps":
+        float(positive_events / elapsed) if elapsed > 0 else None,
+        "batch_count":
+        int(batch_count),
+        "none_count":
+        int(none_count),
+        "out_of_bounds_positive_events":
+        int(out_of_bounds),
+        "nonzero_pixels":
+        int(np.count_nonzero(accum_on)),
+        "max_pixel_count":
+        int(accum_on.max()) if accum_on.size else 0,
+        "sum_accumulated_positive_events":
+        int(accum_on.sum()),
+        "first_camera_ts_us":
+        int(first_ts) if first_ts is not None else None,
+        "last_camera_ts_us":
+        int(last_ts) if last_ts is not None else None,
+        "camera_ts_span_s":
+        float((last_ts - first_ts) / 1e6) if first_ts is not None and last_ts is not None else None,
+        "monotonic_bad_batches":
+        int(monotonic_bad_batches),
+        "output_log_png":
+        str(log_png),
+        "output_counts_npy":
+        str(npy_path),
+        "output_linear_png":
+        str(linear_png) if linear_png else None,
     }
 
     json_path.write_text(json.dumps(stats, indent=2))

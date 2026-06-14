@@ -14,6 +14,7 @@ from dmdcontrol.camera.capture import (
 
 
 class FakeCapture:
+
     def __init__(self):
         self.event_reads = 0
         self.trigger_reads = 0
@@ -75,7 +76,9 @@ def test_flush_stale_batches_reads_events_and_triggers():
 
 
 def test_flush_stale_batches_reports_discarded_trigger_batches():
+
     class StaleCapture:
+
         def __init__(self):
             self.events = [[{"timestamp": 1}], None]
             self.triggers = [[{"timestamp": 2}, {"timestamp": 3}], None]
@@ -101,7 +104,9 @@ def test_flush_stale_batches_reports_discarded_trigger_batches():
 
 
 def test_flush_stale_batches_can_preserve_trigger_batches():
+
     class StaleCapture:
+
         def __init__(self):
             self.event_reads = 0
             self.trigger_reads = 0
@@ -135,6 +140,7 @@ def test_flush_stale_batches_can_preserve_trigger_batches():
 
 
 class FakeNumpyBatch:
+
     def __init__(self, array):
         self.array = array
 
@@ -144,12 +150,19 @@ class FakeNumpyBatch:
 
 def test_append_batch_records_snapshots_numpy_batches():
     source = np.array(
-        [(100, 2, 1, True)],
+        [(100,
+          2,
+          1,
+          True)],
         dtype=[
-            ("timestamp", np.int64),
-            ("x", np.int16),
-            ("y", np.int16),
-            ("polarity", np.bool_),
+            ("timestamp",
+             np.int64),
+            ("x",
+             np.int16),
+            ("y",
+             np.int16),
+            ("polarity",
+             np.bool_),
         ],
     )
     destination = []
@@ -164,6 +177,7 @@ def test_append_batch_records_snapshots_numpy_batches():
 
 
 class FakeWriter:
+
     def __init__(self):
         self.events = []
         self.triggers = []
@@ -176,6 +190,7 @@ class FakeWriter:
 
 
 class FakeLiveCapture(FakeCapture):
+
     def __init__(self):
         super().__init__()
         self.event_batches = [["e1"], None, ["e2"], None]
@@ -255,12 +270,26 @@ def test_record_until_trigger_count_reads_post_trigger_event_batches():
 def test_record_until_trigger_count_waits_until_events_reach_trigger_window():
     capture = FakeLiveCapture()
     capture.event_batches = [
-        [{"timestamp": 100, "x": 1, "y": 1, "polarity": True}],
-        [{"timestamp": 160, "x": 2, "y": 1, "polarity": True}],
-        [{"timestamp": 260, "x": 3, "y": 1, "polarity": True}],
+        [{
+            "timestamp": 100,
+            "x": 1,
+            "y": 1,
+            "polarity": True}],
+        [{
+            "timestamp": 160,
+            "x": 2,
+            "y": 1,
+            "polarity": True}],
+        [{
+            "timestamp": 260,
+            "x": 3,
+            "y": 1,
+            "polarity": True}],
     ]
     capture.trigger_batches = [
-        [{"timestamp": 200, "edge": "rising"}],
+        [{
+            "timestamp": 200,
+            "edge": "rising"}],
     ]
     writer = FakeWriter()
 
@@ -283,16 +312,32 @@ def test_record_until_trigger_count_reports_capture_time_ranges():
     capture = FakeLiveCapture()
     capture.event_batches = [
         [
-            {"timestamp": 100, "x": 1, "y": 1, "polarity": True},
-            {"timestamp": 120, "x": 2, "y": 1, "polarity": True},
+            {
+                "timestamp": 100,
+                "x": 1,
+                "y": 1,
+                "polarity": True},
+            {
+                "timestamp": 120,
+                "x": 2,
+                "y": 1,
+                "polarity": True},
         ],
         [
-            {"timestamp": 250, "x": 3, "y": 1, "polarity": False},
+            {
+                "timestamp": 250,
+                "x": 3,
+                "y": 1,
+                "polarity": False},
         ],
     ]
     capture.trigger_batches = [
-        [{"timestamp": 110, "edge": "rising"}],
-        [{"timestamp": 260, "edge": "rising"}],
+        [{
+            "timestamp": 110,
+            "edge": "rising"}],
+        [{
+            "timestamp": 260,
+            "edge": "rising"}],
     ]
     writer = FakeWriter()
 
@@ -340,6 +385,7 @@ def test_record_until_trigger_count_drains_tail_batches_after_stop_event():
     stop_event = Event()
 
     class DelayedTailCapture(FakeCapture):
+
         def isRunning(self):
             return True
 

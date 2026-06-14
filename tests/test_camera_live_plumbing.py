@@ -27,7 +27,8 @@ def test_pair_capture_live_records_while_dmd_runtime_is_active(monkeypatch, tmp_
     fake_capture = Mock()
     fake_writer = Mock()
     ready = SimpleNamespace(
-        event_resolution=(320, 240),
+        event_resolution=(320,
+                          240),
         event_stream_available=True,
         trigger_stream_available=True,
     )
@@ -68,12 +69,13 @@ def test_pair_capture_live_records_while_dmd_runtime_is_active(monkeypatch, tmp_
 
     monkeypatch.setattr(pair_capture, "_run_pair_with_callback", fake_run)
 
-    args = pair_capture.build_parser().parse_args([
-        "--output-root",
-        str(tmp_path),
-        "--runtime-seconds",
-        "1",
-    ])
+    args = pair_capture.build_parser().parse_args(
+        [
+            "--output-root",
+            str(tmp_path),
+            "--runtime-seconds",
+            "1",
+        ])
 
     assert pair_capture.live(args) == 0
     assert events.index("record_start") < events.index("dmd_return")
@@ -87,7 +89,8 @@ def test_pair_capture_live_records_until_dmd_runtime_finishes(monkeypatch, tmp_p
     runtime_can_finish = Event()
     record_kwargs = {}
     ready = SimpleNamespace(
-        event_resolution=(320, 240),
+        event_resolution=(320,
+                          240),
         event_stream_available=True,
         trigger_stream_available=True,
     )
@@ -123,14 +126,15 @@ def test_pair_capture_live_records_until_dmd_runtime_finishes(monkeypatch, tmp_p
 
     monkeypatch.setattr(pair_capture, "_run_pair_with_callback", fake_run)
 
-    args = pair_capture.build_parser().parse_args([
-        "--output-root",
-        str(tmp_path),
-        "--test",
-        "a-kernel-b-static",
-        "--runtime-seconds",
-        "1",
-    ])
+    args = pair_capture.build_parser().parse_args(
+        [
+            "--output-root",
+            str(tmp_path),
+            "--test",
+            "a-kernel-b-static",
+            "--runtime-seconds",
+            "1",
+        ])
 
     assert pair_capture.live(args) == 0
     assert record_kwargs["expected_trigger_count"] is None
@@ -143,7 +147,8 @@ def test_pair_capture_live_writes_capture_artifacts_with_event_filter(monkeypatc
     runtime_can_finish = Event()
     artifact_call = {}
     ready = SimpleNamespace(
-        event_resolution=(320, 240),
+        event_resolution=(320,
+                          240),
         event_stream_available=True,
         trigger_stream_available=True,
     )
@@ -189,24 +194,25 @@ def test_pair_capture_live_writes_capture_artifacts_with_event_filter(monkeypatc
 
     monkeypatch.setattr(pair_capture, "write_capture_artifacts", fake_write_capture_artifacts)
 
-    args = pair_capture.build_parser().parse_args([
-        "--output-root",
-        str(tmp_path),
-        "--runtime-seconds",
-        "1",
-        "--kernel-exposure-us",
-        "600",
-        "--event-noise-filter",
-        "local-support",
-        "--event-filter-delta-us",
-        "50000",
-        "--event-filter-window-px",
-        "3",
-        "--event-filter-threshold",
-        "2",
-        "--event-filter-polarity",
-        "same",
-    ])
+    args = pair_capture.build_parser().parse_args(
+        [
+            "--output-root",
+            str(tmp_path),
+            "--runtime-seconds",
+            "1",
+            "--kernel-exposure-us",
+            "600",
+            "--event-noise-filter",
+            "local-support",
+            "--event-filter-delta-us",
+            "50000",
+            "--event-filter-window-px",
+            "3",
+            "--event-filter-threshold",
+            "2",
+            "--event-filter-polarity",
+            "same",
+        ])
 
     assert pair_capture.live(args) == 0
     assert artifact_call["events"] == [{"timestamp": 105, "x": 2, "y": 1, "polarity": True}]
@@ -227,7 +233,8 @@ def test_pair_capture_live_limits_in_memory_artifact_batches(monkeypatch, tmp_pa
     runtime_can_finish = Event()
     artifact_call = {}
     ready = SimpleNamespace(
-        event_resolution=(320, 240),
+        event_resolution=(320,
+                          240),
         event_stream_available=True,
         trigger_stream_available=True,
     )
@@ -244,20 +251,45 @@ def test_pair_capture_live_limits_in_memory_artifact_batches(monkeypatch, tmp_pa
     )
 
     def fake_record(*args, **kwargs):
-        kwargs["on_events"]([
-            {"timestamp": 101, "x": 1, "y": 1, "polarity": True},
-            {"timestamp": 112, "x": 9, "y": 9, "polarity": True},
-        ])
+        kwargs["on_events"](
+            [
+                {
+                    "timestamp": 101,
+                    "x": 1,
+                    "y": 1,
+                    "polarity": True},
+                {
+                    "timestamp": 112,
+                    "x": 9,
+                    "y": 9,
+                    "polarity": True},
+            ])
+        kwargs["on_triggers"](
+            [
+                {
+                    "timestamp": 100,
+                    "edge": "rising"},
+                {
+                    "timestamp": 200,
+                    "edge": "rising"},
+            ])
+        kwargs["on_events"](
+            [
+                {
+                    "timestamp": 104,
+                    "x": 2,
+                    "y": 2,
+                    "polarity": True},
+                {
+                    "timestamp": 120,
+                    "x": 3,
+                    "y": 3,
+                    "polarity": True},
+            ])
         kwargs["on_triggers"]([
-            {"timestamp": 100, "edge": "rising"},
-            {"timestamp": 200, "edge": "rising"},
-        ])
-        kwargs["on_events"]([
-            {"timestamp": 104, "x": 2, "y": 2, "polarity": True},
-            {"timestamp": 120, "x": 3, "y": 3, "polarity": True},
-        ])
-        kwargs["on_triggers"]([
-            {"timestamp": 300, "edge": "rising"},
+            {
+                "timestamp": 300,
+                "edge": "rising"},
         ])
         record_started.set()
         assert runtime_can_finish.wait(timeout=1.0)
@@ -286,23 +318,32 @@ def test_pair_capture_live_limits_in_memory_artifact_batches(monkeypatch, tmp_pa
 
     monkeypatch.setattr(pair_capture, "write_capture_artifacts", fake_write_capture_artifacts)
 
-    args = pair_capture.build_parser().parse_args([
-        "--output-root",
-        str(tmp_path),
-        "--runtime-seconds",
-        "1",
-        "--kernel-exposure-us",
-        "10",
-        "--max-accumulation-triggers",
-        "1",
-    ])
+    args = pair_capture.build_parser().parse_args(
+        [
+            "--output-root",
+            str(tmp_path),
+            "--runtime-seconds",
+            "1",
+            "--kernel-exposure-us",
+            "10",
+            "--max-accumulation-triggers",
+            "1",
+        ])
 
     assert pair_capture.live(args) == 0
     assert artifact_call["max_accumulation_triggers"] == 1
     assert artifact_call["triggers"] == [{"timestamp": 100, "edge": "rising"}]
     assert artifact_call["events"] == [
-        {"timestamp": 101, "x": 1, "y": 1, "polarity": True},
-        {"timestamp": 104, "x": 2, "y": 2, "polarity": True},
+        {
+            "timestamp": 101,
+            "x": 1,
+            "y": 1,
+            "polarity": True},
+        {
+            "timestamp": 104,
+            "x": 2,
+            "y": 2,
+            "polarity": True},
     ]
 
 
@@ -313,7 +354,8 @@ def test_sync_check_live_records_while_dmd_runtime_is_active(monkeypatch, tmp_pa
     record_started = Event()
     runtime_can_finish = Event()
     ready = SimpleNamespace(
-        event_resolution=(320, 240),
+        event_resolution=(320,
+                          240),
         event_stream_available=True,
         trigger_stream_available=True,
     )
@@ -354,12 +396,13 @@ def test_sync_check_live_records_while_dmd_runtime_is_active(monkeypatch, tmp_pa
 
     monkeypatch.setattr(sync_check, "record_until_trigger_count", fake_record)
 
-    args = sync_check.build_parser().parse_args([
-        "--output-root",
-        str(tmp_path),
-        "--runtime-seconds",
-        "1",
-    ])
+    args = sync_check.build_parser().parse_args(
+        [
+            "--output-root",
+            str(tmp_path),
+            "--runtime-seconds",
+            "1",
+        ])
 
     assert sync_check.live(args) == 0
     assert events.index("record_start") < events.index("dmd_return")
@@ -372,7 +415,8 @@ def test_live_stops_recording_when_dmd_runtime_raises(monkeypatch, tmp_path):
     events = []
     record_started = Event()
     ready = SimpleNamespace(
-        event_resolution=(320, 240),
+        event_resolution=(320,
+                          240),
         event_stream_available=True,
         trigger_stream_available=True,
     )
@@ -418,12 +462,13 @@ def test_live_stops_recording_when_dmd_runtime_raises(monkeypatch, tmp_path):
 
     monkeypatch.setattr(pair_capture, "_run_pair_with_callback", fake_run)
 
-    args = pair_capture.build_parser().parse_args([
-        "--output-root",
-        str(tmp_path),
-        "--runtime-seconds",
-        "1",
-    ])
+    args = pair_capture.build_parser().parse_args(
+        [
+            "--output-root",
+            str(tmp_path),
+            "--runtime-seconds",
+            "1",
+        ])
 
     try:
         pair_capture.live(args)
@@ -441,7 +486,8 @@ def test_sync_check_live_stops_recording_when_dmd_runtime_raises(monkeypatch, tm
     events = []
     record_started = Event()
     ready = SimpleNamespace(
-        event_resolution=(320, 240),
+        event_resolution=(320,
+                          240),
         event_stream_available=True,
         trigger_stream_available=True,
     )
@@ -487,12 +533,13 @@ def test_sync_check_live_stops_recording_when_dmd_runtime_raises(monkeypatch, tm
 
     monkeypatch.setattr(sync_check, "_run_pair_with_callback", fake_run)
 
-    args = sync_check.build_parser().parse_args([
-        "--output-root",
-        str(tmp_path),
-        "--runtime-seconds",
-        "1",
-    ])
+    args = sync_check.build_parser().parse_args(
+        [
+            "--output-root",
+            str(tmp_path),
+            "--runtime-seconds",
+            "1",
+        ])
 
     try:
         sync_check.live(args)
@@ -510,7 +557,8 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
     artifact_call = {}
     record_kwargs = {}
     ready = SimpleNamespace(
-        event_resolution=(320, 240),
+        event_resolution=(320,
+                          240),
         event_stream_available=True,
         trigger_stream_available=True,
     )
@@ -553,24 +601,25 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
 
     monkeypatch.setattr(sync_check, "write_capture_artifacts", fake_write_capture_artifacts)
 
-    args = sync_check.build_parser().parse_args([
-        "--output-root",
-        str(tmp_path),
-        "--runtime-seconds",
-        "1",
-        "--numbers-exposure-us",
-        "600",
-        "--event-noise-filter",
-        "local-support",
-        "--event-filter-delta-us",
-        "50000",
-        "--event-filter-window-px",
-        "3",
-        "--event-filter-threshold",
-        "2",
-        "--event-filter-polarity",
-        "same",
-    ])
+    args = sync_check.build_parser().parse_args(
+        [
+            "--output-root",
+            str(tmp_path),
+            "--runtime-seconds",
+            "1",
+            "--numbers-exposure-us",
+            "600",
+            "--event-noise-filter",
+            "local-support",
+            "--event-filter-delta-us",
+            "50000",
+            "--event-filter-window-px",
+            "3",
+            "--event-filter-threshold",
+            "2",
+            "--event-filter-polarity",
+            "same",
+        ])
 
     assert sync_check.live(args) == 0
     assert record_kwargs["expected_trigger_count"] is None
@@ -585,13 +634,16 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
     assert artifact_call["event_noise_filter"].polarity == "same"
 
 
-def test_sync_check_live_capture_flushes_stale_batches_immediately_before_recording(monkeypatch, tmp_path):
+def test_sync_check_live_capture_flushes_stale_batches_immediately_before_recording(
+        monkeypatch,
+        tmp_path):
     from dmdcontrol.camera import sync_check
 
     events = []
     record_started = Event()
     ready = SimpleNamespace(
-        event_resolution=(320, 240),
+        event_resolution=(320,
+                          240),
         event_stream_available=True,
         trigger_stream_available=True,
     )
@@ -635,20 +687,23 @@ def test_sync_check_live_capture_flushes_stale_batches_immediately_before_record
     monkeypatch.setattr(sync_check, "_run_pair_with_callback", fake_run)
     monkeypatch.setattr(sync_check, "write_capture_artifacts", lambda *args, **kwargs: {})
 
-    args = sync_check.build_parser().parse_args([
-        "--output-root",
-        str(tmp_path),
-        "--runtime-seconds",
-        "1",
-        "--camera-flush-reads",
-        "7",
-    ])
+    args = sync_check.build_parser().parse_args(
+        [
+            "--output-root",
+            str(tmp_path),
+            "--runtime-seconds",
+            "1",
+            "--camera-flush-reads",
+            "7",
+        ])
     run = _fake_run_directory(tmp_path)
 
     assert sync_check.live_capture(args, run, capture, writer, ready) == 0
     assert events == [
         "before_start",
-        ("flush", 7, True),
+        ("flush",
+         7,
+         True),
         "record_start",
         "sequencer_start_continued",
     ]

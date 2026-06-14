@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import time
 from dataclasses import dataclass
 
@@ -98,19 +97,49 @@ def _fill_rect_rgb(frame, x0, y0, x1, y1, value=255):
 def _draw_block_letter(frame, label, x0, y0, cell):
     if label == "A":
         rects = (
-            (0, 1, 1, 7),
-            (4, 1, 5, 7),
-            (1, 0, 4, 1),
-            (1, 3, 4, 4),
+            (0,
+             1,
+             1,
+             7),
+            (4,
+             1,
+             5,
+             7),
+            (1,
+             0,
+             4,
+             1),
+            (1,
+             3,
+             4,
+             4),
         )
     else:
         rects = (
-            (0, 0, 1, 7),
-            (1, 0, 4, 1),
-            (1, 3, 4, 4),
-            (1, 6, 4, 7),
-            (4, 1, 5, 3),
-            (4, 4, 5, 6),
+            (0,
+             0,
+             1,
+             7),
+            (1,
+             0,
+             4,
+             1),
+            (1,
+             3,
+             4,
+             4),
+            (1,
+             6,
+             4,
+             7),
+            (4,
+             1,
+             5,
+             3),
+            (4,
+             4,
+             5,
+             6),
         )
     for rx0, ry0, rx1, ry1 in rects:
         _fill_rect_rgb(
@@ -123,13 +152,13 @@ def _draw_block_letter(frame, label, x0, y0, cell):
 
 
 def generate_dot_frame(
-        width=DMD_WIDTH,
-        height=DMD_HEIGHT,
-        x=None,
-        y=None,
-        radius=40,
-        shape="circle",
-        invert=False,
+    width=DMD_WIDTH,
+    height=DMD_HEIGHT,
+    x=None,
+    y=None,
+    radius=40,
+    shape="circle",
+    invert=False,
 ):
     """Generate a static RGB dot mask/aperture frame."""
     if width <= 0 or height <= 0:
@@ -145,7 +174,7 @@ def generate_dot_frame(
 
     yy, xx = np.ogrid[:height, :width]
     if shape == "circle":
-        mask = (xx - x) ** 2 + (yy - y) ** 2 <= radius ** 2
+        mask = (xx - x)**2 + (yy - y)**2 <= radius**2
     else:
         mask = (np.abs(xx - x) <= radius) & (np.abs(yy - y) <= radius)
 
@@ -179,15 +208,15 @@ def _route_mark(frame, label):
 
 
 def generate_static_frame(
-        mode,
-        width=DMD_WIDTH,
-        height=DMD_HEIGHT,
-        route_label="A",
-        dot_x=None,
-        dot_y=None,
-        dot_radius=40,
-        dot_shape="circle",
-        dot_invert=False,
+    mode,
+    width=DMD_WIDTH,
+    height=DMD_HEIGHT,
+    route_label="A",
+    dot_x=None,
+    dot_y=None,
+    dot_radius=40,
+    dot_shape="circle",
+    dot_invert=False,
 ):
     if mode == "checkerboard":
         frame = _checkerboard(width, height)
@@ -239,6 +268,7 @@ def _static_frame(mode, width, height, route_label, dot_radius=40):
 
 
 class PairFrameProvider:
+
     def initial_pair(self):
         raise NotImplementedError
 
@@ -297,6 +327,7 @@ class StaticPairFrameProvider(PairFrameProvider):
 
 
 class DynamicAStaticBPairFrameProvider(PairFrameProvider):
+
     def __init__(self, frame_provider_a, frame_b, initial_frame_a=None):
         _validate_rgb_frame(frame_b, "frame_b")
         if initial_frame_a is not None:
@@ -328,13 +359,13 @@ class DynamicAStaticBPairFrameProvider(PairFrameProvider):
 
 
 class CalibrationSquareDotPairFrameProvider(DynamicAStaticBPairFrameProvider):
+
     def __init__(self, frame_provider_a, frame_b, initial_frame_a=None, flicker_a=False):
         super().__init__(frame_provider_a, frame_b, initial_frame_a=initial_frame_a)
         self.flicker_a = flicker_a
         self.frame_index = 0
         self._black_frame_a = (
-            np.zeros_like(initial_frame_a) if initial_frame_a is not None else None
-        )
+            np.zeros_like(initial_frame_a) if initial_frame_a is not None else None)
 
     def _remember_black_frame(self, frame_a):
         if self._black_frame_a is None:
@@ -355,6 +386,7 @@ class CalibrationSquareDotPairFrameProvider(DynamicAStaticBPairFrameProvider):
 
 
 class DynamicGradientPairFrameProvider(PairFrameProvider):
+
     def __init__(self, width=DMD_WIDTH, height=DMD_HEIGHT):
         self.width = width
         self.height = height
@@ -381,6 +413,7 @@ class DynamicGradientPairFrameProvider(PairFrameProvider):
 
 
 class DynamicSnakePairFrameProvider(PairFrameProvider):
+
     def __init__(self, width=DMD_WIDTH, height=DMD_HEIGHT, cells_x=24, cells_y=13):
         self.width = width
         self.height = height
@@ -404,7 +437,7 @@ class DynamicSnakePairFrameProvider(PairFrameProvider):
                 x0 = col * cell_w
                 y0 = row * cell_h
                 level = max(64, 255 - segment * 32)
-                frame[y0: y0 + cell_h, x0: x0 + cell_w, :] = level
+                frame[y0:y0 + cell_h, x0:x0 + cell_w, :] = level
         return _route_mark(frame_a, "A"), _route_mark(frame_b, "B")
 
     def initial_pair(self):
@@ -416,13 +449,14 @@ class DynamicSnakePairFrameProvider(PairFrameProvider):
 
 
 class NumberSequencePairFrameProvider(PairFrameProvider):
+
     def __init__(
-            self,
-            numbers=NUMBER_SEQUENCE,
-            width=DMD_WIDTH,
-            height=DMD_HEIGHT,
-            size_px=None,
-            numbers_bitplane_order=None,
+        self,
+        numbers=NUMBER_SEQUENCE,
+        width=DMD_WIDTH,
+        height=DMD_HEIGHT,
+        size_px=None,
+        numbers_bitplane_order=None,
     ):
         if not numbers:
             raise ValueError("numbers must not be empty")
@@ -449,19 +483,20 @@ class NumberSequencePairFrameProvider(PairFrameProvider):
 
 
 class NumberSequenceAStaticBPairFrameProvider(PairFrameProvider):
+
     def __init__(
-            self,
-            mode_b="dot",
-            numbers=NUMBER_SEQUENCE,
-            width=DMD_WIDTH,
-            height=DMD_HEIGHT,
-            size_px=None,
-            b_dot_x=None,
-            b_dot_y=None,
-            b_dot_radius=40,
-            b_dot_shape="circle",
-            b_dot_invert=False,
-            numbers_bitplane_order=None,
+        self,
+        mode_b="dot",
+        numbers=NUMBER_SEQUENCE,
+        width=DMD_WIDTH,
+        height=DMD_HEIGHT,
+        size_px=None,
+        b_dot_x=None,
+        b_dot_y=None,
+        b_dot_radius=40,
+        b_dot_shape="circle",
+        b_dot_invert=False,
+        numbers_bitplane_order=None,
     ):
         if not numbers:
             raise ValueError("numbers must not be empty")
@@ -496,21 +531,22 @@ class NumberSequenceAStaticBPairFrameProvider(PairFrameProvider):
 
 
 class CountSequenceAStaticBPairFrameProvider(PairFrameProvider):
+
     def __init__(
-            self,
-            mode_b="dot",
-            count_start=1,
-            count_end=100,
-            count_slots_per_frame=2,
-            width=DMD_WIDTH,
-            height=DMD_HEIGHT,
-            size_px=None,
-            b_dot_x=None,
-            b_dot_y=None,
-            b_dot_radius=40,
-            b_dot_shape="circle",
-            b_dot_invert=False,
-            numbers_bitplane_order=None,
+        self,
+        mode_b="dot",
+        count_start=1,
+        count_end=100,
+        count_slots_per_frame=2,
+        width=DMD_WIDTH,
+        height=DMD_HEIGHT,
+        size_px=None,
+        b_dot_x=None,
+        b_dot_y=None,
+        b_dot_radius=40,
+        b_dot_shape="circle",
+        b_dot_invert=False,
+        numbers_bitplane_order=None,
     ):
         _validate_count_sequence_args(count_start, count_end, count_slots_per_frame)
         self.width = width
@@ -565,12 +601,18 @@ def _reorder_masks_for_bitplane_display(masks, bitplane_order):
     return ordered
 
 
-def _pack_count_sequence_frames(count_start, count_end, count_slots_per_frame, width, height, size_px=None):
+def _pack_count_sequence_frames(
+        count_start,
+        count_end,
+        count_slots_per_frame,
+        width,
+        height,
+        size_px=None):
     _validate_count_sequence_args(count_start, count_end, count_slots_per_frame)
     frames = []
     counts = _count_sequence_values(count_start, count_end)
     for offset in range(0, len(counts), count_slots_per_frame):
-        chunk = counts[offset: offset + count_slots_per_frame]
+        chunk = counts[offset:offset + count_slots_per_frame]
         masks = _decimal_number_bitplane_masks(chunk, width=width, height=height, size_px=size_px)
         frames.append(_pack_binary_masks_bitplanes(masks, width, height))
     return tuple(frames)
@@ -589,8 +631,7 @@ def _validate_count_sequence_args(count_start, count_end, count_slots_per_frame)
     frame_count = count_total // count_slots_per_frame
     if frame_count > MAX_COUNT_SEQUENCE_FRAMES:
         raise ValueError(
-            f"count sequence can span at most {MAX_COUNT_SEQUENCE_FRAMES} VSYNC frames"
-        )
+            f"count sequence can span at most {MAX_COUNT_SEQUENCE_FRAMES} VSYNC frames")
 
 
 def count_sequence_frame_count(count_start, count_end, count_slots_per_frame):
@@ -604,16 +645,12 @@ def _count_sequence_values(count_start, count_end):
 
 def _number_bitplane_masks(numbers, *, width, height, size_px=None):
     return [
-        (
-            generate_number_rgb(
-                number,
-                width=width,
-                height=height,
-                size_px=size_px,
-            )[:, :, 0] > 0
-        ).astype(np.uint8)
-        for number in numbers
-    ]
+        (generate_number_rgb(
+            number,
+            width=width,
+            height=height,
+            size_px=size_px,
+        )[:, :, 0] > 0).astype(np.uint8) for number in numbers]
 
 
 def _decimal_number_bitplane_masks(numbers, *, width, height, size_px=None):
@@ -624,20 +661,14 @@ def _decimal_number_bitplane_masks(numbers, *, width, height, size_px=None):
                 width=width,
                 height=height,
                 size_px=size_px,
-            )[:, :, 0] > 0
-        ).astype(np.uint8)
-        for number in numbers
-    ]
+            )[:, :, 0] > 0).astype(np.uint8) for number in numbers]
 
 
 def _pack_binary_masks_bitplanes(masks, width, height):
     masks = list(masks)
     if len(masks) > BITPLANES:
         raise ValueError(f"masks can contain at most {BITPLANES} entries")
-    masks.extend(
-        np.zeros((height, width), dtype=np.uint8)
-        for _ in range(BITPLANES - len(masks))
-    )
+    masks.extend(np.zeros((height, width), dtype=np.uint8) for _ in range(BITPLANES - len(masks)))
 
     r = np.zeros((height, width), dtype=np.uint8)
     g = np.zeros((height, width), dtype=np.uint8)
@@ -650,24 +681,24 @@ def _pack_binary_masks_bitplanes(masks, width, height):
 
 
 def make_pair_frame_provider(
-        test,
-        test_a=None,
-        test_b=None,
-        width=DMD_WIDTH,
-        height=DMD_HEIGHT,
-        numbers=None,
-        numbers_size_px=None,
-        numbers_bitplane_order=None,
-        numbers_exposure_us=None,
-        count_start=1,
-        count_end=100,
-        count_slots_per_frame=2,
-        dot_radius=40,
-        b_dot_x=None,
-        b_dot_y=None,
-        b_dot_radius=40,
-        b_dot_shape="circle",
-        b_dot_invert=False,
+    test,
+    test_a=None,
+    test_b=None,
+    width=DMD_WIDTH,
+    height=DMD_HEIGHT,
+    numbers=None,
+    numbers_size_px=None,
+    numbers_bitplane_order=None,
+    numbers_exposure_us=None,
+    count_start=1,
+    count_end=100,
+    count_slots_per_frame=2,
+    dot_radius=40,
+    b_dot_x=None,
+    b_dot_y=None,
+    b_dot_radius=40,
+    b_dot_shape="circle",
+    b_dot_invert=False,
 ):
     if test in STATIC_PAIR_TESTS:
         return StaticPairFrameProvider(
@@ -722,12 +753,14 @@ def make_pair_frame_provider(
 
 
 def _load_gl_modules():
-    glfw = importlib.import_module("glfw")
-    gl = importlib.import_module("OpenGL.GL")
+    import glfw
+    import OpenGL.GL as gl
+
     return glfw, gl
 
 
 class PairedPatternEngine:
+
     def __init__(self, width=PAIR_WIDTH, height=PAIR_HEIGHT, fps=TARGET_HZ, x=0, y=0):
         self.width = width
         self.height = height
@@ -748,8 +781,11 @@ class PairedPatternEngine:
         self._glfw.window_hint(self._glfw.REFRESH_RATE, self.fps)
 
         self.window = self._glfw.create_window(
-            width, height, "DLPC900 Paired Pattern Engine", None, None
-        )
+            width,
+            height,
+            "DLPC900 Paired Pattern Engine",
+            None,
+            None)
         if not self.window:
             self._glfw.terminate()
             raise RuntimeError("Could not create paired GLFW window")
@@ -761,14 +797,12 @@ class PairedPatternEngine:
         fb_w, fb_h = self._glfw.get_framebuffer_size(self.window)
         logger.info(
             f"[+] Paired framebuffer: {fb_w}x{fb_h} "
-            f"(requested {width}x{height} @ {self.fps}Hz)"
-        )
+            f"(requested {width}x{height} @ {self.fps}Hz)")
         if fb_w != width or fb_h != height:
             self.cleanup()
             raise RuntimeError(
                 f"Paired framebuffer is {fb_w}x{fb_h}, expected {width}x{height}. "
-                "Refusing paired run because output halves would not map 1:1 to the DMDs."
-            )
+                "Refusing paired run because output halves would not map 1:1 to the DMDs.")
 
         gl = self._gl
         gl.glViewport(0, 0, fb_w, fb_h)
@@ -797,8 +831,7 @@ class PairedPatternEngine:
         if frame_array.shape[:2] != (self.height, self.width):
             raise ValueError(
                 f"Paired frame shape {frame_array.shape} does not match "
-                f"{self.height}x{self.width}x3"
-            )
+                f"{self.height}x{self.width}x3")
 
         now = time.perf_counter()
         if self.last_frame_time > 0:
@@ -808,8 +841,7 @@ class PairedPatternEngine:
                 if now - self.last_stutter_log > 2.0:
                     logger.warning(
                         f"[WARNING] Paired render stutter: dt={dt * 1000:.2f}ms, "
-                        f"dropped_frames={self.dropped_frames}"
-                    )
+                        f"dropped_frames={self.dropped_frames}")
                     self.last_stutter_log = now
         self.last_frame_time = now
 
@@ -843,8 +875,8 @@ class PairedPatternEngine:
 
     def should_close(self):
         return self._glfw.window_should_close(self.window) or (
-                self._glfw.get_key(self.window, self._glfw.KEY_ESCAPE) == self._glfw.PRESS
-        )
+            self._glfw.get_key(self.window,
+                               self._glfw.KEY_ESCAPE) == self._glfw.PRESS)
 
     def cleanup(self):
         try:

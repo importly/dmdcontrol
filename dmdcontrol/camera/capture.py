@@ -36,20 +36,21 @@ class CaptureResult:
 
 
 class AsyncCapture:
+
     def __init__(
-            self,
-            capture,
-            writer,
-            expected_trigger_count,
-            timeout_s,
-            idle_sleep_s=0.001,
-            on_events=None,
-            on_triggers=None,
-            record_fn=None,
-            post_trigger_event_batches=0,
-            post_trigger_event_time_us=0,
-            stop_drain_reads=DEFAULT_STOP_DRAIN_READS,
-            stop_drain_idle_reads=DEFAULT_STOP_DRAIN_IDLE_READS,
+        self,
+        capture,
+        writer,
+        expected_trigger_count,
+        timeout_s,
+        idle_sleep_s=0.001,
+        on_events=None,
+        on_triggers=None,
+        record_fn=None,
+        post_trigger_event_batches=0,
+        post_trigger_event_time_us=0,
+        stop_drain_reads=DEFAULT_STOP_DRAIN_READS,
+        stop_drain_idle_reads=DEFAULT_STOP_DRAIN_IDLE_READS,
     ):
         self.capture = capture
         self.writer = writer
@@ -101,11 +102,11 @@ class AsyncCapture:
 
 
 def validate_camera_ready(
-        capture,
-        stream_rearm=None,
-        usb_reset=None,
-        power_cycle=None,
-        trigger_configuration=None,
+    capture,
+    stream_rearm=None,
+    usb_reset=None,
+    power_cycle=None,
+    trigger_configuration=None,
 ) -> CameraReadyState:
     event_available = bool(capture.isEventStreamAvailable())
     trigger_available = bool(capture.isTriggerStreamAvailable())
@@ -114,15 +115,12 @@ def validate_camera_ready(
     if not trigger_available:
         raise RuntimeError("Camera trigger stream is not available.")
     trigger_errors = (
-        trigger_configuration.get("errors")
-        if isinstance(trigger_configuration, dict)
-        else None
-    )
+        trigger_configuration.get("errors") if isinstance(trigger_configuration,
+                                                          dict) else None)
     if trigger_errors:
         raise RuntimeError(
-            "Camera trigger detector setup failed: "
-            + "; ".join(str(error) for error in trigger_errors)
-        )
+            "Camera trigger detector setup failed: " +
+            "; ".join(str(error) for error in trigger_errors))
     return CameraReadyState(
         event_stream_available=event_available,
         trigger_stream_available=trigger_available,
@@ -231,38 +229,37 @@ def _record_timestamp_or_none(record):
             return int(value() if callable(value) else value)
         if isinstance(record, dict) and name in record:
             return int(record[name])
-        if isinstance(record, np.void) and record.dtype.names and name in record.dtype.names:
+        if (isinstance(record, np.void) and record.dtype.names and name in record.dtype.names):
             return int(record[name])
     return None
 
 
-def _post_trigger_event_window_reached(event_time_range_us, trigger_time_range_us, post_trigger_event_time_us):
+def _post_trigger_event_window_reached(
+        event_time_range_us,
+        trigger_time_range_us,
+        post_trigger_event_time_us):
     if post_trigger_event_time_us <= 0 or trigger_time_range_us is None:
         return True
     if event_time_range_us is None:
         return False
-    return event_time_range_us[1] >= trigger_time_range_us[1] + post_trigger_event_time_us
+    return (event_time_range_us[1] >= trigger_time_range_us[1] + post_trigger_event_time_us)
 
 
 def record_until_trigger_count(
-        capture,
-        writer,
-        expected_trigger_count,
-        timeout_s,
-        idle_sleep_s=0.001,
-        on_events=None,
-        on_triggers=None,
-        stop_event=None,
-        post_trigger_event_batches=0,
-        post_trigger_event_time_us=0,
-        stop_drain_reads=DEFAULT_STOP_DRAIN_READS,
-        stop_drain_idle_reads=DEFAULT_STOP_DRAIN_IDLE_READS,
+    capture,
+    writer,
+    expected_trigger_count,
+    timeout_s,
+    idle_sleep_s=0.001,
+    on_events=None,
+    on_triggers=None,
+    stop_event=None,
+    post_trigger_event_batches=0,
+    post_trigger_event_time_us=0,
+    stop_drain_reads=DEFAULT_STOP_DRAIN_READS,
+    stop_drain_idle_reads=DEFAULT_STOP_DRAIN_IDLE_READS,
 ) -> CaptureResult:
-    deadline = (
-        time.time() + timeout_s
-        if timeout_s is not None and timeout_s > 0
-        else None
-    )
+    deadline = (time.time() + timeout_s if timeout_s is not None and timeout_s > 0 else None)
     trigger_count = 0
     event_count = 0
     event_batch_count = 0
@@ -274,11 +271,7 @@ def record_until_trigger_count(
 
     def read_event_batch():
         nonlocal event_count, event_batch_count, event_time_range_us
-        events = (
-            capture.getNextEventBatch()
-            if hasattr(capture, "getNextEventBatch")
-            else None
-        )
+        events = (capture.getNextEventBatch() if hasattr(capture, "getNextEventBatch") else None)
         if events is None:
             return False
         writer.writeEvents(events, streamName="events")
@@ -295,10 +288,8 @@ def record_until_trigger_count(
     def read_trigger_batch():
         nonlocal trigger_count, trigger_batch_count, trigger_time_range_us
         triggers = (
-            capture.getNextTriggerBatch()
-            if hasattr(capture, "getNextTriggerBatch")
-            else None
-        )
+            capture.getNextTriggerBatch() if hasattr(capture,
+                                                     "getNextTriggerBatch") else None)
         if triggers is None:
             return False
         writer.writeTriggerPacket(triggers, streamName="triggers")
@@ -346,16 +337,13 @@ def record_until_trigger_count(
 
         did_work = read_available_batches()
 
-        if expected_trigger_count is not None and trigger_count >= expected_trigger_count:
+        if (expected_trigger_count is not None and trigger_count >= expected_trigger_count):
             post_batches_remaining = max(0, int(post_trigger_event_batches or 0))
             post_trigger_event_time_us = max(0, int(post_trigger_event_time_us or 0))
-            while (
-                    post_batches_remaining > 0
-                    or not _post_trigger_event_window_reached(
-                        event_time_range_us,
-                        trigger_time_range_us,
-                        post_trigger_event_time_us,
-                    )
+            while post_batches_remaining > 0 or not _post_trigger_event_window_reached(
+                    event_time_range_us,
+                    trigger_time_range_us,
+                    post_trigger_event_time_us,
             ):
                 if stop_event is not None and stop_event.is_set():
                     stopped = True

@@ -9,6 +9,7 @@ from utils.env import WORKSPACE
 
 
 class Camera:
+
     def __init__(self):
         # get cofiguration
         with open('config/config.yaml', 'r') as f:
@@ -20,10 +21,8 @@ class Camera:
         if 'output_folder' not in config:
             raise ValueError('output_folder not specified in config.yaml')
         self.filename = (
-            WORKSPACE
-            / config['output_folder']
-            / datetime.now().strftime("%Y-%m-%d_%H-%M-%S") / 'recording.aedat4'
-        )
+            WORKSPACE / config['output_folder'] / datetime.now().strftime("%Y-%m-%d_%H-%M-%S") /
+            'recording.aedat4')
         os.makedirs(self.filename.parent, exist_ok=True)
 
         # open camera

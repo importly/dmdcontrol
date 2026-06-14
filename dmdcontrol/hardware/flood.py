@@ -102,9 +102,9 @@ def _write_internal_test_pattern_color(dlpc: DLPC900, color: str) -> None:
 
 
 def configure_solid_flood(
-        color: str,
-        led_current: int,
-        leave_leds_alone: bool,
+    color: str,
+    led_current: int,
+    leave_leds_alone: bool,
 ) -> None:
     device_count = _count_dlpc900_devices()
     if device_count == 0:
@@ -113,8 +113,7 @@ def configure_solid_flood(
         raise RuntimeError(
             f"Found {device_count} DLPC900 USB devices. "
             "Unplug the other controller or pass --allow-multiple if you accept "
-            "that usb.core.find() will use the first matching device."
-        )
+            "that usb.core.find() will use the first matching device.")
 
     dlpc = DLPC900()
 
@@ -165,13 +164,13 @@ def configure_solid_flood(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="USB-only DLPC900 solid white/black flood using internal test pattern mode."
-    )
+        description="USB-only DLPC900 solid white/black flood using internal test pattern mode.")
 
     color_group = parser.add_mutually_exclusive_group()
     color_group.add_argument(
         "--color",
-        choices=("white", "black"),
+        choices=("white",
+                 "black"),
         default=None,
         help="Requested flood color. Default: white.",
     )

@@ -6,6 +6,7 @@ from dmdcontrol.runtime.single import _select_post_arm_prime_frame
 
 
 class PostArmPrimeFrameTests(unittest.TestCase):
+
     def test_kernel_prime_skips_black_leader_frames(self):
         leader0 = np.zeros((1, 1, 3), dtype=np.uint8)
         leader1 = np.zeros((1, 1, 3), dtype=np.uint8)

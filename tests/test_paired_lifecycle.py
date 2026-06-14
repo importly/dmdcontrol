@@ -4,12 +4,13 @@ from dmdcontrol.runtime.lifecycle import load_pattern_sequence, start_loaded_pat
 
 
 class _FakeDlpc:
+
     def __init__(self, name):
         self.name = name
         self.calls = []
 
     def get_hardware_status(self):
-        self.calls.append(("get_hardware_status",))
+        self.calls.append(("get_hardware_status", ))
         return 0
 
     def set_pattern_lut_definition(self, entries):
@@ -33,6 +34,7 @@ class _FakeDlpc:
 
 
 class PairedLifecycleTests(unittest.TestCase):
+
     def test_load_pattern_sequence_does_not_start_sequencer(self):
         dlpc = _FakeDlpc("A")
 

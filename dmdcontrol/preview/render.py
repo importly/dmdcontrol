@@ -39,12 +39,9 @@ from dmdcontrol.patterns.paired import (
 from dmdcontrol.support.constants import BITPLANES
 
 BITPLANE_LABELS = tuple(
-    [f"G{i}" for i in range(8)]
-    + [f"R{i}" for i in range(8)]
-    + [f"B{i}" for i in range(8)]
-)
+    [f"G{i}" for i in range(8)] + [f"R{i}" for i in range(8)] + [f"B{i}" for i in range(8)])
 # GRB
-_BITPLANE_CHANNELS = (1,) * 8 + (0,) * 8 + (2,) * 8
+_BITPLANE_CHANNELS = (1, ) * 8 + (0, ) * 8 + (2, ) * 8
 _BITPLANE_BITS = tuple(range(8)) * 3
 
 
@@ -100,8 +97,7 @@ def build_lut_preview_metadata(entries, timing=None):
                 "led_select": led_select,
                 "trig2_disabled": trig2_disabled,
                 "image_index": image_index,
-            }
-        )
+            })
         cursor_us += exposure_us + dark_us
 
     return {
@@ -133,8 +129,7 @@ class PreviewEngine:
     def rgb_to_binary_patterns(self, rgb_array):
         if rgb_array.shape[:2] != (self.height, self.width):
             raise ValueError(
-                f"RGB array must be {self.height}x{self.width}, got {rgb_array.shape[:2]}"
-            )
+                f"RGB array must be {self.height}x{self.width}, got {rgb_array.shape[:2]}")
         patterns = []
         for bit in range(8):
             patterns.append(((rgb_array[:, :, 1] >> bit) & 1).astype(np.uint8))
@@ -179,7 +174,7 @@ class PreviewEngine:
             img = np.zeros((self.height, self.width), dtype=np.uint8)
             bx_start = x_start + (i * block_w)
             bx_end = min(x_start + sub_width, bx_start + block_w)
-            img[y_start: y_start + sub_height, bx_start:bx_end] = 1
+            img[y_start:y_start + sub_height, bx_start:bx_end] = 1
             patterns.append(img)
         return patterns
 
@@ -197,9 +192,8 @@ class PreviewEngine:
         frame_2d = np.repeat(np.repeat(grid, block_h, axis=0), block_w, axis=1)
         padded = np.zeros((self.height, self.width), dtype=np.uint8)
         h, w = frame_2d.shape
-        padded[: min(h, self.height), : min(w, self.width)] = frame_2d[
-            : min(h, self.height), : min(w, self.width)
-        ]
+        padded[:min(h, self.height), :min(w, self.width)] = frame_2d[:min(h, self.height
+                                                                          ), :min(w, self.width)]
         return np.ascontiguousarray(np.stack([padded, padded, padded], axis=-1))
 
 
@@ -213,7 +207,7 @@ def _clock_preview_frame(frame_index, width=DMD_WIDTH, height=DMD_HEIGHT):
     frame = np.zeros((height, width, 3), dtype=np.uint8)
     stripe = max(1, width // 16)
     x0 = (frame_index % 16) * stripe
-    frame[:, x0: min(width, x0 + stripe), :] = 255
+    frame[:, x0:min(width, x0 + stripe), :] = 255
     return np.ascontiguousarray(frame)
 
 
@@ -289,11 +283,11 @@ def render_pair_frame(test="coarse-grid", test_a=None, test_b=None, frame_index=
 
 
 def render_offline_frame(
-        layout="pair",
-        test="coarse-grid",
-        test_a=None,
-        test_b=None,
-        frame_index=0,
+    layout="pair",
+    test="coarse-grid",
+    test_a=None,
+    test_b=None,
+    frame_index=0,
 ):
     if layout == "pair":
         return render_pair_frame(test=test, test_a=test_a, test_b=test_b, frame_index=frame_index)
@@ -329,13 +323,13 @@ def render_png_bytes(image_array):
 
 
 def render_preview_png(
-        layout="pair",
-        test="coarse-grid",
-        test_a=None,
-        test_b=None,
-        frame_index=0,
-        view="packed",
-        plane=0,
+    layout="pair",
+    test="coarse-grid",
+    test_a=None,
+    test_b=None,
+    frame_index=0,
+    view="packed",
+    plane=0,
 ):
     packed = render_offline_frame(
         layout=layout,
@@ -348,6 +342,7 @@ def render_preview_png(
 
 
 class LiveFrameStore:
+
     def __init__(self):
         self._lock = threading.Lock()
         self._frame = None
@@ -378,6 +373,7 @@ class LiveFrameStore:
 
 
 class LivePreviewPoster:
+
     def __init__(self, url, fps=1.0):
         if fps <= 0:
             raise ValueError("fps must be positive")
@@ -404,7 +400,8 @@ class LivePreviewPoster:
             metadata_copy = dict(metadata or {})
             self._active_thread = threading.Thread(
                 target=self._post_frame,
-                args=(frame_copy, metadata_copy),
+                args=(frame_copy,
+                      metadata_copy),
                 daemon=True,
             )
             self._active_thread.start()
@@ -413,7 +410,8 @@ class LivePreviewPoster:
         body = render_png_bytes(packed_frame)
         headers = {
             "Content-Type": "image/png",
-            "X-DMD-Metadata": json.dumps(metadata, sort_keys=True),
+            "X-DMD-Metadata": json.dumps(metadata,
+                                         sort_keys=True),
         }
         req = request.Request(self.url, data=body, headers=headers, method="POST")
         try:

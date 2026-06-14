@@ -28,8 +28,13 @@ def generate_crop_visualization(width, height, crop_x, crop_y, crop_w, crop_h):
 
     # Draw the crop region in bright color
     draw.rectangle(
-        [crop_x, crop_y, crop_x + crop_w, crop_y + crop_h],
-        fill=(200, 200, 0),
+        [crop_x,
+         crop_y,
+         crop_x + crop_w,
+         crop_y + crop_h],
+        fill=(200,
+              200,
+              0),
         outline="red",
         width=5,
     )
@@ -37,12 +42,8 @@ def generate_crop_visualization(width, height, crop_x, crop_y, crop_w, crop_h):
     # Add crosshairs at center
     center_x = crop_x + crop_w // 2
     center_y = crop_y + crop_h // 2
-    draw.line(
-        [(center_x - 50, center_y), (center_x + 50, center_y)], fill="red", width=3
-    )
-    draw.line(
-        [(center_x, center_y - 50), (center_x, center_y + 50)], fill="red", width=3
-    )
+    draw.line([(center_x - 50, center_y), (center_x + 50, center_y)], fill="red", width=3)
+    draw.line([(center_x, center_y - 50), (center_x, center_y + 50)], fill="red", width=3)
 
     # Add text labels
     try:
@@ -66,9 +67,7 @@ def save_numbered_diagnostics():
 
     # Full frame with 6x4 grid (24 numbered regions)
     print("  - Creating 6x4 numbered grid...")
-    numbered_pattern = generate_numbered_regions(
-        width, height, grid_cols=6, grid_rows=4
-    )
+    numbered_pattern = generate_numbered_regions(width, height, grid_cols=6, grid_rows=4)
     img_full = Image.fromarray(numbered_pattern)
     full_path = os.path.join(out_dir, "diagnostic_numbered_full.png")
     img_full.save(full_path)
@@ -77,9 +76,7 @@ def save_numbered_diagnostics():
     # Show crop region
     crop_x, crop_y, crop_w, crop_h = 704, 284, 512, 512
     print(f"  - Creating crop visualization ({crop_w}x{crop_h} @ {crop_x},{crop_y})...")
-    crop_viz = generate_crop_visualization(
-        width, height, crop_x, crop_y, crop_w, crop_h
-    )
+    crop_viz = generate_crop_visualization(width, height, crop_x, crop_y, crop_w, crop_h)
     img_crop_viz = Image.fromarray(crop_viz)
     crop_viz_path = os.path.join(out_dir, "diagnostic_crop_visualization.png")
     img_crop_viz.save(crop_viz_path)
@@ -87,9 +84,7 @@ def save_numbered_diagnostics():
 
     # Extract actual crop for comparison
     print("  - Extracting crop region from numbered pattern...")
-    cropped_numbered = numbered_pattern[
-        crop_y: crop_y + crop_h, crop_x: crop_x + crop_w
-    ]
+    cropped_numbered = numbered_pattern[crop_y:crop_y + crop_h, crop_x:crop_x + crop_w]
     img_cropped = Image.fromarray(cropped_numbered)
     crop_path = os.path.join(out_dir, "diagnostic_numbered_crop.png")
     img_cropped.save(crop_path)
@@ -97,9 +92,7 @@ def save_numbered_diagnostics():
 
     print("\nDiagnostic images generated:")
     print("  1. diagnostic_numbered_full.png - Full 1920x1080 with numbered regions")
-    print(
-        "  2. diagnostic_crop_visualization.png - Shows where hardware crop is positioned"
-    )
+    print("  2. diagnostic_crop_visualization.png - Shows where hardware crop is positioned")
     print("  3. diagnostic_numbered_crop.png - What the 512x512 crop should extract")
 
 

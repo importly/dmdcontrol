@@ -9,18 +9,17 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-# remove completely later
-
 try:
     import fcntl
 except ImportError:
+
     class _MissingFcntl:
+
         @staticmethod
         def ioctl(*_args):
             raise OSError("fcntl is unavailable on this platform")
 
     fcntl = _MissingFcntl()
-
 
 USBDEVFS_RESET = (ord("U") << 8) | 20
 
@@ -76,9 +75,13 @@ def reset_camera_usb(
         dev_bus_usb_root=Path("/dev/bus/usb"),
 ):
     if not enabled:
-        return UsbResetResult(attempted=False, success=False, errors=("disabled",)).to_dict()
+        return UsbResetResult(attempted=False, success=False, errors=("disabled", )).to_dict()
     if sys.platform != "linux":
-        return UsbResetResult(attempted=False, success=False, errors=(f"unsupported platform: {sys.platform}",)).to_dict()
+        return UsbResetResult(
+            attempted=False,
+            success=False,
+            errors=(f"unsupported platform: {sys.platform}",
+                    )).to_dict()
     if method not in {"auto", "ioctl", "authorized"}:
         raise ValueError("method must be one of: auto, ioctl, authorized")
 
@@ -89,7 +92,8 @@ def reset_camera_usb(
         return UsbResetResult(
             attempted=True,
             success=False,
-            errors=("no matching USB camera device found in sysfs",),
+            errors=("no matching USB camera device found in sysfs",
+                    ),
         ).to_dict()
 
     errors = []
@@ -198,8 +202,7 @@ def _list_usb_devices(sysfs_root):
                 manufacturer=_read_text(path / "manufacturer"),
                 product=_read_text(path / "product"),
                 serial=_read_text(path / "serial"),
-            )
-        )
+            ))
     return devices
 
 
@@ -219,9 +222,7 @@ def _select_usb_device(devices, descriptor):
             return address_match
 
     camera_matches = [
-        device for device in devices
-        if _looks_like_event_camera(device, descriptor_model)
-    ]
+        device for device in devices if _looks_like_event_camera(device, descriptor_model)]
     if len(camera_matches) == 1:
         return camera_matches[0]
 
@@ -233,10 +234,7 @@ def _match_by_address(devices, descriptor_address):
     if len(numbers) < 2:
         return None
     bus, dev = numbers[-2], numbers[-1]
-    matches = [
-        device for device in devices
-        if device.busnum == bus and device.devnum == dev
-    ]
+    matches = [device for device in devices if device.busnum == bus and device.devnum == dev]
     return matches[0] if len(matches) == 1 else None
 
 
@@ -244,8 +242,7 @@ def _looks_like_event_camera(device, descriptor_model):
     haystack = " ".join(
         value.lower()
         for value in (device.manufacturer, device.product, device.serial, descriptor_model)
-        if value
-    )
+        if value)
     return any(token in haystack for token in ("inivation", "dvxplorer", "davis", "dvs"))
 
 
@@ -266,7 +263,8 @@ def _reset_with_ioctl(device, dev_bus_usb_root, settle_s):
             "ioctl",
             device_path=device_path,
             success=False,
-            errors=(repr(exc),),
+            errors=(repr(exc),
+                    ),
         )
 
 
@@ -280,7 +278,7 @@ def _reset_with_authorized(device, settle_s):
             time.sleep(settle_s)
         return _result(device, "authorized", success=True)
     except Exception as exc:
-        return _result(device, "authorized", success=False, errors=(repr(exc),))
+        return _result(device, "authorized", success=False, errors=(repr(exc), ))
 
 
 def _result(device, method, *, success, device_path=None, errors=()):

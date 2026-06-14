@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-from importlib import import_module
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -49,45 +48,59 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int | None:
     args, passthrough = _build_parser().parse_known_args(argv)
     if args.area == "single" and args.command == "run":
-        single = import_module("dmdcontrol.cli.single")
+        from dmdcontrol.cli import single
+
         return single.run(passthrough)
     if args.area == "pair" and args.command == "run":
-        pair = import_module("dmdcontrol.cli.pair")
+        from dmdcontrol.cli import pair
+
         return pair.run(passthrough)
     if args.area == "pair" and args.command == "calibrate":
-        pair = import_module("dmdcontrol.cli.pair")
+        from dmdcontrol.cli import pair
+
         return pair.calibrate(passthrough)
     if args.area == "preview" and args.command == "serve":
-        preview = import_module("dmdcontrol.cli.preview")
+        from dmdcontrol.cli import preview
+
         return preview.serve(passthrough)
     if args.area == "usb" and args.command == "discover":
-        usb = import_module("dmdcontrol.cli.usb")
+        from dmdcontrol.cli import usb
+
         return usb.discover(passthrough)
     if args.area == "usb" and args.command == "wake":
-        usb = import_module("dmdcontrol.cli.usb")
+        from dmdcontrol.cli import usb
+
         return usb.wake(passthrough)
     if args.area == "flood" and args.command == "run":
-        flood = import_module("dmdcontrol.cli.flood")
+        from dmdcontrol.cli import flood
+
         return flood.run(passthrough)
     if args.area == "config" and args.command == "show":
-        config = import_module("dmdcontrol.cli.config")
+        from dmdcontrol.cli import config
+
         return config.show(passthrough)
     if args.area == "camera" and args.command == "discover":
-        camera = import_module("dmdcontrol.cli.camera")
+        from dmdcontrol.cli import camera
+
         return camera.discover(passthrough)
     if args.area == "camera" and args.command == "status":
-        camera = import_module("dmdcontrol.cli.camera")
+        from dmdcontrol.cli import camera
+
         return camera.status(passthrough)
     if args.area == "camera" and args.command == "sync-check":
-        camera = import_module("dmdcontrol.cli.camera")
+        from dmdcontrol.cli import camera
+
         return camera.sync_check(passthrough)
     if args.area == "camera" and args.command == "sync-sweep":
-        camera = import_module("dmdcontrol.cli.camera")
+        from dmdcontrol.cli import camera
+
         return camera.sync_sweep(passthrough)
     if args.area == "camera" and args.command == "pair-capture":
-        camera = import_module("dmdcontrol.cli.camera")
+        from dmdcontrol.cli import camera
+
         return camera.pair_capture(passthrough)
     if args.area == "camera" and args.command == "reprocess-aedat4":
-        camera = import_module("dmdcontrol.cli.camera")
+        from dmdcontrol.cli import camera
+
         return camera.reprocess_aedat4(passthrough)
     raise SystemExit(f"Unsupported command: {args.area} {args.command}")

@@ -119,6 +119,7 @@ class DmdPreviewHandler(BaseHTTPRequestHandler):
 
 
 class DmdPreviewServer(ThreadingHTTPServer):
+
     def __init__(self, server_address):
         super().__init__(server_address, DmdPreviewHandler)
         self.live_store = LiveFrameStore()

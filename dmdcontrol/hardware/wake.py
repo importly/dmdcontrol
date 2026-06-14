@@ -21,8 +21,7 @@ def main(argv=None):
     if mapping:
         logger.info(
             f"[+] Waking DMD {mapping.name}: USB id_path={mapping.usb_id_path}, "
-            f"expected devpath fragment={mapping.usb_devpath_contains or '<not required>'}"
-        )
+            f"expected devpath fragment={mapping.usb_devpath_contains or '<not required>'}")
 
     dlpc = DLPC900(
         usb_id_path=mapping.usb_id_path if mapping else None,

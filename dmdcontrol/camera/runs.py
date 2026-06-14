@@ -9,7 +9,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from dmdcontrol.camera.accumulation import accumulate_events_for_triggers, filter_rising_triggers
+from dmdcontrol.camera.accumulation import (
+    accumulate_events_for_triggers,
+    filter_rising_triggers,
+)
 from dmdcontrol.camera.local_support_filter import (
     LocalSupportFilterConfig,
     apply_local_support_filter_arrays,
@@ -66,7 +69,9 @@ def create_run_directory(mode, output_root=None, timestamp=None):
 def write_json(path, payload):
     output_path = Path(path)
     output_path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        json.dumps(payload,
+                   indent=2,
+                   sort_keys=True) + "\n",
         encoding="utf-8",
     )
     return payload
@@ -82,19 +87,19 @@ def write_run_metadata(run_directory, metadata, artifacts=None):
 
 
 def write_capture_artifacts(
-        run_directory,
-        events,
-        triggers,
-        resolution,
-        window_us,
-        polarity_mode="positive",
-        window_start_offset_us=0,
-        event_noise_filter=None,
-        save_filtered_events=False,
-        max_accumulation_triggers=None,
-        trigger_cycle_length=None,
-        accumulation_cycles=None,
-        contact_sheet_columns=None,
+    run_directory,
+    events,
+    triggers,
+    resolution,
+    window_us,
+    polarity_mode="positive",
+    window_start_offset_us=0,
+    event_noise_filter=None,
+    save_filtered_events=False,
+    max_accumulation_triggers=None,
+    trigger_cycle_length=None,
+    accumulation_cycles=None,
+    contact_sheet_columns=None,
 ):
     _validate_capture_artifact_options(
         max_accumulation_triggers=max_accumulation_triggers,
@@ -114,10 +119,7 @@ def write_capture_artifacts(
         config=filter_config,
     )
     accumulation_events = (
-        _arrays_to_event_batches(filtered_arrays)
-        if filter_config.enabled
-        else event_sequence
-    )
+        _arrays_to_event_batches(filtered_arrays) if filter_config.enabled else event_sequence)
 
     accumulation_arrays = filtered_arrays if filter_config.enabled else event_arrays
     trigger_stages = _process_accumulation_triggers(
@@ -178,10 +180,10 @@ def write_capture_artifacts(
 
 
 def _validate_capture_artifact_options(
-        *,
-        max_accumulation_triggers,
-        trigger_cycle_length,
-        accumulation_cycles,
+    *,
+    max_accumulation_triggers,
+    trigger_cycle_length,
+    accumulation_cycles,
 ):
     if max_accumulation_triggers is not None and max_accumulation_triggers <= 0:
         raise ValueError("max_accumulation_triggers must be positive")
@@ -201,10 +203,14 @@ def _event_sequence(events):
 
 def _events_to_arrays(events):
     empty = {
-        "x": np.array([], dtype=np.int64),
-        "y": np.array([], dtype=np.int64),
-        "t": np.array([], dtype=np.int64),
-        "p": np.array([], dtype=np.bool_),
+        "x": np.array([],
+                      dtype=np.int64),
+        "y": np.array([],
+                      dtype=np.int64),
+        "t": np.array([],
+                      dtype=np.int64),
+        "p": np.array([],
+                      dtype=np.bool_),
     }
     if not events:
         return empty
@@ -215,16 +221,34 @@ def _events_to_arrays(events):
             return empty
         event_array = np.concatenate(batches) if len(batches) > 1 else batches[0]
         return {
-            "x": _structured_field(event_array, "x").astype(np.int64, copy=False),
-            "y": _structured_field(event_array, "y").astype(np.int64, copy=False),
-            "t": _structured_field(event_array, "timestamp", "t").astype(np.int64, copy=False),
-            "p": _structured_field(event_array, "polarity", "p").astype(np.bool_, copy=False),
+            "x": _structured_field(event_array,
+                                   "x").astype(np.int64,
+                                               copy=False),
+            "y": _structured_field(event_array,
+                                   "y").astype(np.int64,
+                                               copy=False),
+            "t": _structured_field(event_array,
+                                   "timestamp",
+                                   "t").astype(np.int64,
+                                               copy=False),
+            "p": _structured_field(event_array,
+                                   "polarity",
+                                   "p").astype(np.bool_,
+                                               copy=False),
         }
     return {
-        "x": np.array([_record_field(event, "x") for event in events], dtype=np.int64),
-        "y": np.array([_record_field(event, "y") for event in events], dtype=np.int64),
-        "t": np.array([_record_field(event, "timestamp") for event in events], dtype=np.int64),
-        "p": np.array([_record_field(event, "polarity") for event in events], dtype=np.bool_),
+        "x": np.array([_record_field(event,
+                                     "x") for event in events],
+                      dtype=np.int64),
+        "y": np.array([_record_field(event,
+                                     "y") for event in events],
+                      dtype=np.int64),
+        "t": np.array([_record_field(event,
+                                     "timestamp") for event in events],
+                      dtype=np.int64),
+        "p": np.array([_record_field(event,
+                                     "polarity") for event in events],
+                      dtype=np.bool_),
     }
 
 
@@ -240,10 +264,14 @@ def _arrays_to_event_batches(arrays):
     event_array = np.zeros(
         len(arrays["t"]),
         dtype=[
-            ("timestamp", np.int64),
-            ("x", np.int16),
-            ("y", np.int16),
-            ("polarity", np.bool_),
+            ("timestamp",
+             np.int64),
+            ("x",
+             np.int16),
+            ("y",
+             np.int16),
+            ("polarity",
+             np.bool_),
         ],
     )
     event_array["timestamp"] = arrays["t"]
@@ -273,11 +301,11 @@ def _write_triggers_csv(path, triggers):
 
 
 def _write_accumulation_image_artifacts(
-        run_directory,
-        accumulated,
-        *,
-        include_filtered,
-        contact_sheet_columns=None,
+    run_directory,
+    accumulated,
+    *,
+    include_filtered,
+    contact_sheet_columns=None,
 ):
     frame_artifacts = []
     filtered_frame_artifacts = []
@@ -287,7 +315,7 @@ def _write_accumulation_image_artifacts(
         _write_grayscale_png(frame_path, frame, scale_max=scale_max)
         frame_artifacts.append(frame_path.name)
         if include_filtered:
-            filtered_frame_path = run_directory.path / f"filtered_accumulated_{index:03d}.png"
+            filtered_frame_path = (run_directory.path / f"filtered_accumulated_{index:03d}.png")
             _write_grayscale_png(filtered_frame_path, frame, scale_max=scale_max)
             filtered_frame_artifacts.append(filtered_frame_path.name)
 
@@ -323,85 +351,105 @@ def _write_filtered_events_artifact(run_directory, filtered_arrays, *, save_filt
 
 
 def _capture_summary(
-        *,
-        accumulated,
-        accumulation_arrays,
-        artifact_files,
-        event_arrays,
-        filter_config,
-        filter_stats,
-        filtered_events_artifact,
-        max_accumulation_triggers,
-        polarity_mode,
-        window_start_offset_us,
-        raw_rising_trigger_timestamps,
-        resolution,
-        rising_trigger_timestamps,
-        rising_triggers,
-        trigger_stages,
-        window_us,
+    *,
+    accumulated,
+    accumulation_arrays,
+    artifact_files,
+    event_arrays,
+    filter_config,
+    filter_stats,
+    filtered_events_artifact,
+    max_accumulation_triggers,
+    polarity_mode,
+    window_start_offset_us,
+    raw_rising_trigger_timestamps,
+    resolution,
+    rising_trigger_timestamps,
+    rising_triggers,
+    trigger_stages,
+    window_us,
 ):
     summary = {
-        "actual_trigger_count": len(rising_triggers),
-        "aligned_rising_trigger_count": len(trigger_stages.aligned),
-        "selected_rising_trigger_count": len(trigger_stages.selected),
-        "raw_rising_trigger_count": len(trigger_stages.raw),
-        "max_accumulation_triggers": max_accumulation_triggers,
-        "accumulation_trigger_limited": len(rising_triggers) < len(trigger_stages.raw),
-        "trigger_alignment": trigger_stages.alignment_metadata,
-        "trigger_cycle_limit": trigger_stages.cycle_limit_metadata,
-        "event_count": filter_stats.raw_events,
-        "accumulation_event_count": (
-            filter_stats.filtered_events if filter_config.enabled else filter_stats.raw_events
-        ),
-        "accumulation_event_source": "filtered" if filter_config.enabled else "raw",
-        "event_noise_filter": event_noise_filter_metadata(filter_config, filter_stats),
-        "window_us": int(window_us),
-        "window_start_offset_us": int(window_start_offset_us),
-        "polarity_mode": polarity_mode,
-        "resolution": [int(resolution[0]), int(resolution[1])],
-        "accumulated_shape": list(accumulated.shape),
-        "event_time_range_us": _time_range(event_arrays["t"]),
-        "accumulation_event_time_range_us": _time_range(accumulation_arrays["t"]),
-        "raw_rising_trigger_time_range_us": _time_range(raw_rising_trigger_timestamps),
-        "rising_trigger_time_range_us": _time_range(rising_trigger_timestamps),
-        "events_per_accumulation_window": _window_counts(
+        "actual_trigger_count":
+        len(rising_triggers),
+        "aligned_rising_trigger_count":
+        len(trigger_stages.aligned),
+        "selected_rising_trigger_count":
+        len(trigger_stages.selected),
+        "raw_rising_trigger_count":
+        len(trigger_stages.raw),
+        "max_accumulation_triggers":
+        max_accumulation_triggers,
+        "accumulation_trigger_limited":
+        len(rising_triggers) < len(trigger_stages.raw),
+        "trigger_alignment":
+        trigger_stages.alignment_metadata,
+        "trigger_cycle_limit":
+        trigger_stages.cycle_limit_metadata,
+        "event_count":
+        filter_stats.raw_events,
+        "accumulation_event_count":
+        (filter_stats.filtered_events if filter_config.enabled else filter_stats.raw_events),
+        "accumulation_event_source":
+        "filtered" if filter_config.enabled else "raw",
+        "event_noise_filter":
+        event_noise_filter_metadata(filter_config,
+                                    filter_stats),
+        "window_us":
+        int(window_us),
+        "window_start_offset_us":
+        int(window_start_offset_us),
+        "polarity_mode":
+        polarity_mode,
+        "resolution": [int(resolution[0]),
+                       int(resolution[1])],
+        "accumulated_shape":
+        list(accumulated.shape),
+        "event_time_range_us":
+        _time_range(event_arrays["t"]),
+        "accumulation_event_time_range_us":
+        _time_range(accumulation_arrays["t"]),
+        "raw_rising_trigger_time_range_us":
+        _time_range(raw_rising_trigger_timestamps),
+        "rising_trigger_time_range_us":
+        _time_range(rising_trigger_timestamps),
+        "events_per_accumulation_window":
+        _window_counts(
             accumulation_arrays["t"],
             rising_trigger_timestamps + int(window_start_offset_us),
             int(window_us),
         ),
-        "events_per_pre_trigger_window": _window_counts(
+        "events_per_pre_trigger_window":
+        _window_counts(
             accumulation_arrays["t"],
             rising_trigger_timestamps + int(window_start_offset_us) - int(window_us),
             int(window_us),
         ),
-        "events_per_post_window": _window_counts(
+        "events_per_post_window":
+        _window_counts(
             accumulation_arrays["t"],
             rising_trigger_timestamps + int(window_start_offset_us) + int(window_us),
             int(window_us),
         ),
-        "accumulated_nonzero_pixels": [
-            int(np.count_nonzero(frame))
-            for frame in accumulated
-        ],
-        "accumulated_abs_sums": [
-            float(np.sum(np.abs(frame)))
-            for frame in accumulated
-        ],
-        "frame_artifacts": artifact_files["frame_artifacts"],
+        "accumulated_nonzero_pixels": [int(np.count_nonzero(frame)) for frame in accumulated],
+        "accumulated_abs_sums": [float(np.sum(np.abs(frame))) for frame in accumulated],
+        "frame_artifacts":
+        artifact_files["frame_artifacts"],
     }
     if filtered_events_artifact is not None:
         summary["filtered_events_artifact"] = filtered_events_artifact
     if artifact_files["filtered_frame_artifacts"]:
         summary["filtered_frame_artifacts"] = artifact_files["filtered_frame_artifacts"]
     if artifact_files["filtered_contact_sheet_artifact"] is not None:
-        summary["filtered_contact_sheet_artifact"] = artifact_files["filtered_contact_sheet_artifact"]
+        summary["filtered_contact_sheet_artifact"] = artifact_files[
+            "filtered_contact_sheet_artifact"]
     return summary
 
 
 def _trigger_timestamps(triggers):
     return np.array(
-        [int(_record_field(trigger, "timestamp")) for trigger in triggers],
+        [int(_record_field(trigger,
+                           "timestamp")) for trigger in triggers],
         dtype=np.int64,
     )
 
@@ -414,14 +462,14 @@ def _time_range(values):
 
 
 def _process_accumulation_triggers(
-        triggers,
-        event_timestamps,
-        *,
-        window_us,
-        window_start_offset_us,
-        max_accumulation_triggers,
-        trigger_cycle_length,
-        accumulation_cycles,
+    triggers,
+    event_timestamps,
+    *,
+    window_us,
+    window_start_offset_us,
+    max_accumulation_triggers,
+    trigger_cycle_length,
+    accumulation_cycles,
 ):
     raw = filter_rising_triggers(triggers)
     aligned, alignment_metadata = _align_triggers_to_event_range(
@@ -436,10 +484,7 @@ def _process_accumulation_triggers(
         accumulation_cycles=accumulation_cycles,
     )
     final = (
-        selected[:max_accumulation_triggers]
-        if max_accumulation_triggers is not None
-        else selected
-    )
+        selected[:max_accumulation_triggers] if max_accumulation_triggers is not None else selected)
     return _AccumulationTriggerStages(
         raw=raw,
         aligned=aligned,
@@ -473,29 +518,24 @@ def _align_triggers_to_event_range(triggers, event_timestamps, window_us, window
     dropped_before = window_starts + window_us <= event_start
     dropped_after = window_starts > event_end
     aligned = [
-        trigger
-        for trigger, should_keep in zip(triggers, keep, strict=False)
-        if bool(should_keep)
-    ]
-    metadata.update({
-        "aligned_trigger_count": len(aligned),
-        "dropped_before_event_count": int(np.count_nonzero(dropped_before)),
-        "dropped_after_event_count": int(np.count_nonzero(dropped_after)),
-    })
+        trigger for trigger, should_keep in zip(triggers, keep, strict=False) if bool(should_keep)]
+    metadata.update(
+        {
+            "aligned_trigger_count": len(aligned),
+            "dropped_before_event_count": int(np.count_nonzero(dropped_before)),
+            "dropped_after_event_count": int(np.count_nonzero(dropped_after)),
+        })
     return aligned, metadata
 
 
 def _limit_trigger_cycles(
-        triggers,
-        *,
-        trigger_cycle_length,
-        accumulation_cycles,
+    triggers,
+    *,
+    trigger_cycle_length,
+    accumulation_cycles,
 ):
     available_full_cycles = (
-        len(triggers) // int(trigger_cycle_length)
-        if trigger_cycle_length is not None
-        else 0
-    )
+        len(triggers) // int(trigger_cycle_length) if trigger_cycle_length is not None else 0)
     metadata = {
         "cycle_length": trigger_cycle_length,
         "requested_cycles": accumulation_cycles,
@@ -518,10 +558,11 @@ def _limit_trigger_cycles(
         start = cycle_index * cycle_length
         selected.extend(triggers[start:start + cycle_length])
 
-    metadata.update({
-        "selected_cycle_indices": selected_cycle_indices,
-        "selected_trigger_count": len(selected),
-    })
+    metadata.update(
+        {
+            "selected_cycle_indices": selected_cycle_indices,
+            "selected_trigger_count": len(selected),
+        })
     return selected, metadata
 
 
@@ -556,7 +597,10 @@ def _contact_sheet(frames, *, scale_max=None, cols=None):
         return np.zeros((1, 1), dtype=np.uint8)
     normalized = [_normalize_grayscale(frame, scale_max=scale_max) for frame in frames]
     frame_h, frame_w = normalized[0].shape
-    cols = max(1, int(cols)) if cols is not None else max(1, math.ceil(math.sqrt(len(normalized))))
+    cols = (
+        max(1,
+            int(cols)) if cols is not None else max(1,
+                                                    math.ceil(math.sqrt(len(normalized)))))
     rows = math.ceil(len(normalized) / cols)
     sheet = np.zeros((rows * frame_h, cols * frame_w), dtype=np.uint8)
     for index, frame in enumerate(normalized):

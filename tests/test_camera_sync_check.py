@@ -40,13 +40,14 @@ def test_sync_check_count_mode_does_not_limit_accumulation_cycles_by_default():
 
 
 def test_sync_check_parser_accepts_accumulation_cycle_options():
-    args = build_parser().parse_args([
-        "--dry-run",
-        "--accumulation-cycles",
-        "2",
-        "--accumulation-start-offset-us",
-        "-50",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--dry-run",
+            "--accumulation-cycles",
+            "2",
+            "--accumulation-start-offset-us",
+            "-50",
+        ])
 
     assert args.accumulation_cycles == 2
     assert args.requested_accumulation_cycles == 2
@@ -76,14 +77,15 @@ def test_parse_numbers_accepts_comma_separated_digits():
 
 
 def test_sync_check_runtime_args_use_requested_number_sequence():
-    args = build_parser().parse_args([
-        "--numbers",
-        "2,4,6",
-        "--number-size-px",
-        "123",
-        "--runtime-seconds",
-        "7",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--numbers",
+            "2,4,6",
+            "--number-size-px",
+            "123",
+            "--runtime-seconds",
+            "7",
+        ])
 
     pair_args = _to_pair_runtime_args(args)
 
@@ -97,12 +99,13 @@ def test_sync_check_runtime_args_use_requested_number_sequence():
 
 
 def test_sync_check_runtime_args_forward_numbers_bitplane_order():
-    args = build_parser().parse_args([
-        "--numbers",
-        "1,2,3,4,5",
-        "--numbers-bitplane-order",
-        "1,2,3,4,0",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--numbers",
+            "1,2,3,4,5",
+            "--numbers-bitplane-order",
+            "1,2,3,4,0",
+        ])
 
     pair_args = _to_pair_runtime_args(args)
 
@@ -122,18 +125,19 @@ def test_sync_check_numbers_bitplane_order_must_match_numbers_slots(value):
 
 
 def test_sync_check_runtime_args_pass_b_dot_geometry():
-    args = build_parser().parse_args([
-        "--test",
-        "a-numbers-b-static",
-        "--test-b",
-        "dot",
-        "--b-dot-x",
-        "955",
-        "--b-dot-y",
-        "535",
-        "--b-dot-radius",
-        "12",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--test",
+            "a-numbers-b-static",
+            "--test-b",
+            "dot",
+            "--b-dot-x",
+            "955",
+            "--b-dot-y",
+            "535",
+            "--b-dot-radius",
+            "12",
+        ])
 
     pair_args = _to_pair_runtime_args(args)
 
@@ -154,19 +158,20 @@ def test_sync_check_runtime_args_allow_explicit_bitplane_exposure_override():
 
 
 def test_sync_check_parser_accepts_count_mode_options():
-    args = build_parser().parse_args([
-        "--dry-run",
-        "--test",
-        "a-count-b-static",
-        "--count-start",
-        "1",
-        "--count-end",
-        "100",
-        "--count-slots-per-frame",
-        "2",
-        "--count-exposure-us",
-        "7000",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--dry-run",
+            "--test",
+            "a-count-b-static",
+            "--count-start",
+            "1",
+            "--count-end",
+            "100",
+            "--count-slots-per-frame",
+            "2",
+            "--count-exposure-us",
+            "7000",
+        ])
 
     assert args.count_start == 1
     assert args.count_end == 100
@@ -177,10 +182,31 @@ def test_sync_check_parser_accepts_count_mode_options():
 @pytest.mark.parametrize(
     "argv",
     [
-        ["--test", "a-count-b-static", "--count-start", "5", "--count-end", "4"],
-        ["--test", "a-count-b-static", "--count-start", "1", "--count-end", "5", "--count-slots-per-frame", "2"],
-        ["--test", "a-count-b-static", "--count-end", "130", "--count-slots-per-frame", "2"],
-        ["--test", "a-count-b-static", "--count-slots-per-frame", "25"],
+        ["--test",
+         "a-count-b-static",
+         "--count-start",
+         "5",
+         "--count-end",
+         "4"],
+        [
+            "--test",
+            "a-count-b-static",
+            "--count-start",
+            "1",
+            "--count-end",
+            "5",
+            "--count-slots-per-frame",
+            "2"],
+        ["--test",
+         "a-count-b-static",
+         "--count-end",
+         "130",
+         "--count-slots-per-frame",
+         "2"],
+        ["--test",
+         "a-count-b-static",
+         "--count-slots-per-frame",
+         "25"],
     ],
 )
 def test_sync_check_parser_rejects_invalid_count_mode_options(argv):
@@ -189,37 +215,39 @@ def test_sync_check_parser_rejects_invalid_count_mode_options(argv):
 
 
 def test_sync_check_count_mode_expects_one_trigger_per_count():
-    args = build_parser().parse_args([
-        "--test",
-        "a-count-b-static",
-        "--count-start",
-        "1",
-        "--count-end",
-        "100",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--test",
+            "a-count-b-static",
+            "--count-start",
+            "1",
+            "--count-end",
+            "100",
+        ])
 
     assert expected_trigger_count(args) == 100
 
 
 def test_sync_check_runtime_args_forward_count_options_without_numbers():
-    args = build_parser().parse_args([
-        "--test",
-        "a-count-b-static",
-        "--test-b",
-        "dot",
-        "--count-start",
-        "1",
-        "--count-end",
-        "100",
-        "--count-slots-per-frame",
-        "2",
-        "--count-exposure-us",
-        "7000",
-        "--number-size-px",
-        "123",
-        "--runtime-seconds",
-        "2",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--test",
+            "a-count-b-static",
+            "--test-b",
+            "dot",
+            "--count-start",
+            "1",
+            "--count-end",
+            "100",
+            "--count-slots-per-frame",
+            "2",
+            "--count-exposure-us",
+            "7000",
+            "--number-size-px",
+            "123",
+            "--runtime-seconds",
+            "2",
+        ])
 
     pair_args = _to_pair_runtime_args(args)
 
@@ -234,20 +262,21 @@ def test_sync_check_runtime_args_forward_count_options_without_numbers():
 
 
 def test_sync_check_parser_accepts_event_noise_filter_options():
-    args = build_parser().parse_args([
-        "--dry-run",
-        "--event-noise-filter",
-        "local-support",
-        "--event-filter-delta-us",
-        "50000",
-        "--event-filter-window-px",
-        "3",
-        "--event-filter-threshold",
-        "2",
-        "--event-filter-polarity",
-        "same",
-        "--save-filtered-events",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--dry-run",
+            "--event-noise-filter",
+            "local-support",
+            "--event-filter-delta-us",
+            "50000",
+            "--event-filter-window-px",
+            "3",
+            "--event-filter-threshold",
+            "2",
+            "--event-filter-polarity",
+            "same",
+            "--save-filtered-events",
+        ])
 
     assert args.event_noise_filter == "local-support"
     assert args.event_filter_delta_us == 50000
@@ -277,11 +306,12 @@ def test_sync_check_parser_uses_mentor_style_camera_lifecycle_by_default():
 
 
 def test_sync_check_parser_accepts_power_cycle_command():
-    args = build_parser().parse_args([
-        "--dry-run",
-        "--camera-power-cycle-command",
-        "uhubctl -l 1-2 -p 3 -a cycle -d 2",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--dry-run",
+            "--camera-power-cycle-command",
+            "uhubctl -l 1-2 -p 3 -a cycle -d 2",
+        ])
 
     assert args.camera_power_cycle_command == "uhubctl -l 1-2 -p 3 -a cycle -d 2"
 
@@ -297,19 +327,20 @@ def test_sync_check_parser_accepts_name_override_alias():
 
 
 def test_sync_check_dry_run_creates_run_artifacts(tmp_path):
-    args = build_parser().parse_args([
-        "--dry-run",
-        "--output-root",
-        str(tmp_path),
-        "--timestamp",
-        "20260527-120102",
-        "--number-size-px",
-        "420",
-        "--numbers",
-        "1,2,3,4,5",
-        "--trigger-out-2-delay-fraction",
-        "0.05",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--dry-run",
+            "--output-root",
+            str(tmp_path),
+            "--timestamp",
+            "20260527-120102",
+            "--number-size-px",
+            "420",
+            "--numbers",
+            "1,2,3,4,5",
+            "--trigger-out-2-delay-fraction",
+            "0.05",
+        ])
 
     run = dry_run(args)
 
@@ -338,59 +369,66 @@ def test_sync_check_dry_run_creates_run_artifacts(tmp_path):
 
 
 def test_sync_check_dry_run_records_event_filter_config(tmp_path):
-    args = build_parser().parse_args([
-        "--dry-run",
-        "--output-root",
-        str(tmp_path),
-        "--timestamp",
-        "20260527-120107",
-        "--event-noise-filter",
-        "local-support",
-        "--event-filter-delta-us",
-        "50000",
-        "--event-filter-window-px",
-        "3",
-        "--event-filter-threshold",
-        "2",
-        "--event-filter-polarity",
-        "same",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--dry-run",
+            "--output-root",
+            str(tmp_path),
+            "--timestamp",
+            "20260527-120107",
+            "--event-noise-filter",
+            "local-support",
+            "--event-filter-delta-us",
+            "50000",
+            "--event-filter-window-px",
+            "3",
+            "--event-filter-threshold",
+            "2",
+            "--event-filter-polarity",
+            "same",
+        ])
 
     run = dry_run(args)
 
     metadata = json.loads(run.metadata_path.read_text(encoding="utf-8"))
     assert metadata["event_noise_filter"] == {
-        "algorithm": "centered-local-support",
-        "delta_t_us": 50000,
-        "enabled": True,
+        "algorithm":
+        "centered-local-support",
+        "delta_t_us":
+        50000,
+        "enabled":
+        True,
         "note": (
             "Practical notebook-validated local support filter; "
-            "not a source-faithful DV Runtime YNoise implementation."
-        ),
-        "polarity": "same",
-        "threshold": 2,
-        "window_px": 3,
+            "not a source-faithful DV Runtime YNoise implementation."),
+        "polarity":
+        "same",
+        "threshold":
+        2,
+        "window_px":
+        3,
     }
 
 
 def test_sync_check_count_mode_dry_run_records_count_metadata(tmp_path):
-    args = build_parser().parse_args([
-        "--dry-run",
-        "--output-root",
-        str(tmp_path),
-        "--timestamp",
-        "20260602-120100",
-        "--test",
-        "a-count-b-static",
-        "--count-start",
-        "1",
-        "--count-end",
-        "100",
-        "--count-slots-per-frame",
-        "2",
-        "--count-exposure-us",
-        "7000",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--dry-run",
+            "--output-root",
+            str(tmp_path),
+            "--timestamp",
+            "20260602-120100",
+            "--test",
+            "a-count-b-static",
+            "--count-start",
+            "1",
+            "--count-end",
+            "100",
+            "--count-slots-per-frame",
+            "2",
+            "--count-exposure-us",
+            "7000",
+        ])
 
     run = dry_run(args)
 
@@ -407,17 +445,19 @@ def test_sync_check_count_mode_dry_run_records_count_metadata(tmp_path):
 def test_camera_sync_check_cli_dry_run_creates_artifacts(tmp_path):
     from dmdcontrol.cli.main import main
 
-    assert main([
-        "camera",
-        "sync-check",
-        "--dry-run",
-        "--output-root",
-        str(tmp_path),
-        "--timestamp",
-        "20260527-120103",
-    ]) == 0
+    assert main(
+        [
+            "camera",
+            "sync-check",
+            "--dry-run",
+            "--output-root",
+            str(tmp_path),
+            "--timestamp",
+            "20260527-120103",
+        ]) == 0
 
-    metadata = json.loads((tmp_path / "20260527-120103-sync-check" / "metadata.json").read_text(encoding="utf-8"))
+    metadata = json.loads(
+        (tmp_path / "20260527-120103-sync-check" / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["number_sequence"] == [1, 2, 3, 4, 5]
 
 
@@ -428,33 +468,40 @@ def test_live_capture_flushes_queued_triggers_before_recording(monkeypatch, tmp_
     from dmdcontrol.camera.runs import create_run_directory
     from dmdcontrol.camera import sync_check
 
-    args = build_parser().parse_args([
-        "--output-root",
-        str(tmp_path),
-        "--timestamp",
-        "20260604-120116",
-        "--camera-flush-reads",
-        "3",
-    ])
+    args = build_parser().parse_args(
+        [
+            "--output-root",
+            str(tmp_path),
+            "--timestamp",
+            "20260604-120116",
+            "--camera-flush-reads",
+            "3",
+        ])
     run = create_run_directory("sync-check", tmp_path, timestamp="20260604-120116")
     flush_calls = []
 
     monkeypatch.setattr(
         sync_check,
         "flush_stale_batches",
-        lambda capture, reads, include_triggers=True: flush_calls.append(
-            {"reads": reads, "include_triggers": include_triggers}
-        ) or {"requested_reads": reads},
+        lambda capture, reads, include_triggers=True: flush_calls.
+        append({
+            "reads": reads, "include_triggers": include_triggers}) or {"requested_reads": reads},
     )
 
     def fake_run_pair(_pair_args, before_start):
-        before_start({
-            "state_a": {"timing": {"exposure_us": 1500}},
-            "state_b": {"timing": {"exposure_us": 1500}},
-        })
+        before_start(
+            {
+                "state_a": {
+                    "timing": {
+                        "exposure_us": 1500}},
+                "state_b": {
+                    "timing": {
+                        "exposure_us": 1500}},
+            })
         return 0
 
     class FakeRecording:
+
         def stop(self):
             pass
 
@@ -468,12 +515,14 @@ def test_live_capture_flushes_queued_triggers_before_recording(monkeypatch, tmp_
 
     monkeypatch.setattr(sync_check, "_run_pair_with_callback", fake_run_pair)
     monkeypatch.setattr(sync_check, "_start_recording", lambda *args, **kwargs: FakeRecording())
-    monkeypatch.setattr(sync_check, "_write_capture_artifacts_for_sync_check", lambda *args, **kwargs: {
-        "frame_artifacts": [],
-        "filtered_frame_artifacts": [],
-        "filtered_contact_sheet_artifact": None,
-        "event_noise_filter": {"enabled": False},
-    })
+    monkeypatch.setattr(
+        sync_check,
+        "_write_capture_artifacts_for_sync_check", lambda *args, **kwargs: {
+            "frame_artifacts": [],
+            "filtered_frame_artifacts": [],
+            "filtered_contact_sheet_artifact": None,
+            "event_noise_filter": {
+                "enabled": False}, })
 
     ready = SimpleNamespace(event_resolution=(320, 240))
 

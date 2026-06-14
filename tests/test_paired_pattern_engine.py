@@ -33,6 +33,7 @@ def _extract_packed_bitplane(frame, plane):
 
 
 class PairedPatternEngineTests(unittest.TestCase):
+
     def test_compose_pair_frame_places_b_left_and_a_right(self):
         frame_a = np.full((2, 3, 3), 11, dtype=np.uint8)
         frame_b = np.full((2, 3, 3), 22, dtype=np.uint8)
@@ -91,7 +92,9 @@ class PairedPatternEngineTests(unittest.TestCase):
 
     def test_number_sequence_provider_packs_requested_digits_into_bitplanes(self):
         provider = NumberSequencePairFrameProvider(
-            numbers=(1, 2, 3),
+            numbers=(1,
+                     2,
+                     3),
             width=120,
             height=160,
             size_px=80,
@@ -116,8 +119,16 @@ class PairedPatternEngineTests(unittest.TestCase):
 
     def test_number_sequence_provider_can_pack_digits_for_observed_bitplane_order(self):
         provider = NumberSequencePairFrameProvider(
-            numbers=(1, 2, 3, 4, 5),
-            numbers_bitplane_order=(1, 2, 3, 4, 0),
+            numbers=(1,
+                     2,
+                     3,
+                     4,
+                     5),
+            numbers_bitplane_order=(1,
+                                    2,
+                                    3,
+                                    4,
+                                    0),
             width=120,
             height=160,
             size_px=80,
@@ -238,7 +249,8 @@ class PairedPatternEngineTests(unittest.TestCase):
         provider = make_pair_frame_provider(
             A_NUMBERS_B_STATIC_PAIR_TEST,
             test_b="dot",
-            numbers=(1,),
+            numbers=(1,
+                     ),
             width=9,
             height=9,
             numbers_size_px=5,
@@ -305,8 +317,16 @@ class PairedPatternEngineTests(unittest.TestCase):
 
     def test_calibration_dot_provider_keeps_b_static_while_a_changes(self):
         frames_a = [
-            np.full((3, 4, 3), 11, dtype=np.uint8),
-            np.full((3, 4, 3), 33, dtype=np.uint8),
+            np.full((3,
+                     4,
+                     3),
+                    11,
+                    dtype=np.uint8),
+            np.full((3,
+                     4,
+                     3),
+                    33,
+                    dtype=np.uint8),
         ]
         calls = {"count": 0}
 
@@ -328,9 +348,21 @@ class PairedPatternEngineTests(unittest.TestCase):
 
     def test_calibration_dot_provider_can_flicker_a_every_other_frame(self):
         frames_a = [
-            np.full((3, 4, 3), 11, dtype=np.uint8),
-            np.full((3, 4, 3), 33, dtype=np.uint8),
-            np.full((3, 4, 3), 55, dtype=np.uint8),
+            np.full((3,
+                     4,
+                     3),
+                    11,
+                    dtype=np.uint8),
+            np.full((3,
+                     4,
+                     3),
+                    33,
+                    dtype=np.uint8),
+            np.full((3,
+                     4,
+                     3),
+                    55,
+                    dtype=np.uint8),
         ]
         calls = {"count": 0}
 
@@ -363,8 +395,16 @@ class PairedPatternEngineTests(unittest.TestCase):
     def test_dynamic_a_static_b_provider_does_not_consume_a_for_initial_pair(self):
         initial_a = np.full((3, 4, 3), 7, dtype=np.uint8)
         frames_a = [
-            np.full((3, 4, 3), 11, dtype=np.uint8),
-            np.full((3, 4, 3), 33, dtype=np.uint8),
+            np.full((3,
+                     4,
+                     3),
+                    11,
+                    dtype=np.uint8),
+            np.full((3,
+                     4,
+                     3),
+                    33,
+                    dtype=np.uint8),
         ]
         calls = {"count": 0}
 
@@ -413,7 +453,11 @@ class PairedPatternEngineTests(unittest.TestCase):
         self.assertEqual(frame[0, 0, 0], 0)
         np.testing.assert_array_equal(
             frame,
-            generate_dot_frame(width=7, height=7, x=3, y=3, radius=1),
+            generate_dot_frame(width=7,
+                               height=7,
+                               x=3,
+                               y=3,
+                               radius=1),
         )
 
     def test_coarse_visual_modes_are_static_pair_choices(self):

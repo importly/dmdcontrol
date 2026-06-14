@@ -49,7 +49,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-dir",
         default=None,
-        help="Directory for derived artifacts. Defaults to RUN_DIR/analysis_outputs/reprocessed_aedat4.",
+        help=
+        "Directory for derived artifacts. Defaults to RUN_DIR/analysis_outputs/reprocessed_aedat4.",
     )
     parser.add_argument("--window-us", type=nonnegative_int, default=None)
     parser.add_argument("--accumulation-start-offset-us", type=int, default=0)
@@ -68,14 +69,12 @@ def main(argv: list[str] | None = None) -> int:
         run_dir = Path.cwd() / run_dir
     source_metadata = _read_json_if_exists(run_dir / "metadata.json")
     options = _resolve_options(args, source_metadata)
-    aedat4_path = Path(args.aedat4).expanduser() if args.aedat4 else run_dir / "raw.aedat4"
+    aedat4_path = (Path(args.aedat4).expanduser() if args.aedat4 else run_dir / "raw.aedat4")
     if not aedat4_path.is_absolute():
         aedat4_path = Path.cwd() / aedat4_path
     output_dir = (
-        Path(args.output_dir).expanduser()
-        if args.output_dir
-        else run_dir / "analysis_outputs" / "reprocessed_aedat4"
-    )
+        Path(args.output_dir).expanduser() if args.output_dir else run_dir / "analysis_outputs" /
+        "reprocessed_aedat4")
     if not output_dir.is_absolute():
         output_dir = Path.cwd() / output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -114,16 +113,22 @@ def main(argv: list[str] | None = None) -> int:
         "accumulated.npy",
         "contact_sheet.png",
         "summary.json",
-        *summary.get("frame_artifacts", []),
+        *summary.get("frame_artifacts",
+                     []),
     ]
     write_run_metadata(derived_run, metadata, artifacts=artifacts)
-    print(json.dumps({
-        "output_dir": str(output_dir),
-        "actual_trigger_count": summary["actual_trigger_count"],
-        "raw_rising_trigger_count": summary["raw_rising_trigger_count"],
-        "window_us": summary["window_us"],
-        "window_start_offset_us": summary["window_start_offset_us"],
-    }, indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                "output_dir": str(output_dir),
+                "actual_trigger_count": summary["actual_trigger_count"],
+                "raw_rising_trigger_count": summary["raw_rising_trigger_count"],
+                "window_us": summary["window_us"],
+                "window_start_offset_us": summary["window_start_offset_us"],
+            },
+            indent=2,
+            sort_keys=True,
+        ))
     return 0
 
 
@@ -178,8 +183,7 @@ def _read_event_batches(recording) -> tuple[list[np.ndarray], dict[str, object]]
     return batches, {
         "batches": len(batches),
         "count": count,
-        "time_range_us": _json_time_range(time_range),
-    }
+        "time_range_us": _json_time_range(time_range), }
 
 
 def _read_trigger_batches(recording) -> tuple[list[TriggerRecord], dict[str, object]]:
@@ -203,8 +207,7 @@ def _read_trigger_batches(recording) -> tuple[list[TriggerRecord], dict[str, obj
         "batches": batch_count,
         "count": len(triggers),
         "time_range_us": _json_time_range(time_range),
-        "edges": edge_counts,
-    }
+        "edges": edge_counts, }
 
 
 def _trigger_record(trigger) -> TriggerRecord:
@@ -235,7 +238,8 @@ def _record_value(record, name, default=None):
 
 def _array_time_range(array) -> tuple[int, int] | None:
     field_names = array.dtype.names or ()
-    timestamp_field = "timestamp" if "timestamp" in field_names else "t" if "t" in field_names else None
+    timestamp_field = (
+        "timestamp" if "timestamp" in field_names else "t" if "t" in field_names else None)
     if timestamp_field is None or len(array) == 0:
         return None
     timestamps = array[timestamp_field]
@@ -260,30 +264,35 @@ def _resolve_options(args, metadata: dict[str, object]) -> dict[str, object]:
     trigger_cycle_length = _first_not_none(
         args.trigger_cycle_length,
         metadata.get("expected_trigger_count"),
-        len(metadata.get("number_sequence", [])) or None,
+        len(metadata.get("number_sequence",
+                         [])) or None,
     )
     return {
-        "window_us": int(_first_not_none(
-            args.window_us,
-            metadata.get("accumulation_window_us"),
-            metadata.get("numbers_exposure_us"),
-            metadata.get("count_exposure_us"),
-            0,
-        )),
-        "accumulation_start_offset_us": int(args.accumulation_start_offset_us),
-        "polarity_mode": str(_first_not_none(args.polarity_mode, metadata.get("polarity_mode"), "positive")),
-        "trigger_cycle_length": int(trigger_cycle_length) if trigger_cycle_length is not None else None,
+        "window_us":
+        int(
+            _first_not_none(
+                args.window_us,
+                metadata.get("accumulation_window_us"),
+                metadata.get("numbers_exposure_us"),
+                metadata.get("count_exposure_us"),
+                0,
+            )),
+        "accumulation_start_offset_us":
+        int(args.accumulation_start_offset_us),
+        "polarity_mode":
+        str(_first_not_none(args.polarity_mode,
+                            metadata.get("polarity_mode"),
+                            "positive")),
+        "trigger_cycle_length":
+        int(trigger_cycle_length) if trigger_cycle_length is not None else None,
         "accumulation_cycles": (
-            int(args.accumulation_cycles)
-            if args.accumulation_cycles is not None
-            else _optional_int(metadata.get("accumulation_cycles"))
-        ),
+            int(args.accumulation_cycles) if args.accumulation_cycles is not None else
+            _optional_int(metadata.get("accumulation_cycles"))),
         "max_accumulation_triggers": (
             int(args.max_accumulation_triggers)
-            if args.max_accumulation_triggers is not None
-            else None
-        ),
-        "contact_sheet_columns": int(_first_not_none(
+            if args.max_accumulation_triggers is not None else None),
+        "contact_sheet_columns":
+        int(_first_not_none(
             args.contact_sheet_columns,
             trigger_cycle_length,
             1,

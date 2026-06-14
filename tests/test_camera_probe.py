@@ -4,7 +4,6 @@ from pathlib import Path
 
 from debug_scripts import camera_probe
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -25,10 +24,11 @@ def test_camera_probe_does_not_reset_usb_by_default():
 
 
 def test_camera_probe_accepts_power_cycle_command():
-    args = camera_probe.build_parser().parse_args([
-        "--power-cycle-command",
-        "uhubctl -l 1-2 -p 3 -a cycle -d 2",
-    ])
+    args = camera_probe.build_parser().parse_args(
+        [
+            "--power-cycle-command",
+            "uhubctl -l 1-2 -p 3 -a cycle -d 2",
+        ])
 
     assert args.power_cycle_command == "uhubctl -l 1-2 -p 3 -a cycle -d 2"
 
@@ -52,6 +52,7 @@ def test_camera_probe_rearms_event_stream_before_capture(monkeypatch):
     calls = []
 
     class Capture:
+
         def setEventsRunning(self, value):
             calls.append(("events", value))
 
@@ -64,16 +65,22 @@ def test_camera_probe_rearms_event_stream_before_capture(monkeypatch):
     camera_probe.rearm_event_stream(Capture(), settle_s=0.01, drain_reads=2)
 
     assert calls == [
-        ("events", False),
-        ("events", True),
-        ("read-events", None),
-        ("read-events", None),
+        ("events",
+         False),
+        ("events",
+         True),
+        ("read-events",
+         None),
+        ("read-events",
+         None),
     ]
 
 
 def test_camera_probe_help_works_when_run_as_script():
     result = subprocess.run(
-        [sys.executable, "debug_scripts/camera_probe.py", "--help"],
+        [sys.executable,
+         "debug_scripts/camera_probe.py",
+         "--help"],
         cwd=ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

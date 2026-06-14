@@ -12,6 +12,7 @@ from dmdcontrol.runtime.pair import resolve_pair_config
 
 
 class MainPairConfigTests(unittest.TestCase):
+
     def test_resolve_pair_config_maps_b_left_and_a_right(self):
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "dmd_devices.json"
@@ -33,9 +34,7 @@ class MainPairConfigTests(unittest.TestCase):
                                 "glfw_monitor_index": 0,
                                 "target_hz": 60,
                             },
-                        }
-                    }
-                ),
+                        }}),
                 encoding="utf-8",
             )
 
@@ -56,11 +55,13 @@ class MainPairConfigTests(unittest.TestCase):
                 json.dumps(
                     {
                         "dmds": {
-                            "A": {"usb_id_path": "pci-a", "xrandr_output": ""},
-                            "B": {"usb_id_path": "pci-b", "xrandr_output": "DP-0"},
-                        }
-                    }
-                ),
+                            "A": {
+                                "usb_id_path": "pci-a",
+                                "xrandr_output": ""},
+                            "B": {
+                                "usb_id_path": "pci-b",
+                                "xrandr_output": "DP-0"},
+                        }}),
                 encoding="utf-8",
             )
 
@@ -88,8 +89,7 @@ class MainPairConfigTests(unittest.TestCase):
                 "1",
                 "--runtime-seconds",
                 "0",
-            ]
-        )
+            ])
 
         self.assertEqual(rc, 0)
         self.assertFalse({"glfw", "OpenGL.GL", "dlpc900_hid"} & set(sys.modules))
@@ -109,8 +109,7 @@ class MainPairConfigTests(unittest.TestCase):
                     "540",
                     "--b-dot-radius",
                     "40",
-                ]
-            )
+                ])
 
     def test_dry_run_accepts_kernel_static_recipe_without_hardware_imports(self):
         for module_name in ("glfw", "OpenGL.GL", "dlpc900_hid"):
@@ -130,8 +129,7 @@ class MainPairConfigTests(unittest.TestCase):
                 "--kernel-leader-frames",
                 "0",
                 "--no-kernel-blank-end-frame",
-            ]
-        )
+            ])
 
         self.assertEqual(rc, 0)
         self.assertFalse({"glfw", "OpenGL.GL", "dlpc900_hid"} & set(sys.modules))
@@ -154,8 +152,7 @@ class MainPairConfigTests(unittest.TestCase):
                 "201",
                 "--runtime-seconds",
                 "999",
-            ]
-        )
+            ])
 
         self.assertEqual(rc, 0)
 
@@ -168,8 +165,7 @@ class MainPairConfigTests(unittest.TestCase):
                     "a-kernel-b-static",
                     "--test-a",
                     "lines",
-                ]
-            )
+                ])
 
     def test_dry_run_accepts_human_visible_pair_modes_without_hardware_imports(self):
         for module_name in ("glfw", "OpenGL.GL", "dlpc900_hid"):
@@ -195,8 +191,7 @@ class MainPairConfigTests(unittest.TestCase):
                 "http://127.0.0.1:8080/api/live-frame",
                 "--preview-fps",
                 "1",
-            ]
-        )
+            ])
 
         self.assertEqual(rc, 0)
         self.assertFalse({"glfw", "OpenGL.GL", "dlpc900_hid"} & set(sys.modules))
@@ -212,8 +207,7 @@ class MainPairConfigTests(unittest.TestCase):
                 "1",
                 "--b-dot-radius",
                 "1",
-            ]
-        )
+            ])
         engine = SimpleNamespace(window=object())
         visible_a = np.full((main_pair.DMD_HEIGHT, main_pair.DMD_WIDTH, 3), 77, dtype=np.uint8)
         original_build = main_pair.build_calibration_square_frame
@@ -221,8 +215,7 @@ class MainPairConfigTests(unittest.TestCase):
         try:
             main_pair.build_calibration_square_frame = lambda _engine, _state: visible_a
             main_pair.make_calibration_square_frame_provider = (
-                lambda _engine, _initial_frame, **_kwargs: lambda: visible_a
-            )
+                lambda _engine, _initial_frame, **_kwargs: lambda: visible_a)
 
             provider = main_pair._make_runtime_pair_frame_provider(args, engine, 60)
             first_a, first_b = provider.initial_pair()
@@ -241,13 +234,35 @@ class MainPairConfigTests(unittest.TestCase):
     def test_live_preview_metadata_includes_lut_timing(self):
         args = main_pair._build_parser().parse_args(["--test", "snake"])
         pair_config = main_pair.PairConfig(
-            dmd_a=main_pair.DmdMapping(name="A", usb_id_path="pci-a", xrandr_output="DP-2"),
-            dmd_b=main_pair.DmdMapping(name="B", usb_id_path="pci-b", xrandr_output="DP-0"),
+            dmd_a=main_pair.DmdMapping(name="A",
+                                       usb_id_path="pci-a",
+                                       xrandr_output="DP-2"),
+            dmd_b=main_pair.DmdMapping(name="B",
+                                       usb_id_path="pci-b",
+                                       xrandr_output="DP-0"),
             target_hz=60,
         )
         state = {
-            "entries": [(0, 600, False, 1, 7, 0, False, 0), (8, 600, True, 1, 7, 0, False, 8)],
-            "timing": {"entries_count": 2, "effective_frame_hz": 60.0, "exposure_us": 600},
+            "entries": [(0,
+                         600,
+                         False,
+                         1,
+                         7,
+                         0,
+                         False,
+                         0),
+                        (8,
+                         600,
+                         True,
+                         1,
+                         7,
+                         0,
+                         False,
+                         8)],
+            "timing": {
+                "entries_count": 2,
+                "effective_frame_hz": 60.0,
+                "exposure_us": 600},
         }
 
         metadata = main_pair._build_live_preview_metadata(args, pair_config, state, state)

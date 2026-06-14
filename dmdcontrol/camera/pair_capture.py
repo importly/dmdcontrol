@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import sys
 from dataclasses import asdict, is_dataclass
-from importlib import import_module
 
 import numpy as np
 
@@ -74,14 +73,34 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--trigger-out-2-delay-fraction", type=float, default=0.00)
     parser.add_argument("--dmd-config", default=None)
     parser.add_argument("--hz", type=positive_int, default=None)
-    parser.add_argument("--bias-sensitivity", default="default", choices=["default", "verylow", "low", "high", "veryhigh"])
-    parser.add_argument("--efps", default="default", choices=["default", "variable", "variable_5000", "constant_1000", "constant_100"])
-    parser.add_argument("--polarity-mode", default="positive", choices=["positive", "signed", "ignore"])
+    parser.add_argument(
+        "--bias-sensitivity",
+        default="default",
+        choices=["default",
+                 "verylow",
+                 "low",
+                 "high",
+                 "veryhigh"])
+    parser.add_argument(
+        "--efps",
+        default="default",
+        choices=["default",
+                 "variable",
+                 "variable_5000",
+                 "constant_1000",
+                 "constant_100"])
+    parser.add_argument(
+        "--polarity-mode",
+        default="positive",
+        choices=["positive",
+                 "signed",
+                 "ignore"])
     parser.add_argument("--dark-time-us", type=int, default=None)
     parser.add_argument(
         "--camera-open-method",
         default="modern",
-        choices=["modern", "legacy"],
+        choices=["modern",
+                 "legacy"],
         help="Camera API used to open the device. Use legacy to mirror mentor CameraCapture code.",
     )
     parser.add_argument(
@@ -89,7 +108,8 @@ def build_parser() -> argparse.ArgumentParser:
         dest="camera_usb_reset",
         action="store_true",
         default=False,
-        help="Diagnostic: run a Linux USB device reset before opening the camera. Disabled by default.",
+        help=
+        "Diagnostic: run a Linux USB device reset before opening the camera. Disabled by default.",
     )
     parser.add_argument(
         "--no-camera-usb-reset",
@@ -103,8 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Optional command run before camera open to power-cycle the USB port, "
             "for example: \"uhubctl -l 1-2 -p 3 -a cycle -d 2\". "
-            "Defaults to DMD_CAMERA_POWER_CYCLE_COMMAND when set."
-        ),
+            "Defaults to DMD_CAMERA_POWER_CYCLE_COMMAND when set."),
     )
     parser.add_argument(
         "--camera-flush-reads",
@@ -128,13 +147,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--camera-shutdown-streams",
         action="store_true",
         default=False,
-        help="Diagnostic: stop camera streams before releasing the capture object. Disabled by default.",
+        help=
+        "Diagnostic: stop camera streams before releasing the capture object. Disabled by default.",
     )
     parser.add_argument(
         "--max-accumulation-triggers",
         type=positive_int,
         default=512,
-        help="Maximum rising triggers used for derived accumulation artifacts. Raw AEDAT recording is unchanged.",
+        help=
+        "Maximum rising triggers used for derived accumulation artifacts. Raw AEDAT recording is unchanged.",
     )
     add_event_noise_filter_arguments(parser)
     parser.add_argument("-v", "--verbose", action="count", default=0)
@@ -223,7 +244,10 @@ def dry_run(args: argparse.Namespace):
     write_run_metadata(
         run,
         metadata,
-        artifacts=["metadata.json", "timing.json", "command.txt", "run.log"],
+        artifacts=["metadata.json",
+                   "timing.json",
+                   "command.txt",
+                   "run.log"],
     )
     run.command_path.write_text(
         "python -m dmdcontrol camera pair-capture --dry-run-timing\n",
@@ -282,6 +306,7 @@ def _accumulation_window_us(args: argparse.Namespace) -> int:
 
 
 class _BoundedArtifactBuffer:
+
     def __init__(self, max_rising_triggers: int | None, window_us: int):
         self.max_rising_triggers = max_rising_triggers
         self.window_us = max(0, int(window_us))
@@ -314,11 +339,8 @@ class _BoundedArtifactBuffer:
                 self.truncated = True
                 continue
             self.triggers.append(trigger)
-            if (
-                    is_rising
-                    and self.max_rising_triggers is not None
-                    and self.raw_rising_triggers == self.max_rising_triggers
-            ):
+            if (is_rising and self.max_rising_triggers is not None
+                    and self.raw_rising_triggers == self.max_rising_triggers):
                 self.cutoff_us = _record_timestamp(trigger) + self.window_us
                 self._prune_events_to_cutoff()
 
@@ -408,7 +430,8 @@ def _record_field(record, name, default=None):
 
 
 def _run_pair_with_callback(pair_args, before_start):
-    pair_module = import_module("dmdcontrol.runtime.pair")
+    from dmdcontrol.runtime import pair as pair_module
+
     return pair_module.run_with_before_start_callback(pair_args, before_start)
 
 
@@ -456,18 +479,20 @@ def live(args: argparse.Namespace) -> int:
 
         def before_start(context):
             nonlocal recording
-            metadata.update({
-                "camera_ready": _asdict(ready),
-                "dmd_ready": True,
-                "timing_a": context["state_a"]["timing"],
-                "timing_b": context["state_b"]["timing"],
-            })
+            metadata.update(
+                {
+                    "camera_ready": _asdict(ready),
+                    "dmd_ready": True,
+                    "timing_a": context["state_a"]["timing"],
+                    "timing_b": context["state_b"]["timing"],
+                })
             if recording is None:
                 recording = AsyncCapture(
                     capture,
                     writer,
                     expected_trigger_count=_expected_trigger_count(args),
-                    timeout_s=max(1, args.runtime_seconds),
+                    timeout_s=max(1,
+                                  args.runtime_seconds),
                     on_events=artifact_buffer.append_events,
                     on_triggers=artifact_buffer.append_triggers,
                     record_fn=record_until_trigger_count,
@@ -477,7 +502,8 @@ def live(args: argparse.Namespace) -> int:
             write_run_metadata(
                 run,
                 metadata,
-                artifacts=["raw.aedat4", "metadata.json"],
+                artifacts=["raw.aedat4",
+                           "metadata.json"],
             )
 
         _run_pair_with_callback(_to_pair_runtime_args(args), before_start)
@@ -517,12 +543,13 @@ def live(args: argparse.Namespace) -> int:
                 "timing.json",
             ]
             if artifact_summary is not None:
-                artifacts.extend([
-                    "triggers.csv",
-                    "accumulated.npy",
-                    "contact_sheet.png",
-                    "summary.json",
-                ])
+                artifacts.extend(
+                    [
+                        "triggers.csv",
+                        "accumulated.npy",
+                        "contact_sheet.png",
+                        "summary.json",
+                    ])
                 artifacts.extend(artifact_summary.get("frame_artifacts", []))
                 artifacts.extend(artifact_summary.get("filtered_frame_artifacts", []))
                 if artifact_summary.get("filtered_contact_sheet_artifact"):
