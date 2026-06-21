@@ -674,7 +674,6 @@ def make_pair_frame_provider(
     numbers=None,
     numbers_size_px=None,
     numbers_bitplane_order=None,
-    numbers_exposure_us=None,
     count_start=1,
     count_end=100,
     count_slots_per_frame=2,

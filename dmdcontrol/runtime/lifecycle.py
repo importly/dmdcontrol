@@ -1,6 +1,5 @@
 """DLPC900 setup, status, LUT, and verification helpers."""
 
-import math
 import threading
 import time
 
@@ -15,8 +14,10 @@ from dmdcontrol.support.constants import (
     MAX_MEASURED_VSYNC_DEVIATION_RATIO,
     MIN_EXPOSURE_US,
     SAFE_MARGIN_US,
-    SIGNED_INT16_MAX,
-    SIGNED_INT16_MIN,
+    TRIGGER_OUT_DELAY_MAX_US,
+    TRIGGER_OUT_DELAY_MIN_US,
+    TRIGGER_OUT_PULSE_WIDTH_US,
+    TRIGGER_OUT_RISING_DELAY_MAX_US,
 )
 from dmdcontrol.support.logging import logger
 
@@ -129,12 +130,10 @@ def build_lut_entries(
         raise ValueError("target_hz must be positive")
     if sequence_utilization <= 0.0 or sequence_utilization > 1.0:
         raise ValueError("sequence_utilization must be in the interval (0, 1].")
-    if entries_count is None:
-        entries_count = BITPLANES
-    if entries_count < 1 or entries_count > BITPLANES:
-        raise ValueError(f"entries_count ({entries_count}) must be in [1, {BITPLANES}].")
 
     actual_dark_us = INTER_PATTERN_DARK_US if dark_time_us is None else dark_time_us
+    if actual_dark_us < 0:
+        raise ValueError("dark_time_us must be non-negative")
 
     measured_frame_hz = None
     dd = dlpc.get_display_dimensions()
@@ -171,6 +170,22 @@ def build_lut_entries(
             f"Frame period {frame_period_us:.2f} us is not larger than safety margin {SAFE_MARGIN_US:.2f} us."
         )
 
+    min_segment_us = MIN_EXPOSURE_US + actual_dark_us
+    usable_frame_period_us = safe_frame_period_us * sequence_utilization
+
+    if entries_count is None and per_entry_exposure_us is not None:
+        if per_entry_exposure_us < MIN_EXPOSURE_US:
+            raise ValueError(
+                f"per_entry_exposure_us ({per_entry_exposure_us}) is below MIN_EXPOSURE_US "
+                f"({MIN_EXPOSURE_US}).")
+        requested_segment_us = per_entry_exposure_us + actual_dark_us
+        entries_count = int(usable_frame_period_us // requested_segment_us)
+        entries_count = max(1, min(BITPLANES, entries_count))
+    elif entries_count is None:
+        entries_count = BITPLANES
+    if entries_count < 1 or entries_count > BITPLANES:
+        raise ValueError(f"entries_count ({entries_count}) must be in [1, {BITPLANES}].")
+
     requested_binary_rate_hz = float(target_hz) * entries_count
     if requested_binary_rate_hz > MAX_BINARY_RATE_HZ_DLP6500:
         raise ValueError(
@@ -182,9 +197,6 @@ def build_lut_entries(
         raise ValueError(
             f"Measured source binary rate {effective_binary_rate_hz:.1f} Hz exceeds "
             f"DLP6500 1-bit limit (~{MAX_BINARY_RATE_HZ_DLP6500} Hz).")
-
-    min_segment_us = MIN_EXPOSURE_US + actual_dark_us
-    usable_frame_period_us = safe_frame_period_us * sequence_utilization
 
     if per_entry_exposure_us is not None:
         if per_entry_exposure_us < MIN_EXPOSURE_US:
@@ -259,38 +271,32 @@ def build_lut_entries(
 
 
 def compute_trigger_out_2_timing(
-    exposure_us,
-    delay_fraction=0.00,
-    min_pulse_width_us=20,
-    delay_basis="exposure_us",
+    rising_delay_us=0,
+    pulse_width_us=TRIGGER_OUT_PULSE_WIDTH_US,
 ):
-    if exposure_us <= 0:
-        raise ValueError("exposure_us must be positive")
-    if not math.isfinite(delay_fraction):
-        raise ValueError("delay_fraction must be finite")
-    if delay_fraction < 0:
-        raise ValueError("delay_fraction must be non-negative")
-    if min_pulse_width_us < 1:
-        raise ValueError("min_pulse_width_us must be positive")
+    if not isinstance(rising_delay_us, int):
+        raise ValueError("rising_delay_us must be an integer")
+    if not isinstance(pulse_width_us, int):
+        raise ValueError("pulse_width_us must be an integer")
+    if pulse_width_us < 1:
+        raise ValueError("pulse_width_us must be positive")
 
-    rising_delay_us = int(exposure_us * delay_fraction)
-    falling_delay_us = rising_delay_us + int(min_pulse_width_us)
-    if not (0 <= rising_delay_us <= SIGNED_INT16_MAX):
+    falling_delay_us = rising_delay_us + pulse_width_us
+    max_rising_delay_us = TRIGGER_OUT_RISING_DELAY_MAX_US
+    if not (TRIGGER_OUT_DELAY_MIN_US <= rising_delay_us <= max_rising_delay_us):
         raise ValueError(
-            f"rising_delay_us ({rising_delay_us}) must fit signed int16 trigger delay range "
-            f"[{SIGNED_INT16_MIN}, {SIGNED_INT16_MAX}]")
-    if not (0 <= falling_delay_us <= SIGNED_INT16_MAX):
+            f"rising_delay_us must be between {TRIGGER_OUT_DELAY_MIN_US} and "
+            f"{max_rising_delay_us}")
+    if not (TRIGGER_OUT_DELAY_MIN_US <= falling_delay_us <= TRIGGER_OUT_DELAY_MAX_US):
         raise ValueError(
-            f"falling_delay_us ({falling_delay_us}) must fit signed int16 trigger delay range "
-            f"[{SIGNED_INT16_MIN}, {SIGNED_INT16_MAX}]")
+            f"falling_delay_us must be between {TRIGGER_OUT_DELAY_MIN_US} and "
+            f"{TRIGGER_OUT_DELAY_MAX_US}")
     return {
         "channel": "TRIG_OUT_2",
         "edge": "rising",
-        "delay_fraction": float(delay_fraction),
-        "delay_basis": delay_basis,
         "rising_delay_us": rising_delay_us,
         "falling_delay_us": falling_delay_us,
-        "min_pulse_width_us": int(min_pulse_width_us),
+        "pulse_width_us": pulse_width_us,
     }
 
 
@@ -510,7 +516,7 @@ def prepare_dlpc900_for_video_pattern(
     trig2_frame_zero=False,
     entries_count=None,
     per_entry_exposure_us=None,
-    trigger_out_2_delay_fraction=0.00,
+    trigger_out_2_rising_delay_us=0,
     dark_time_us=None,
 ):
     actual_entries = entries_count if entries_count is not None else BITPLANES
@@ -606,7 +612,7 @@ def prepare_dlpc900_for_video_pattern(
 
     # DLPU018J Table 2-118/2-120: byte 0 bit 0 = polarity. No enable bit.
     # Non-inverted constraint: rising_delay <= falling_delay. Min pulse width: 20us.
-    dlpc.configure_trigger_out_1(polarity_high=True, rising_delay_us=5, falling_delay_us=20)
+    dlpc.configure_trigger_out_1(polarity_high=True, rising_delay_us=0, falling_delay_us=20)
     err = dlpc.get_last_error()
     logger.debug(f"  - TRIG_OUT_1 config sent. Last error: {err}")
 
@@ -620,8 +626,7 @@ def prepare_dlpc900_for_video_pattern(
         dark_time_us=dark_time_us,
     )
     trigger_out_2_timing = compute_trigger_out_2_timing(
-        timing["exposure_us"],
-        delay_fraction=trigger_out_2_delay_fraction,
+        rising_delay_us=trigger_out_2_rising_delay_us,
     )
     dlpc.configure_trigger_out_2(
         polarity_high=True,
@@ -685,7 +690,7 @@ def configure_dlpc900_for_video_pattern(
     frame_pump=None,
     entries_count=None,
     per_entry_exposure_us=None,
-    trigger_out_2_delay_fraction=0.00,
+    trigger_out_2_rising_delay_us=0,
     dark_time_us=None,
 ):
     sequence_state = prepare_dlpc900_for_video_pattern(
@@ -696,7 +701,7 @@ def configure_dlpc900_for_video_pattern(
         trig2_frame_zero=trig2_frame_zero,
         entries_count=entries_count,
         per_entry_exposure_us=per_entry_exposure_us,
-        trigger_out_2_delay_fraction=trigger_out_2_delay_fraction,
+        trigger_out_2_rising_delay_us=trigger_out_2_rising_delay_us,
         dark_time_us=dark_time_us,
     )
 

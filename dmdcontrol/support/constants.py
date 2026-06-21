@@ -23,6 +23,14 @@ DLPC900_PID = 0xC900
 SIGNED_INT16_MIN = -32768
 SIGNED_INT16_MAX = 32767
 
+# DLPC900 trigger output edge delay range. The public rising-edge delay keeps
+# a fixed 20 us pulse, so its maximum is lower than the raw edge maximum.
+TRIGGER_OUT_DELAY_MIN_US = -20
+TRIGGER_OUT_DELAY_MAX_US = 20000
+TRIGGER_OUT_PULSE_WIDTH_US = 20
+TRIGGER_OUT_RISING_DELAY_MIN_US = TRIGGER_OUT_DELAY_MIN_US
+TRIGGER_OUT_RISING_DELAY_MAX_US = TRIGGER_OUT_DELAY_MAX_US - TRIGGER_OUT_PULSE_WIDTH_US
+
 # --- Pattern Modes defaults ---
 NUMBER_SEQUENCE = tuple(range(1, 10))
 DEFAULT_NUMBERS_EXPOSURE_US = 500_000

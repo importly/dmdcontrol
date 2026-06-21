@@ -1,8 +1,14 @@
 import json
 
 import numpy as np
+import pytest
 
-from dmdcontrol.camera.pair_capture import _BoundedArtifactBuffer, build_parser, dry_run
+from dmdcontrol.camera.pair_capture import (
+    _BoundedArtifactBuffer,
+    _to_pair_runtime_args,
+    build_parser,
+    dry_run,
+)
 
 
 class FakeNumpyBatch:
@@ -58,7 +64,7 @@ def test_pair_capture_parser_accepts_requested_command_shape():
             "40",
             "--kernel-px",
             "1080",
-            "--kernel-exposure-us",
+            "--exposure-us",
             "3000",
             "--runtime-seconds",
             "999",
@@ -71,8 +77,13 @@ def test_pair_capture_parser_accepts_requested_command_shape():
     assert args.b_dot_y == 540
     assert args.b_dot_radius == 40
     assert args.kernel_px == 1080
-    assert args.kernel_exposure_us == 3000
+    assert args.exposure_us == 3000
     assert args.runtime_seconds == 999
+
+
+def test_pair_capture_parser_rejects_removed_kernel_exposure_flag():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--dry-run-timing", "--kernel-exposure-us", "3000"])
 
 
 def test_pair_capture_parser_accepts_event_noise_filter_options():
@@ -109,7 +120,27 @@ def test_pair_capture_parser_defaults_to_bounded_accumulation_artifacts():
 def test_pair_capture_parser_defaults_trigger_delay_to_zero():
     args = build_parser().parse_args(["--dry-run-timing"])
 
-    assert args.trigger_out_2_delay_fraction == 0.0
+    assert args.trigger_out_2_rising_delay_us == 0
+
+
+def test_pair_capture_parser_accepts_negative_trigger_rising_delay():
+    args = build_parser().parse_args(
+        ["--dry-run-timing", "--trigger-out-2-rising-delay-us", "-20"])
+
+    assert args.trigger_out_2_rising_delay_us == -20
+
+
+@pytest.mark.parametrize("value", ["-21", "19981"])
+def test_pair_capture_parser_rejects_trigger_rising_delay_outside_effective_range(value):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            ["--dry-run-timing", "--trigger-out-2-rising-delay-us", value])
+
+
+def test_pair_capture_parser_rejects_removed_trigger_delay_fraction_flag():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            ["--dry-run-timing", "--trigger-out-2-delay-fraction", "0.05"])
 
 
 def test_pair_capture_parser_does_not_reset_camera_usb_by_default():
@@ -172,12 +203,12 @@ def test_pair_capture_dry_run_creates_run_artifacts(tmp_path):
             "40",
             "--kernel-px",
             "1080",
-            "--kernel-exposure-us",
+            "--exposure-us",
             "3000",
             "--runtime-seconds",
             "999",
-            "--trigger-out-2-delay-fraction",
-            "0.05",
+            "--trigger-out-2-rising-delay-us",
+            "-20",
             "--dmd-config",
             "dmd_devices.json",
             "--hz",
@@ -202,7 +233,7 @@ def test_pair_capture_dry_run_creates_run_artifacts(tmp_path):
         "b_dot_y": 540,
         "b_dot_radius": 40,
         "kernel_px": 1080,
-        "kernel_exposure_us": 3000,
+        "exposure_us": 3000,
         "runtime_seconds": 999,
         "dmd_config": "dmd_devices.json",
         "hz": 60,
@@ -220,7 +251,7 @@ def test_pair_capture_dry_run_creates_run_artifacts(tmp_path):
         "40",
         "--kernel-px",
         "1080",
-        "--kernel-exposure-us",
+        "--exposure-us",
         "3000",
         "--runtime-seconds",
         "999",
@@ -232,12 +263,33 @@ def test_pair_capture_dry_run_creates_run_artifacts(tmp_path):
     assert metadata["trigger_policy"] == {
         "channel": "TRIG_OUT_2",
         "edge": "rising",
-        "delay_fraction": 0.05,
+        "rising_delay_us": -20,
+        "falling_delay_us": 0,
     }
     assert metadata["artifacts"] == ["metadata.json", "timing.json", "command.txt", "run.log"]
     assert timing == metadata["trigger_policy"]
     assert "dmdcontrol camera pair-capture --dry-run-timing" in command
     assert "dry-run" in log
+
+
+def test_pair_capture_runtime_args_forward_generic_exposure():
+    args = build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--exposure-us",
+            "3000",
+            "--dark-time-us",
+            "100",
+            "--trigger-out-2-rising-delay-us",
+            "-20",
+        ])
+
+    pair_args = _to_pair_runtime_args(args)
+
+    assert "--kernel-exposure-us" not in pair_args
+    assert pair_args[pair_args.index("--exposure-us") + 1] == "3000"
+    assert pair_args[pair_args.index("--dark-time-us") + 1] == "100"
+    assert pair_args[pair_args.index("--trigger-out-2-rising-delay-us") + 1] == "-20"
 
 
 def test_pair_capture_dry_run_records_accumulation_trigger_limit(tmp_path):

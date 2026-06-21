@@ -27,7 +27,12 @@ from dmdcontrol.camera.session import (
     close_camera_resources,
     open_ready_camera as _open_ready_camera,
 )
-from dmdcontrol.support.argparse_types import nonnegative_int, positive_int
+from dmdcontrol.runtime.lifecycle import compute_trigger_out_2_timing
+from dmdcontrol.support.argparse_types import (
+    nonnegative_int,
+    positive_int,
+    trigger_out_rising_delay_us,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -50,9 +55,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--b-dot-y", type=int, default=540)
     parser.add_argument("--b-dot-radius", type=positive_int, default=40)
     parser.add_argument("--kernel-px", type=positive_int, default=129)
-    parser.add_argument("--kernel-exposure-us", type=positive_int, default=None)
+    parser.add_argument("--exposure-us", type=positive_int, default=None)
     parser.add_argument("--runtime-seconds", type=positive_int, default=999)
-    parser.add_argument("--trigger-out-2-delay-fraction", type=float, default=0.00)
+    parser.add_argument(
+        "--trigger-out-2-rising-delay-us",
+        type=trigger_out_rising_delay_us,
+        default=0)
     parser.add_argument("--dmd-config", default=None)
     parser.add_argument("--hz", type=positive_int, default=None)
     parser.add_argument(
@@ -166,8 +174,8 @@ def requested_command_shape(args: argparse.Namespace) -> list[str]:
         "--kernel-px",
         str(args.kernel_px),
     ]
-    if args.kernel_exposure_us is not None:
-        shape.extend(["--kernel-exposure-us", str(args.kernel_exposure_us)])
+    if args.exposure_us is not None:
+        shape.extend(["--exposure-us", str(args.exposure_us)])
     shape.extend(["--runtime-seconds", str(args.runtime_seconds)])
     return shape
 
@@ -180,18 +188,21 @@ def dmd_config(args: argparse.Namespace) -> dict[str, int | str | None]:
         "b_dot_y": args.b_dot_y,
         "b_dot_radius": args.b_dot_radius,
         "kernel_px": args.kernel_px,
-        "kernel_exposure_us": args.kernel_exposure_us,
+        "exposure_us": args.exposure_us,
         "runtime_seconds": args.runtime_seconds,
         "dmd_config": args.dmd_config,
         "hz": args.hz,
     }
 
 
-def trigger_policy(args: argparse.Namespace) -> dict[str, str | float]:
+def trigger_policy(args: argparse.Namespace) -> dict[str, str | int]:
+    timing = compute_trigger_out_2_timing(
+        rising_delay_us=args.trigger_out_2_rising_delay_us)
     return {
         "channel": "TRIG_OUT_2",
         "edge": "rising",
-        "delay_fraction": args.trigger_out_2_delay_fraction,
+        "rising_delay_us": timing["rising_delay_us"],
+        "falling_delay_us": timing["falling_delay_us"],
     }
 
 
@@ -255,11 +266,11 @@ def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
         str(args.kernel_px),
         "--runtime-seconds",
         str(args.runtime_seconds),
-        "--trigger-out-2-delay-fraction",
-        str(args.trigger_out_2_delay_fraction),
+        "--trigger-out-2-rising-delay-us",
+        str(args.trigger_out_2_rising_delay_us),
     ]
-    if args.kernel_exposure_us is not None:
-        pair_args.extend(["--kernel-exposure-us", str(args.kernel_exposure_us)])
+    if args.exposure_us is not None:
+        pair_args.extend(["--exposure-us", str(args.exposure_us)])
     if getattr(args, "dark_time_us", None) is not None:
         pair_args.extend(["--dark-time-us", str(args.dark_time_us)])
     if args.dmd_config is not None:
@@ -272,8 +283,8 @@ def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
 
 
 def _accumulation_window_us(args: argparse.Namespace) -> int:
-    if args.kernel_exposure_us is not None:
-        return args.kernel_exposure_us
+    if args.exposure_us is not None:
+        return args.exposure_us
     return 0
 
 

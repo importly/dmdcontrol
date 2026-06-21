@@ -12,7 +12,62 @@ def test_pair_runtime_parser_defaults_trigger_delay_to_zero():
 
     args = pair._build_parser().parse_args(["--dry-run-timing"])
 
-    assert args.trigger_out_2_delay_fraction == 0.0
+    assert args.trigger_out_2_rising_delay_us == 0
+
+
+def test_pair_runtime_parser_accepts_negative_trigger_rising_delay():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args(
+        ["--dry-run-timing", "--trigger-out-2-rising-delay-us", "-20"])
+
+    assert args.trigger_out_2_rising_delay_us == -20
+
+
+@pytest.mark.parametrize("value", ["-21", "19981"])
+def test_pair_runtime_parser_rejects_trigger_rising_delay_outside_effective_range(value):
+    from dmdcontrol.runtime import pair
+
+    with pytest.raises(SystemExit):
+        pair._build_parser().parse_args(
+            ["--dry-run-timing", "--trigger-out-2-rising-delay-us", value])
+
+
+def test_pair_runtime_parser_rejects_removed_trigger_delay_fraction_flag():
+    from dmdcontrol.runtime import pair
+
+    with pytest.raises(SystemExit):
+        pair._build_parser().parse_args(
+            ["--dry-run-timing", "--trigger-out-2-delay-fraction", "0.05"])
+
+
+def test_pair_runtime_parser_accepts_generic_exposure_us():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args(
+        ["--dry-run-timing", "--test", "dot", "--exposure-us", "4000"])
+
+    assert args.exposure_us == 4000
+
+
+def test_pair_runtime_rejects_negative_dark_time():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args(["--dry-run-timing", "--dark-time-us", "-1"])
+
+    with pytest.raises(SystemExit, match="--dark-time-us must be non-negative"):
+        pair._validate_pair_args(args)
+
+
+@pytest.mark.parametrize(
+    "flag",
+    ["--kernel-exposure-us", "--numbers-exposure-us", "--count-exposure-us"],
+)
+def test_pair_runtime_parser_rejects_removed_exposure_flags(flag):
+    from dmdcontrol.runtime import pair
+
+    with pytest.raises(SystemExit):
+        pair._build_parser().parse_args(["--dry-run-timing", flag, "4000"])
 
 
 def test_lut_override_a_numbers_b_static_returns_digit_count():
@@ -24,7 +79,7 @@ def test_lut_override_a_numbers_b_static_returns_digit_count():
                  3,
                  4,
                  5],
-        numbers_exposure_us=3000,
+        exposure_us=3000,
     )
     entries_count_1, exposure_1 = _lut_override(args_1, target_hz=60)
     assert entries_count_1 == 5
@@ -36,7 +91,7 @@ def test_lut_override_a_numbers_b_static_returns_digit_count():
         numbers=[1,
                  2,
                  3],
-        numbers_exposure_us=None,
+        exposure_us=None,
     )
     entries_count_2, exposure_2 = _lut_override(args_2, target_hz=60)
     assert entries_count_2 == 3
@@ -47,7 +102,7 @@ def test_lut_override_a_count_b_static_returns_count_slots():
     args = types.SimpleNamespace(
         test=A_COUNT_B_STATIC_PAIR_TEST,
         count_slots_per_frame=2,
-        count_exposure_us=7000,
+        exposure_us=7000,
     )
 
     entries_count, exposure = _lut_override(args, target_hz=60)
@@ -64,16 +119,16 @@ def test_lut_override_non_numbers_test_delegates_to_kernel():
                  3,
                  4,
                  5],
-        numbers_exposure_us=3000,
+        exposure_us=3000,
         b_exposure_us=None,
         kernel_pairs=5,
-        kernel_exposure_us=None,
         seq_utilization=0.90,
+        dark_time_us=None,
     )
     entries_count, exposure = _lut_override(args, target_hz=60)
     # The kernel override should return (None, None) when not enabled, which the runtime treats as default BITPLANES (24)
     assert entries_count is None
-    assert exposure is None
+    assert exposure == 3000
 
 
 def test_pair_runtime_parser_accepts_count_mode_options():
@@ -92,14 +147,14 @@ def test_pair_runtime_parser_accepts_count_mode_options():
             "100",
             "--count-slots-per-frame",
             "2",
-            "--count-exposure-us",
+            "--exposure-us",
             "7000",
         ])
 
     assert args.count_start == 1
     assert args.count_end == 100
     assert args.count_slots_per_frame == 2
-    assert args.count_exposure_us == 7000
+    assert args.exposure_us == 7000
 
 
 def test_pair_runtime_parser_accepts_numbers_bitplane_order():
@@ -133,6 +188,53 @@ def test_pair_runtime_parser_accepts_static_dot_radius():
         ])
 
     assert args.dot_radius == 17
+
+
+def test_static_dot_dry_run_uses_generic_exposure_for_dynamic_entry_count(monkeypatch):
+    from dmdcontrol.runtime import pair
+
+    captured = {}
+
+    def fake_build_lut_entries(*args, **kwargs):
+        captured["entries_count"] = kwargs["entries_count"]
+        captured["per_entry_exposure_us"] = kwargs["per_entry_exposure_us"]
+        captured["dark_time_us"] = kwargs["dark_time_us"]
+        return [object(), object(), object()], {
+            "entries_count": 3,
+            "trig2_mode": "per_bitplane",
+            "effective_frame_hz": 60.0,
+            "effective_binary_rate_hz": 180.0,
+            "exposure_us": 4000,
+            "dark_us": 250,
+            "total_sequence_us": 12750.0,
+            "usable_frame_period_us": 14750.0,
+        }
+
+    monkeypatch.setattr(pair, "build_lut_entries", fake_build_lut_entries)
+
+    args = pair._build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--test",
+            "dot",
+            "--exposure-us",
+            "4000",
+            "--dark-time-us",
+            "250",
+        ])
+    pair_config = pair.PairConfig(
+        dmd_a=types.SimpleNamespace(xrandr_output="DP-2", usb_id_path="usb-a"),
+        dmd_b=types.SimpleNamespace(xrandr_output="DP-0", usb_id_path="usb-b"),
+        target_hz=60,
+    )
+
+    pair._dry_run_timing(args, pair_config)
+
+    assert captured == {
+        "entries_count": None,
+        "per_entry_exposure_us": 4000,
+        "dark_time_us": 250,
+    }
 
 
 def test_static_dot_radius_applies_to_both_dmds():
@@ -225,7 +327,7 @@ def test_a_numbers_b_static_runtime_forwards_b_static_geometry(monkeypatch):
                  2,
                  3],
         numbers_size_px=123,
-        numbers_exposure_us=600,
+        exposure_us=600,
         b_dot_x=955,
         b_dot_y=535,
         b_dot_radius=12,
@@ -306,7 +408,7 @@ def test_pair_live_preview_metadata_includes_count_mode():
         count_start=1,
         count_end=100,
         count_slots_per_frame=2,
-        count_exposure_us=7000,
+        exposure_us=7000,
     )
     pair_config = types.SimpleNamespace(
         dmd_a=types.SimpleNamespace(xrandr_output="DP-2"),
@@ -337,7 +439,7 @@ def test_pair_dry_run_timing_rejects_numbers_sequence_when_dark_time_exceeds_bud
                 A_NUMBERS_B_STATIC_PAIR_TEST,
                 "--numbers",
                 "1,2,3,4,5",
-                "--numbers-exposure-us",
+                "--exposure-us",
                 "2900",
                 "--dark-time-us",
                 "500",
@@ -428,7 +530,7 @@ def test_run_prepared_pair_starts_rendering_without_post_start_sleep(monkeypatch
         dual_pixel=False,
         seq_utilization=0.9,
         trig2_frame_zero=False,
-        trigger_out_2_delay_fraction=0.03,
+        trigger_out_2_rising_delay_us=-20,
         dark_time_us=None,
     )
 
