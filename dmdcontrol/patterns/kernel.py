@@ -15,19 +15,19 @@ from dmdcontrol.support.constants import (
 
 def compute_kernel_lut_override(
     enabled,
-    kernel_exposure_us,
-    target_hz,
-    sequence_utilization,
+    exposure_us=None,
+    target_hz=None,
+    sequence_utilization=None,
     dark_time_us=None,
 ):
-    if not enabled or kernel_exposure_us is None:
+    if not enabled or exposure_us is None:
         return None, None
     frame_period_us = 1_000_000.0 / target_hz
     usable_us = (frame_period_us - SAFE_MARGIN_US) * sequence_utilization
     actual_dark_us = INTER_PATTERN_DARK_US if dark_time_us is None else dark_time_us
-    entries_count = int(usable_us // (kernel_exposure_us + actual_dark_us))
+    entries_count = int(usable_us // (exposure_us + actual_dark_us))
     entries_count = max(1, min(BITPLANES, entries_count))
-    return entries_count, kernel_exposure_us
+    return entries_count, exposure_us
 
 
 def generate_kernel_masks(width=DMD_WIDTH, height=DMD_HEIGHT, kernel_px=30):

@@ -1,5 +1,4 @@
 import argparse
-import math
 import threading
 import time
 
@@ -41,6 +40,7 @@ from dmdcontrol.patterns.modes import (
     number_index_for_elapsed,
 )
 from dmdcontrol.runtime.loop import run_render_loop, run_trigger_loop
+from dmdcontrol.support.argparse_types import trigger_out_rising_delay_us
 
 
 def _build_parser():
@@ -87,10 +87,10 @@ def _build_parser():
         help="Emit TRIG_OUT_2 only on LUT bitplane 0 (single frame anchor). "
         "Default mode emits TRIG_OUT_2 on every bitplane.")
     parser.add_argument(
-        "--trigger-out-2-delay-fraction",
-        type=float,
-        default=0.00,
-        help="Fraction of LUT exposure used as TRIG_OUT_2 rising-edge delay. Default: 0.",
+        "--trigger-out-2-rising-delay-us",
+        type=trigger_out_rising_delay_us,
+        default=0,
+        help="TRIG_OUT_2 rising-edge delay in microseconds. Valid range: -20 to 19980. Default: 0.",
     )
     parser.add_argument(
         "--abort-recover-cooldown",
@@ -142,20 +142,12 @@ def _build_parser():
         help="Number of all-black VSYNC frames prepended to each kernel cycle as an acquisition "
         "leader marker. DAQ should ignore these initial trigger pulses. Default: 3.")
     parser.add_argument(
-        "--kernel-exposure-us",
+        "--exposure-us",
         type=int,
         default=None,
-        help="Uniform exposure time in microseconds for every kernel (kernel mode only). "
-        "Default: use full 24-entry LUT (~615 us/kernel at 60 Hz with 0.90 utilization, "
-        "1440 Hz binary rate). Larger values reduce kernels per VSYNC and lengthen the "
-        "512-kernel cycle. "
-        "Ceiling = one VSYNC period (~16670 us at 60 Hz).")
-    parser.add_argument(
-        "--numbers-exposure-us",
-        type=int,
-        default=None,
-        help="Wall-clock display time in microseconds for each digit in --test numbers. "
-        f"Default: {DEFAULT_NUMBERS_EXPOSURE_US} us.")
+        help="Generic per-entry LUT exposure time in microseconds for LUT-driven modes. "
+        "Dynamic wall-clock display modes ignore this value.")
+    parser.add_argument("--dark-time-us", type=int, default=None)
     parser.add_argument(
         "--numbers-size-px",
         type=int,
@@ -187,21 +179,35 @@ class _DryRunDLPC:
         return None
 
 
+_EXPOSURE_IGNORED_DYNAMIC_KINDS = {"numbers", "calibr-square", "snake", "clock", "colors"}
+
+
+def _ignores_lut_exposure(args, dynamic_kind=None):
+    kind = dynamic_kind if dynamic_kind is not None else args.test
+    return args.exposure_us is not None and kind in _EXPOSURE_IGNORED_DYNAMIC_KINDS
+
+
 def _compute_kernel_lut_override(args, target_hz):
-    if args.test != "kernel" or args.kernel_exposure_us is None:
+    if args.test != "kernel" or args.exposure_us is None:
         return None, None
     frame_period_us = 1_000_000.0 / target_hz
     usable_us = (frame_period_us - SAFE_MARGIN_US) * args.seq_utilization
-    entries_count = int(usable_us // args.kernel_exposure_us)
+    slot_us = args.exposure_us + max(0, args.dark_time_us or 0)
+    entries_count = int(usable_us // slot_us)
     entries_count = max(1, min(BITPLANES, entries_count))
-    return entries_count, args.kernel_exposure_us
+    return entries_count, args.exposure_us
 
 
-def _numbers_exposure_us(args):
-    exposure_us = getattr(args, "numbers_exposure_us", None)
-    if exposure_us is None:
-        return DEFAULT_NUMBERS_EXPOSURE_US
-    return exposure_us
+def _lut_timing_override(args, target_hz, dynamic_kind=None):
+    if args.exposure_us is None or _ignores_lut_exposure(args, dynamic_kind):
+        return None, None
+    if args.test == "kernel":
+        return _compute_kernel_lut_override(args, target_hz)
+    return None, args.exposure_us
+
+
+def _number_dwell_us(args):
+    return DEFAULT_NUMBERS_EXPOSURE_US
 
 
 def _format_range(start, count):
@@ -270,7 +276,7 @@ def _log_kernel_timing_summary(args, timing, prefix="[TIMING]"):
 
 
 def _log_numbers_timing_summary(args, timing, prefix="[TIMING]"):
-    exposure_us = _numbers_exposure_us(args)
+    exposure_us = _number_dwell_us(args)
     exposure_s = exposure_us / 1_000_000.0
     cycle_s = exposure_s * len(NUMBER_SEQUENCE)
     pulse_rate_hz = (
@@ -310,7 +316,7 @@ def _log_calibration_square_summary(args, timing, prefix="[TIMING]"):
 
 
 def _dry_run_timing(args):
-    entries_count, exposure_us = _compute_kernel_lut_override(args, args.hz)
+    entries_count, exposure_us = _lut_timing_override(args, args.hz)
     entries, timing = build_lut_entries(
         _DryRunDLPC(),
         args.hz,
@@ -318,6 +324,7 @@ def _dry_run_timing(args):
         trig2_frame_zero=args.trig2_frame_zero,
         entries_count=entries_count,
         per_entry_exposure_us=exposure_us,
+        dark_time_us=args.dark_time_us,
     )
     logger.info(
         "[DRY RUN] Hardware was not opened. Timing uses target Hz, not measured DLPC900 timing.")
@@ -331,24 +338,21 @@ def _dry_run_timing(args):
         f"{timing['effective_frame_hz'] if args.trig2_frame_zero else timing['effective_binary_rate_hz']:.1f}."
     )
     trigger_timing = compute_trigger_out_2_timing(
-        timing["exposure_us"],
-        delay_fraction=args.trigger_out_2_delay_fraction,
+        rising_delay_us=args.trigger_out_2_rising_delay_us,
     )
     timing["trigger_out_2"] = trigger_timing
     logger.info(
         f"[DRY RUN] TRIG_OUT_2 rising edge delay={trigger_timing['rising_delay_us']}us, "
         f"falling={trigger_timing['falling_delay_us']}us "
-        f"({trigger_timing['delay_fraction']:.3f} of {trigger_timing['delay_basis']}).")
+        f"(pulse width {trigger_timing['pulse_width_us']}us).")
     if args.test == "kernel":
         _log_kernel_timing_summary(args, timing, prefix="[DRY RUN]")
     elif args.test == "numbers":
         _log_numbers_timing_summary(args, timing, prefix="[DRY RUN]")
     elif args.test == "calibr-square":
         _log_calibration_square_summary(args, timing, prefix="[DRY RUN]")
-    if args.test != "kernel" and args.kernel_exposure_us is not None:
-        logger.warning("[DRY RUN] --kernel-exposure-us is only used with --test kernel.")
-    if args.test != "numbers" and args.numbers_exposure_us is not None:
-        logger.warning("[DRY RUN] --numbers-exposure-us is only used with --test numbers.")
+    if _ignores_lut_exposure(args):
+        logger.info("[DRY RUN] --exposure-us ignored for dynamic wall-clock display mode.")
     if args.test != "numbers" and args.numbers_size_px is not None:
         logger.warning("[DRY RUN] --numbers-size-px is only used with --test numbers.")
 
@@ -416,7 +420,7 @@ def _make_frame_provider(
         frames = numbers_frames
         if frames is None or len(frames) == 0:
             raise RuntimeError("No number frames generated for numbers mode.")
-        exposure_s = _numbers_exposure_us(args) / 1_000_000.0
+        exposure_s = _number_dwell_us(args) / 1_000_000.0
         state = {"start": None}
 
         # Numbers is a dynamic display-frame mode: each digit is a full packed
@@ -479,24 +483,23 @@ def main(argv=None):
     if args.seq_utilization <= 0.0 or args.seq_utilization > 1.0:
         logger.error("--seq-utilization must be in the interval (0, 1].")
         raise SystemExit("Invalid --seq-utilization value")
-    if args.kernel_exposure_us is not None and args.kernel_exposure_us <= 0:
-        logger.error("--kernel-exposure-us must be positive.")
-        raise SystemExit("Invalid --kernel-exposure-us value")
-    if args.numbers_exposure_us is not None and args.numbers_exposure_us <= 0:
-        logger.error("--numbers-exposure-us must be positive.")
-        raise SystemExit("Invalid --numbers-exposure-us value")
+    if args.exposure_us is not None and args.exposure_us <= 0:
+        logger.error("--exposure-us must be positive.")
+        raise SystemExit("Invalid --exposure-us value")
+    if args.dark_time_us is not None and args.dark_time_us < 0:
+        logger.error("--dark-time-us must be non-negative.")
+        raise SystemExit("Invalid --dark-time-us value")
     if args.numbers_size_px is not None and args.numbers_size_px <= 0:
         logger.error("--numbers-size-px must be positive.")
         raise SystemExit("Invalid --numbers-size-px value")
     if args.kernel_leader_frames < 0:
         logger.error("--kernel-leader-frames must be >= 0.")
         raise SystemExit("Invalid --kernel-leader-frames value")
-    if not math.isfinite(args.trigger_out_2_delay_fraction):
-        logger.error("--trigger-out-2-delay-fraction must be finite.")
-        raise SystemExit("Invalid --trigger-out-2-delay-fraction value")
-    if args.trigger_out_2_delay_fraction < 0:
-        logger.error("--trigger-out-2-delay-fraction must be non-negative.")
-        raise SystemExit("Invalid --trigger-out-2-delay-fraction value")
+    try:
+        compute_trigger_out_2_timing(rising_delay_us=args.trigger_out_2_rising_delay_us)
+    except ValueError as exc:
+        logger.error(f"--trigger-out-2-rising-delay-us is invalid: {exc}")
+        raise SystemExit("Invalid --trigger-out-2-rising-delay-us value") from exc
 
     if args.dry_run_timing:
         _dry_run_timing(args)
@@ -552,18 +555,15 @@ def main(argv=None):
 
         lut_entries_count = None
         lut_per_entry_exposure_us = None
-        if dynamic_kind == "kernel":
-            lut_entries_count, lut_per_entry_exposure_us = _compute_kernel_lut_override(
-                args, target_hz)
+        lut_entries_count, lut_per_entry_exposure_us = _lut_timing_override(
+            args, target_hz, dynamic_kind)
         if dynamic_kind == "kernel" and lut_per_entry_exposure_us is not None:
             logger.info(
                 f"[+] Kernel exposure override: {lut_per_entry_exposure_us} us uniformly per kernel -> "
                 f"{lut_entries_count} LUT entries per VSYNC (binary rate {lut_entries_count * target_hz} Hz)."
             )
-        elif args.kernel_exposure_us is not None:
-            logger.warning("--kernel-exposure-us is only used with --test kernel; ignoring it.")
-        if dynamic_kind != "numbers" and args.numbers_exposure_us is not None:
-            logger.warning("--numbers-exposure-us is only used with --test numbers; ignoring it.")
+        elif _ignores_lut_exposure(args, dynamic_kind):
+            logger.info("--exposure-us ignored for dynamic wall-clock display mode.")
         if dynamic_kind != "numbers" and args.numbers_size_px is not None:
             logger.warning("--numbers-size-px is only used with --test numbers; ignoring it.")
 
@@ -600,7 +600,7 @@ def main(argv=None):
                 f"({args.kernel_leader_frames} leader + {kernel_payload_vsyncs} payload/end-marker) "
                 f"covering {kernel_leader_fires + kernel_cycle_kernels} bitplane fires.")
         if dynamic_kind == "numbers":
-            number_exposure_us = _numbers_exposure_us(args)
+            number_exposure_us = _number_dwell_us(args)
             logger.info(
                 f"[+] Prebuilding {len(NUMBER_SEQUENCE)} number frames "
                 f"(digits 1..9, exposure={number_exposure_us} us per number, "
@@ -710,7 +710,8 @@ def main(argv=None):
                 frame_pump=lambda: None,
                 entries_count=lut_entries_count,
                 per_entry_exposure_us=lut_per_entry_exposure_us,
-                trigger_out_2_delay_fraction=args.trigger_out_2_delay_fraction,
+                dark_time_us=args.dark_time_us,
+                trigger_out_2_rising_delay_us=args.trigger_out_2_rising_delay_us,
             )
         finally:
             # Stop the background pump and reclaim the GL context for the main thread.

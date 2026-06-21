@@ -66,10 +66,42 @@ def test_sync_check_numbers_must_be_non_empty_decimal_digits(value):
         build_parser().parse_args(["--dry-run", "--numbers", value])
 
 
-@pytest.mark.parametrize("flag", ["--number-size-px", "--numbers-exposure-us"])
+@pytest.mark.parametrize("flag", ["--number-size-px", "--exposure-us"])
 def test_sync_check_positive_numeric_options_are_validated(flag):
     with pytest.raises(SystemExit):
         build_parser().parse_args(["--dry-run", flag, "0"])
+
+
+@pytest.mark.parametrize("flag", ["--numbers-exposure-us", "--count-exposure-us"])
+def test_sync_check_parser_rejects_removed_exposure_flags(flag):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--dry-run", flag, "600"])
+
+
+def test_sync_check_parser_defaults_trigger_rising_delay_to_zero():
+    args = build_parser().parse_args(["--dry-run"])
+
+    assert args.trigger_out_2_rising_delay_us == 0
+
+
+def test_sync_check_parser_accepts_negative_trigger_rising_delay():
+    args = build_parser().parse_args(
+        ["--dry-run", "--trigger-out-2-rising-delay-us", "-20"])
+
+    assert args.trigger_out_2_rising_delay_us == -20
+
+
+@pytest.mark.parametrize("value", ["-21", "19981"])
+def test_sync_check_parser_rejects_trigger_rising_delay_outside_effective_range(value):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            ["--dry-run", "--trigger-out-2-rising-delay-us", value])
+
+
+def test_sync_check_parser_rejects_removed_trigger_delay_fraction_flag():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            ["--dry-run", "--trigger-out-2-delay-fraction", "0.05"])
 
 
 def test_parse_numbers_accepts_comma_separated_digits():
@@ -95,7 +127,7 @@ def test_sync_check_runtime_args_use_requested_number_sequence():
     assert pair_args[pair_args.index("--numbers") + 1] == "2,4,6"
     assert pair_args[pair_args.index("--numbers-size-px") + 1] == "123"
     assert pair_args[pair_args.index("--b-dot-radius") + 1] == "20"
-    assert "--numbers-exposure-us" not in pair_args
+    assert "--exposure-us" not in pair_args
 
 
 def test_sync_check_runtime_args_forward_numbers_bitplane_order():
@@ -148,13 +180,16 @@ def test_sync_check_runtime_args_pass_b_dot_geometry():
 
 def test_sync_check_runtime_args_allow_explicit_bitplane_exposure_override():
     args = build_parser().parse_args([
-        "--numbers-exposure-us",
+        "--exposure-us",
         "600",
+        "--trigger-out-2-rising-delay-us",
+        "-20",
     ])
 
     pair_args = _to_pair_runtime_args(args)
 
-    assert pair_args[pair_args.index("--numbers-exposure-us") + 1] == "600"
+    assert pair_args[pair_args.index("--exposure-us") + 1] == "600"
+    assert pair_args[pair_args.index("--trigger-out-2-rising-delay-us") + 1] == "-20"
 
 
 def test_sync_check_parser_accepts_count_mode_options():
@@ -169,14 +204,14 @@ def test_sync_check_parser_accepts_count_mode_options():
             "100",
             "--count-slots-per-frame",
             "2",
-            "--count-exposure-us",
+            "--exposure-us",
             "7000",
         ])
 
     assert args.count_start == 1
     assert args.count_end == 100
     assert args.count_slots_per_frame == 2
-    assert args.count_exposure_us == 7000
+    assert args.exposure_us == 7000
 
 
 @pytest.mark.parametrize(
@@ -241,7 +276,7 @@ def test_sync_check_runtime_args_forward_count_options_without_numbers():
             "100",
             "--count-slots-per-frame",
             "2",
-            "--count-exposure-us",
+            "--exposure-us",
             "7000",
             "--number-size-px",
             "123",
@@ -254,10 +289,11 @@ def test_sync_check_runtime_args_forward_count_options_without_numbers():
     assert pair_args[:4] == ["--test", "a-count-b-static", "--test-b", "dot"]
     assert "--numbers" not in pair_args
     assert "--numbers-exposure-us" not in pair_args
+    assert "--count-exposure-us" not in pair_args
     assert pair_args[pair_args.index("--count-start") + 1] == "1"
     assert pair_args[pair_args.index("--count-end") + 1] == "100"
     assert pair_args[pair_args.index("--count-slots-per-frame") + 1] == "2"
-    assert pair_args[pair_args.index("--count-exposure-us") + 1] == "7000"
+    assert pair_args[pair_args.index("--exposure-us") + 1] == "7000"
     assert pair_args[pair_args.index("--numbers-size-px") + 1] == "123"
 
 
@@ -338,8 +374,8 @@ def test_sync_check_dry_run_creates_run_artifacts(tmp_path):
             "420",
             "--numbers",
             "1,2,3,4,5",
-            "--trigger-out-2-delay-fraction",
-            "0.05",
+            "--trigger-out-2-rising-delay-us",
+            "-20",
         ])
 
     run = dry_run(args)
@@ -355,12 +391,13 @@ def test_sync_check_dry_run_creates_run_artifacts(tmp_path):
     assert metadata["number_sequence"] == [1, 2, 3, 4, 5]
     assert metadata["number_size_px"] == 420
     assert metadata["b_dot_radius"] == 20
-    assert metadata["numbers_exposure_us"] is None
+    assert metadata["exposure_us"] is None
     assert metadata["expected_trigger_count"] == 5
     assert metadata["trigger_policy"] == {
         "channel": "TRIG_OUT_2",
         "edge": "rising",
-        "delay_fraction": 0.05,
+        "rising_delay_us": -20,
+        "falling_delay_us": 0,
     }
     assert metadata["artifacts"] == ["metadata.json", "timing.json", "command.txt", "run.log"]
     assert timing == metadata["trigger_policy"]
@@ -426,7 +463,7 @@ def test_sync_check_count_mode_dry_run_records_count_metadata(tmp_path):
             "100",
             "--count-slots-per-frame",
             "2",
-            "--count-exposure-us",
+            "--exposure-us",
             "7000",
         ])
 
@@ -437,7 +474,7 @@ def test_sync_check_count_mode_dry_run_records_count_metadata(tmp_path):
     assert metadata["count_start"] == 1
     assert metadata["count_end"] == 100
     assert metadata["count_slots_per_frame"] == 2
-    assert metadata["count_exposure_us"] == 7000
+    assert metadata["exposure_us"] == 7000
     assert metadata["expected_trigger_count"] == 100
     assert metadata["accumulation_window_us"] == 7000
 

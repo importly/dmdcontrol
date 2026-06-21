@@ -14,7 +14,7 @@ def _write_manifest(path, rows):
         writer.writerows(rows)
 
 
-def _row(tmp_path, timestamp, exposure, delay):
+def _row(tmp_path, timestamp, exposure, rising_delay_us):
     return {
         "output_root": str(tmp_path),
         "timestamp": timestamp,
@@ -25,9 +25,9 @@ def _row(tmp_path, timestamp, exposure, delay):
         "b_dot_x": "960",
         "b_dot_y": "540",
         "b_dot_radius": "20",
-        "numbers_exposure_us": str(exposure),
+        "exposure_us": str(exposure),
         "dark_time_us": "100",
-        "trigger_delay_fraction": str(delay),
+        "trigger_rising_delay_us": str(rising_delay_us),
         "runtime_seconds": "1",
         "polarity_mode": "ignore",
         "event_noise_filter": "none",
@@ -44,11 +44,11 @@ def test_sync_sweep_dry_run_creates_one_run_per_manifest_row(tmp_path):
             _row(tmp_path,
                  "sweep-000",
                  600,
-                 0.0),
+                 0),
             _row(tmp_path,
                  "sweep-001",
                  1000,
-                 0.05),
+                 -20),
         ],
     )
 
@@ -59,17 +59,19 @@ def test_sync_sweep_dry_run_creates_one_run_per_manifest_row(tmp_path):
     second = json.loads(
         (tmp_path / "sweep-001-sync-check" / "metadata.json").read_text(encoding="utf-8"))
     assert first["dry_run"] is True
-    assert first["numbers_exposure_us"] == 600
-    assert first["trigger_policy"]["delay_fraction"] == 0.0
-    assert second["numbers_exposure_us"] == 1000
-    assert second["trigger_policy"]["delay_fraction"] == 0.05
+    assert first["exposure_us"] == 600
+    assert first["trigger_policy"]["rising_delay_us"] == 0
+    assert first["trigger_policy"]["falling_delay_us"] == 20
+    assert second["exposure_us"] == 1000
+    assert second["trigger_policy"]["rising_delay_us"] == -20
+    assert second["trigger_policy"]["falling_delay_us"] == 0
 
 
 def test_camera_sync_sweep_cli_dry_run_creates_artifacts(tmp_path):
     from dmdcontrol.cli.main import main
 
     manifest = tmp_path / "sweep.csv"
-    _write_manifest(manifest, [_row(tmp_path, "sweep-000", 600, 0.0)])
+    _write_manifest(manifest, [_row(tmp_path, "sweep-000", 600, 0)])
 
     assert main([
         "camera",
@@ -82,7 +84,7 @@ def test_camera_sync_sweep_cli_dry_run_creates_artifacts(tmp_path):
     metadata = json.loads(
         (tmp_path / "sweep-000-sync-check" / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["number_sequence"] == [1, 2, 3, 4, 5]
-    assert metadata["numbers_exposure_us"] == 600
+    assert metadata["exposure_us"] == 600
 
 
 def test_sync_sweep_forwards_accumulation_cycle_options_from_manifest(tmp_path):
@@ -91,7 +93,7 @@ def test_sync_sweep_forwards_accumulation_cycle_options_from_manifest(tmp_path):
             **_row(tmp_path,
                    "sweep-000",
                    600,
-                   0.0),
+                   0),
             "accumulation_cycles": "2",
             "trigger_cluster_us": "0",
             "cycle_selection": "strongest",
@@ -110,11 +112,11 @@ def test_sync_sweep_live_opens_camera_once_for_all_rows(tmp_path, monkeypatch):
             _row(tmp_path,
                  "sweep-000",
                  600,
-                 0.0),
+                 0),
             _row(tmp_path,
                  "sweep-001",
                  1000,
-                 0.05),
+                 -20),
         ],
     )
     calls = {

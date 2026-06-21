@@ -28,10 +28,12 @@ from dmdcontrol.camera.session import (
     open_ready_camera as _open_ready_camera,
 )
 from dmdcontrol.patterns.paired import MAX_COUNT_SEQUENCE_FRAMES
+from dmdcontrol.runtime.lifecycle import compute_trigger_out_2_timing
 from dmdcontrol.support.argparse_types import (
     nonnegative_int,
     numbers_bitplane_order,
     positive_int,
+    trigger_out_rising_delay_us,
 )
 from dmdcontrol.support.constants import BITPLANES
 
@@ -124,22 +126,19 @@ def build_parser() -> argparse.ArgumentParser:
             "Use 1,2,3,4,0 if --numbers 1,2,3,4,5 captures visually as 2,3,4,5,1."),
     )
     parser.add_argument(
-        "--numbers-exposure-us",
+        "--exposure-us",
         type=positive_int,
         default=None,
-        help="Optional per-bitplane LUT exposure override in microseconds. "
+        help="Optional per-entry LUT exposure override in microseconds. "
         "Omit for the maximum safe exposure at the configured VSYNC.",
     )
     parser.add_argument("--count-start", type=positive_int, default=1)
     parser.add_argument("--count-end", type=positive_int, default=100)
     parser.add_argument("--count-slots-per-frame", type=positive_int, default=2)
     parser.add_argument(
-        "--count-exposure-us",
-        type=positive_int,
-        default=None,
-        help="Optional per-count LUT exposure override in microseconds.",
-    )
-    parser.add_argument("--trigger-out-2-delay-fraction", type=float, default=0.00)
+        "--trigger-out-2-rising-delay-us",
+        type=trigger_out_rising_delay_us,
+        default=0)
     parser.add_argument("--runtime-seconds", type=int, default=0)
     parser.add_argument(
         "--seq-utilization",
@@ -260,33 +259,27 @@ def expected_trigger_count(args: argparse.Namespace) -> int:
 def _pair_runtime_seconds(args: argparse.Namespace) -> int:
     runtime_seconds = args.runtime_seconds
     if runtime_seconds <= 0:
-        if args.test == A_COUNT_B_STATIC_TEST:
-            exposure_us = args.count_exposure_us
-            if exposure_us is None:
-                runtime_seconds = 1
-            else:
-                per_count_us = exposure_us + max(0, args.dark_time_us or 0)
-                sequence_seconds = expected_trigger_count(args) * per_count_us / 1_000_000.0
-                runtime_seconds = max(1, math.ceil(sequence_seconds))
-        elif args.numbers_exposure_us is None:
+        if args.exposure_us is None:
             runtime_seconds = 1
         else:
-            sequence_seconds = len(args.numbers) * args.numbers_exposure_us / 1_000_000.0
+            per_slot_us = args.exposure_us + max(0, args.dark_time_us or 0)
+            sequence_seconds = expected_trigger_count(args) * per_slot_us / 1_000_000.0
             runtime_seconds = max(1, math.ceil(sequence_seconds))
     return runtime_seconds
 
 
 def _requested_accumulation_window_us(args: argparse.Namespace) -> int | None:
-    if args.test == A_COUNT_B_STATIC_TEST:
-        return args.count_exposure_us
-    return args.numbers_exposure_us
+    return args.exposure_us
 
 
 def _trigger_policy(args: argparse.Namespace) -> dict[str, object]:
+    timing = compute_trigger_out_2_timing(
+        rising_delay_us=args.trigger_out_2_rising_delay_us)
     return {
         "channel": "TRIG_OUT_2",
         "edge": "rising",
-        "delay_fraction": args.trigger_out_2_delay_fraction,
+        "rising_delay_us": timing["rising_delay_us"],
+        "falling_delay_us": timing["falling_delay_us"],
     }
 
 
@@ -296,7 +289,7 @@ def _sync_check_test_metadata(args: argparse.Namespace, *, dry_run: bool) -> dic
             "count_start": args.count_start,
             "count_end": args.count_end,
             "count_slots_per_frame": args.count_slots_per_frame,
-            "count_exposure_us": args.count_exposure_us,
+            "exposure_us": args.exposure_us,
         }
         if dry_run:
             metadata.update(
@@ -311,8 +304,8 @@ def _sync_check_test_metadata(args: argparse.Namespace, *, dry_run: bool) -> dic
         list(args.numbers),
         "numbers_bitplane_order":
         (list(args.numbers_bitplane_order) if args.numbers_bitplane_order is not None else None),
-        "numbers_exposure_us":
-        args.numbers_exposure_us,
+        "exposure_us":
+        args.exposure_us,
     }
     if dry_run:
         metadata["bitplane_count"] = len(args.numbers)
@@ -377,8 +370,8 @@ def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
         str(args.b_dot_radius),
         "--runtime-seconds",
         str(runtime_seconds),
-        "--trigger-out-2-delay-fraction",
-        str(args.trigger_out_2_delay_fraction),
+        "--trigger-out-2-rising-delay-us",
+        str(args.trigger_out_2_rising_delay_us),
     ]
 
     if args.test == A_COUNT_B_STATIC_TEST:
@@ -393,8 +386,6 @@ def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
                 "--numbers-size-px",
                 str(args.number_size_px),
             ])
-        if args.count_exposure_us is not None:
-            pair_args.extend(["--count-exposure-us", str(args.count_exposure_us)])
     else:
         pair_args.extend(
             [
@@ -409,8 +400,8 @@ def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
                     "--numbers-bitplane-order",
                     ",".join(str(index) for index in args.numbers_bitplane_order),
                 ])
-    if args.test != A_COUNT_B_STATIC_TEST and args.numbers_exposure_us is not None:
-        pair_args.extend(["--numbers-exposure-us", str(args.numbers_exposure_us)])
+    if args.exposure_us is not None:
+        pair_args.extend(["--exposure-us", str(args.exposure_us)])
     if args.seq_utilization is not None:
         pair_args.extend(["--seq-utilization", str(args.seq_utilization)])
     if getattr(args, "dark_time_us", None) is not None:

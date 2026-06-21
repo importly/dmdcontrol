@@ -265,6 +265,7 @@ def _resolve_options(args, metadata: dict[str, object]) -> dict[str, object]:
             _first_not_none(
                 args.window_us,
                 metadata.get("accumulation_window_us"),
+                metadata.get("exposure_us"),
                 metadata.get("numbers_exposure_us"),
                 metadata.get("count_exposure_us"),
                 0,

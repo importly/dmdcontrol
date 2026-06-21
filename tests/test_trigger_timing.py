@@ -1,4 +1,3 @@
-import math
 import unittest
 
 from dmdcontrol.runtime.lifecycle import build_lut_entries, compute_trigger_out_2_timing
@@ -12,15 +11,14 @@ class DryRunDLPC:
 
 class TriggerTimingTests(unittest.TestCase):
 
-    def test_default_delay_is_zero_percent_of_exposure(self):
-        timing = compute_trigger_out_2_timing(exposure_us=3000)
+    def test_default_rising_delay_is_zero_microseconds(self):
+        timing = compute_trigger_out_2_timing()
 
         self.assertEqual(timing["channel"], "TRIG_OUT_2")
         self.assertEqual(timing["edge"], "rising")
-        self.assertEqual(timing["delay_fraction"], 0.0)
         self.assertEqual(timing["rising_delay_us"], 0)
         self.assertEqual(timing["falling_delay_us"], 20)
-        self.assertEqual(timing["delay_basis"], "exposure_us")
+        self.assertEqual(timing["pulse_width_us"], 20)
 
     def test_sixty_hz_full_bitplane_lut_runs_at_1440_triggers_per_second(self):
         entries, timing = build_lut_entries(
@@ -36,34 +34,29 @@ class TriggerTimingTests(unittest.TestCase):
         self.assertEqual(timing["exposure_us"], 615)
 
     def test_falling_edge_preserves_minimum_twenty_us_pulse(self):
-        timing = compute_trigger_out_2_timing(exposure_us=615)
+        timing = compute_trigger_out_2_timing(rising_delay_us=15)
 
-        self.assertEqual(timing["rising_delay_us"], 0)
-        self.assertEqual(timing["falling_delay_us"], 20)
+        self.assertEqual(timing["rising_delay_us"], 15)
+        self.assertEqual(timing["falling_delay_us"], 35)
 
-    def test_zero_fraction_keeps_existing_behavior_shape(self):
-        timing = compute_trigger_out_2_timing(exposure_us=615, delay_fraction=0.0)
+    def test_accepts_negative_twenty_microsecond_rising_delay(self):
+        timing = compute_trigger_out_2_timing(rising_delay_us=-20)
 
-        self.assertEqual(timing["rising_delay_us"], 0)
-        self.assertEqual(timing["falling_delay_us"], 20)
+        self.assertEqual(timing["rising_delay_us"], -20)
+        self.assertEqual(timing["falling_delay_us"], 0)
+        self.assertEqual(timing["pulse_width_us"], 20)
 
-    def test_rejects_non_finite_delay_fraction(self):
-        for value in (math.inf, -math.inf, math.nan):
-            with self.subTest(value=value):
-                with self.assertRaisesRegex(ValueError, "delay_fraction must be finite"):
-                    compute_trigger_out_2_timing(exposure_us=615, delay_fraction=value)
+    def test_rejects_non_integer_rising_delay(self):
+        with self.assertRaisesRegex(ValueError, "rising_delay_us must be an integer"):
+            compute_trigger_out_2_timing(rising_delay_us=0.5)
 
-    def test_rejects_negative_delay_fraction(self):
-        with self.assertRaises(ValueError):
-            compute_trigger_out_2_timing(exposure_us=3000, delay_fraction=-0.1)
+    def test_rejects_rising_delay_below_dlpc900_range(self):
+        with self.assertRaisesRegex(ValueError, "rising_delay_us must be between -20 and 19980"):
+            compute_trigger_out_2_timing(rising_delay_us=-21)
 
-    def test_rejects_delay_fraction_with_rising_delay_outside_signed_int16(self):
-        with self.assertRaisesRegex(ValueError, "rising_delay_us .* signed int16"):
-            compute_trigger_out_2_timing(exposure_us=615, delay_fraction=54.0)
-
-    def test_rejects_delay_fraction_when_minimum_pulse_exceeds_signed_int16(self):
-        with self.assertRaisesRegex(ValueError, "falling_delay_us .* signed int16"):
-            compute_trigger_out_2_timing(exposure_us=615, delay_fraction=53.27)
+    def test_rejects_rising_delay_when_derived_falling_delay_exceeds_dlpc900_range(self):
+        with self.assertRaisesRegex(ValueError, "rising_delay_us must be between -20 and 19980"):
+            compute_trigger_out_2_timing(rising_delay_us=19981)
 
     def test_build_lut_entries_dark_time_reduces_exposure(self):
         entries, timing = build_lut_entries(
@@ -93,6 +86,14 @@ class TriggerTimingTests(unittest.TestCase):
         self.assertEqual(entries_default, entries_zero)
         self.assertEqual(timing_default, timing_zero)
 
+    def test_build_lut_entries_rejects_negative_dark_time(self):
+        with self.assertRaisesRegex(ValueError, "dark_time_us must be non-negative"):
+            build_lut_entries(
+                DryRunDLPC(),
+                target_hz=60,
+                dark_time_us=-1,
+            )
+
     def test_build_lut_entries_custom_entries_count(self):
         entries, timing = build_lut_entries(
             DryRunDLPC(),
@@ -104,6 +105,20 @@ class TriggerTimingTests(unittest.TestCase):
         self.assertGreater(timing["exposure_us"], 615)
         # Segment is roughly 14750 / 5 = 2950
         self.assertAlmostEqual(timing["exposure_us"], 2950, delta=10)
+
+    def test_build_lut_entries_direct_exposure_computes_entry_count_when_dynamic(self):
+        entries, timing = build_lut_entries(
+            DryRunDLPC(),
+            target_hz=60,
+            per_entry_exposure_us=4000,
+            dark_time_us=250,
+        )
+
+        self.assertEqual(len(entries), 3)
+        self.assertEqual(timing["entries_count"], 3)
+        self.assertEqual(timing["exposure_us"], 4000)
+        self.assertEqual(timing["dark_us"], 250)
+        self.assertEqual(timing["effective_binary_rate_hz"], 180.0)
 
 
 if __name__ == "__main__":

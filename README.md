@@ -49,7 +49,7 @@ The package CLI is the direct command surface for dry-run/dev/runtime intent. Us
 not need X11/USB, or inside an already prepared X session when driving hardware directly:
 
 ```bash
-python -m dmdcontrol single run --dry-run-timing --test kernel --kernel-exposure-us 3000
+python -m dmdcontrol single run --dry-run-timing --test kernel --exposure-us 3000
 python -m dmdcontrol pair run --dry-run-timing --mode snake
 python -m dmdcontrol preview serve --host 127.0.0.1 --port 8080
 python -m dmdcontrol usb discover
@@ -139,7 +139,7 @@ python -m dmdcontrol pair run --dry-run-timing --mode snake
 ./run_dmd_pair.sh --test coarse-lines --runtime-seconds 300
 ./run_dmd_pair.sh --test checkerboard --test-a checkerboard --test-b lines
 ./run_dmd_pair.sh --test gradient --runtime-seconds 300
-./run_dmd_pair.sh --test a-kernel-b-static --test-b lines --kernel-px 900 --kernel-exposure-us 14000 --runtime-seconds 999
+./run_dmd_pair.sh --test a-kernel-b-static --test-b lines --kernel-px 900 --exposure-us 14000 --runtime-seconds 999
 ./run_dmd_pair.sh --test a-kernel-b-static --test-b dot --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --kernel-px 201 --runtime-seconds 999
 ./run_dmd_pair_calibr_square.sh --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
 ```
@@ -193,13 +193,13 @@ laser path.
 ./run_dmd.sh --capture out.mp4 --test gradient
 
 # 3x3 convolution kernel rotation (512 patterns, eye-visible at 14000 us)
-./run_dmd.sh --test kernel --kernel-px 900 --kernel-exposure-us 14000 --runtime-seconds 999
+./run_dmd.sh --test kernel --kernel-px 900 --exposure-us 14000 --runtime-seconds 999
 
 # Same, fast (full 1440 Hz binary rate, 24 bitplanes per VSYNC)
 ./run_dmd.sh --test kernel --kernel-px 900 --runtime-seconds 60
 
 # Plan kernel timing and DAQ trigger mapping without opening hardware
-python -m dmdcontrol single run --dry-run-timing --test kernel --kernel-exposure-us 3000
+python -m dmdcontrol single run --dry-run-timing --test kernel --exposure-us 3000
 ```
 
 ## Flags
@@ -225,8 +225,8 @@ python -m dmdcontrol single run --dry-run-timing --test kernel --kernel-exposure
 | `--kernel-single-shot`                                     | flag                                                                                                                                                                                                 | off                | Display each kernel for exactly one bitplane fire then advance. Implies dynamic frame buffer cycling.                                    |
 | `--kernel-blank-end-frame` / `--no-kernel-blank-end-frame` | flag                                                                                                                                                                                                 | on                 | Append one all-black 24-bitplane VSYNC frame at the end of each kernel cycle, or disable it explicitly.                                  |
 | `--kernel-leader-frames`                                   | int                                                                                                                                                                                                  | `3`                | Prepend all-black VSYNC frames to each kernel cycle. DAQ should ignore these leader trigger pulses before kernel index 0.                |
-| `--kernel-exposure-us`                                     | int µs                                                                                                                                                                                               | auto               | Uniform exposure for every kernel. Reduces entries-per-VSYNC and slows the cycle. Cap is one VSYNC (~14773 µs at 90% utilization).       |
-| `--numbers-exposure-us`                                    | int µs                                                                                                                                                                                               | `500000`           | Wall-clock display time for each digit in `--test numbers`.                                                                              |
+| `--exposure-us`                                            | int µs                                                                                                                                                                                               | auto               | Generic DLPC900 LUT-entry exposure. With `--dark-time-us`, controls how many entries fit per 60 Hz VSYNC and therefore the effective pattern rate. Ignored by dynamic wall-clock modes that do not use LUT exposure timing. |
+| `--dark-time-us`                                           | int µs                                                                                                                                                                                               | `0`                | Dark time after each active LUT entry. Omit for existing dynamic defaults; combine with `--exposure-us` to control the effective slot rate. |
 | `--dry-run-timing`                                         | flag                                                                                                                                                                                                 | off                | Print LUT timing, cycle length, and trigger-to-kernel mapping without opening OpenGL or USB hardware.                                    |
 | `-v`, `--verbose`                                          | repeatable                                                                                                                                                                                           | basic              | Logging level: basic = INFO, `-v` = DEBUG + 2s watchdog, `-vv` = DEBUG with source paths + 1s watchdog + full board snapshots.           |
 
@@ -243,23 +243,24 @@ python -m dmdcontrol single run --dry-run-timing --test kernel --kernel-exposure
 | `colors`                 | Cycles pure R / G / B every 0.5 s. Technical RGB/bitplane diagnostic; may look blank by eye.                                                                                                   |
 | `coarse-grid` / `grid`   | Human-visible grid with about 75 px spacing and thick strokes. Recommended for paired optical alignment checks.                                                                                |
 | `coarse-lines` / `bands` | Human-visible thick vertical/horizontal bands. Recommended when one-pixel `lines` appears blank.                                                                                               |
-| `numbers`                | Full-frame digits 1 through 9 in sequence. Configurable via `--numbers-exposure-us`.                                                                                                           |
+| `numbers`                | Full-frame digits 1 through 9 in sequence.                                                                                                                                                     |
 | `calibr-square`          | Interactive calibration square. Use `./run_calibr_square.sh` for terminal controls: W/A/S/D move, Q/E rotate, R/F resize.                                                                      |
 | `snake`                  | High-speed randomly moving snake. Tests dynamic refresh + trigger stability.                                                                                                                   |
 | `clock`                  | Massive microsecond clock. Visual stutter / latency check.                                                                                                                                     |
 | `gradient`               | Temporal duty-cycle gradient.                                                                                                                                                                  |
-| `kernel`                 | 3x3 convolution kernel rotation — cycles through 512 kernel masks. Configurable via `--kernel-px`, `--kernel-exposure-us`, `--kernel-single-shot`, `--kernel-blank-end-frame`, `--invert-dmd`. |
+| `kernel`                 | 3x3 convolution kernel rotation — cycles through 512 kernel masks. Configurable via `--kernel-px`, `--exposure-us`, `--kernel-single-shot`, `--kernel-blank-end-frame`, `--invert-dmd`.        |
 
 `--trigger` only supports patterns with a static frame (anything except `numbers` / `calibr-square` / `snake` /
 `clock` / `kernel`). Dynamic modes fall back to `checkerboard` when used with `--trigger`. Basically never used
 
-`--kernel-exposure-us` is a uniform exposure for the kernel sequence. The fast Video Pattern Mode path uses a static LUT
-that repeats every VSYNC, so arbitrary exposure values per individual kernel index would require a different playback
-strategy.
+`--exposure-us` is the uniform exposure for each active DLPC900 LUT entry. If no mode-defined entry count is required,
+the runtime uses `floor(usable_frame_us / (exposure_us + dark_time_us))`, capped at 24 entries. At the fixed 60 Hz DMD
+source rate, the effective binary pattern rate is `60 * entries`; for example `--exposure-us 4000 --dark-time-us 250`
+fits 3 entries per VSYNC and runs at 180 Hz.
 
-`--test numbers` is a dynamic DisplayPort-frame mode, not a custom LUT sequence. Each digit is a full packed frame held
-for `--numbers-exposure-us`; `TRIG_OUT_2` remains the real acquisition/index signal from the Video Pattern Mode LUT and
-may pulse multiple times per displayed digit. `TRIG_OUT_1` is advisory only.
+`--test numbers` is a dynamic DisplayPort-frame mode, not a custom LUT sequence. `TRIG_OUT_2` remains the real
+acquisition/index signal from the Video Pattern Mode LUT and may pulse multiple times per displayed digit. `TRIG_OUT_1`
+is advisory only.
 
 `--test calibr-square` is also a dynamic DisplayPort-frame mode. Use `./run_calibr_square.sh` instead of the normal
 `run_dmd.sh` path when you want terminal keyboard control; it keeps a separate control file open while X is running and

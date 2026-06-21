@@ -124,7 +124,7 @@ class MainPairConfigTests(unittest.TestCase):
                 "lines",
                 "--kernel-px",
                 "30",
-                "--kernel-exposure-us",
+                "--exposure-us",
                 "3000",
                 "--kernel-leader-frames",
                 "0",

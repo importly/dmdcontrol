@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import math
 import threading
 import time
 from dataclasses import dataclass
@@ -59,6 +58,7 @@ from dmdcontrol.support.argparse_types import (
     nonnegative_int,
     numbers_bitplane_order,
     positive_int,
+    trigger_out_rising_delay_us,
 )
 from dmdcontrol.support.logging import logger, setup_logger
 
@@ -158,12 +158,6 @@ def _build_parser():
         help="A-kernel paired recipe: total 3x3 kernel side length in pixels",
     )
     parser.add_argument(
-        "--kernel-exposure-us",
-        type=positive_int,
-        default=None,
-        help="A-kernel paired recipe: uniform exposure per kernel bitplane",
-    )
-    parser.add_argument(
         "--kernel-single-shot",
         action="store_true",
         help="A-kernel paired recipe: play one kernel cycle then hold black on A",
@@ -192,12 +186,6 @@ def _build_parser():
         type=_parse_numbers,
         default=_parse_numbers("1,2,3,4,5"),
         help="Numbers paired recipe: comma-separated sequence of digits 1..9",
-    )
-    parser.add_argument(
-        "--numbers-exposure-us",
-        type=positive_int,
-        default=None,
-        help="Numbers paired recipe: optional per-bitplane LUT exposure override",
     )
     parser.add_argument(
         "--numbers-size-px",
@@ -233,12 +221,6 @@ def _build_parser():
         help="A-count paired recipe: count labels packed into bitplanes per VSYNC frame",
     )
     parser.add_argument(
-        "--count-exposure-us",
-        type=positive_int,
-        default=None,
-        help="A-count paired recipe: optional per-count LUT exposure override",
-    )
-    parser.add_argument(
         "--wake-dp",
         action="store_true",
         help="Wake both DP receivers before runtime")
@@ -259,10 +241,16 @@ def _build_parser():
         help="Emit TRIG_OUT_2 only for bitplane/frame-zero anchor entries",
     )
     parser.add_argument(
-        "--trigger-out-2-delay-fraction",
-        type=float,
-        default=0.00,
-        help="Fraction of LUT exposure used as TRIG_OUT_2 rising-edge delay. Default: 0.",
+        "--trigger-out-2-rising-delay-us",
+        type=trigger_out_rising_delay_us,
+        default=0,
+        help="TRIG_OUT_2 rising-edge delay in microseconds. Valid range: -20 to 19980. Default: 0.",
+    )
+    parser.add_argument(
+        "--exposure-us",
+        type=positive_int,
+        default=None,
+        help="Optional per-DLPC900-LUT-entry exposure override in microseconds",
     )
     parser.add_argument(
         "--dark-time-us",
@@ -293,10 +281,12 @@ def _build_parser():
 def _validate_pair_args(args):
     if args.preview_fps <= 0:
         raise SystemExit("--preview-fps must be positive")
-    if not math.isfinite(args.trigger_out_2_delay_fraction):
-        raise SystemExit("--trigger-out-2-delay-fraction must be finite")
-    if args.trigger_out_2_delay_fraction < 0:
-        raise SystemExit("--trigger-out-2-delay-fraction must be non-negative")
+    try:
+        compute_trigger_out_2_timing(rising_delay_us=args.trigger_out_2_rising_delay_us)
+    except ValueError as exc:
+        raise SystemExit(f"--trigger-out-2-rising-delay-us is invalid: {exc}") from exc
+    if args.dark_time_us is not None and args.dark_time_us < 0:
+        raise SystemExit("--dark-time-us must be non-negative")
     if args.test == KERNEL_STATIC_PAIR_TEST:
         if args.test_a:
             raise SystemExit("--test-a is not valid for a-kernel-b-static; A is the kernel stream")
@@ -348,7 +338,7 @@ def _validate_count_recipe_args(args):
 def _kernel_lut_override(args, target_hz):
     return compute_kernel_lut_override(
         enabled=args.test == KERNEL_STATIC_PAIR_TEST,
-        kernel_exposure_us=args.kernel_exposure_us,
+        exposure_us=getattr(args, "exposure_us", None),
         target_hz=target_hz,
         sequence_utilization=args.seq_utilization,
         dark_time_us=getattr(args,
@@ -363,10 +353,12 @@ def _lut_override(args, target_hz):
         # video bitplanes. The LUT must expose exactly those N bitplanes, not
         # all 24 possible RGB bitplanes. Forcing BITPLANES makes long exposures
         # impossible at 60 Hz; e.g. 24 * 3000 us.
-        return len(args.numbers), args.numbers_exposure_us
+        return len(args.numbers), getattr(args, "exposure_us", None)
     if _is_count_recipe(args.test):
-        return args.count_slots_per_frame, args.count_exposure_us
-    return _kernel_lut_override(args, target_hz)
+        return args.count_slots_per_frame, getattr(args, "exposure_us", None)
+    if args.test == KERNEL_STATIC_PAIR_TEST:
+        return _kernel_lut_override(args, target_hz)
+    return None, getattr(args, "exposure_us", None)
 
 
 def _make_runtime_pair_frame_provider(args, engine, target_hz):
@@ -457,7 +449,6 @@ def _make_runtime_pair_frame_provider(args, engine, target_hz):
             numbers=args.numbers,
             numbers_size_px=args.numbers_size_px,
             numbers_bitplane_order=getattr(args, "numbers_bitplane_order", None),
-            numbers_exposure_us=args.numbers_exposure_us,
             b_dot_x=args.b_dot_x,
             b_dot_y=args.b_dot_y,
             b_dot_radius=args.b_dot_radius,
@@ -530,7 +521,7 @@ def _dry_run_timing(args, pair_config):
         logger.info(
             f"[DRY RUN] Pair content: numbers={','.join(str(n) for n in args.numbers)}, "
             f"bitplane_order={','.join(str(i) for i in args.numbers_bitplane_order) if args.numbers_bitplane_order is not None else 'default'}, "
-            f"per-bitplane exposure={args.numbers_exposure_us or timing['exposure_us']}us, "
+            f"per-bitplane exposure={args.exposure_us or timing['exposure_us']}us, "
             f"size_px={args.numbers_size_px or 'default'} on both DMDs.")
     elif _is_count_recipe(args.test):
         payload_vsyncs = count_sequence_frame_count(
@@ -541,7 +532,7 @@ def _dry_run_timing(args, pair_config):
         logger.info(
             f"[DRY RUN] Pair content: A=count {args.count_start}..{args.count_end}, "
             f"slots_per_frame={args.count_slots_per_frame}, "
-            f"per-count exposure={args.count_exposure_us or timing['exposure_us']}us, "
+            f"per-count exposure={args.exposure_us or timing['exposure_us']}us, "
             f"payload_vsyncs={payload_vsyncs}; B={args.test_b or 'dot'} static.")
     elif args.test in STATIC_PAIR_TESTS:
         logger.info(
@@ -560,14 +551,13 @@ def _dry_run_timing(args, pair_config):
         f"{timing['effective_frame_hz'] if args.trig2_frame_zero else timing['effective_binary_rate_hz']:.1f}."
     )
     trigger_timing = compute_trigger_out_2_timing(
-        timing["exposure_us"],
-        delay_fraction=args.trigger_out_2_delay_fraction,
+        rising_delay_us=args.trigger_out_2_rising_delay_us,
     )
     timing["trigger_out_2"] = trigger_timing
     logger.info(
         f"[DRY RUN] TRIG_OUT_2 rising edge delay={trigger_timing['rising_delay_us']}us, "
         f"falling={trigger_timing['falling_delay_us']}us "
-        f"({trigger_timing['delay_fraction']:.3f} of {trigger_timing['delay_basis']}).")
+        f"(pulse width {trigger_timing['pulse_width_us']}us).")
 
 
 def _live_preview_metadata_for_frame(base_metadata, provider):
@@ -602,7 +592,7 @@ def _build_live_preview_metadata(args, pair_config, state_a, state_b):
     if _is_numbers_recipe(args.test):
         metadata["numbers"] = {
             "sequence": list(args.numbers),
-            "exposure_us": args.numbers_exposure_us,
+            "exposure_us": args.exposure_us,
             "size_px": args.numbers_size_px,
         }
     if _is_count_recipe(args.test):
@@ -610,7 +600,7 @@ def _build_live_preview_metadata(args, pair_config, state_a, state_b):
             "start": args.count_start,
             "end": args.count_end,
             "slots_per_frame": args.count_slots_per_frame,
-            "exposure_us": args.count_exposure_us,
+            "exposure_us": args.exposure_us,
         }
     if lut_state:
         metadata["lut"] = build_lut_preview_metadata(lut_state["entries"], lut_state["timing"])
@@ -721,7 +711,7 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
             trig2_frame_zero=args.trig2_frame_zero,
             entries_count=lut_entries_count,
             per_entry_exposure_us=lut_per_entry_exposure_us,
-            trigger_out_2_delay_fraction=args.trigger_out_2_delay_fraction,
+            trigger_out_2_rising_delay_us=args.trigger_out_2_rising_delay_us,
             dark_time_us=args.dark_time_us,
         )
         logger.info("[+] Preparing DMD B controller without starting sequencer...")
@@ -733,7 +723,7 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
             trig2_frame_zero=args.trig2_frame_zero,
             entries_count=lut_entries_count,
             per_entry_exposure_us=lut_per_entry_exposure_us,
-            trigger_out_2_delay_fraction=args.trigger_out_2_delay_fraction,
+            trigger_out_2_rising_delay_us=args.trigger_out_2_rising_delay_us,
             dark_time_us=args.dark_time_us,
         )
 
