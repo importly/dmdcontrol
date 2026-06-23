@@ -138,6 +138,21 @@ def test_sync_sweep_command_row_preserves_original_command_in_artifacts(tmp_path
     assert command.startswith("./run_camera_sync_check.sh ")
 
 
+def test_load_manifest_returns_named_sweep_rows(tmp_path):
+    manifest = tmp_path / "sweep.csv"
+    _write_manifest(manifest, [_argv_row(tmp_path, "sweep-000", 600, 0)])
+
+    rows = sync_sweep._load_manifest(manifest)
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert isinstance(row, sync_sweep.SweepRow)
+    assert row.raw["sync_check_argv"]
+    assert row.sync_check_argv[:2] == ["--output-root", str(tmp_path)]
+    assert row.command_argv[:5] == ["python", "-m", "dmdcontrol", "camera", "sync-check"]
+    assert row.args.timestamp == "sweep-000"
+
+
 def test_sync_sweep_rejects_manifest_without_explicit_command(tmp_path):
     manifest = tmp_path / "sweep.csv"
     _write_manifest(

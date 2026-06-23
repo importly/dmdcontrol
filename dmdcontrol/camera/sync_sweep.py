@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import shlex
+from dataclasses import dataclass
 from pathlib import Path
 
 from dmdcontrol.camera import sync_check
@@ -22,6 +23,14 @@ PERSISTENT_CAMERA_FIELDS = [
     "bias_sensitivity",
     "efps",
 ]
+
+
+@dataclass(frozen=True)
+class SweepRow:
+    raw: dict[str, str]
+    sync_check_argv: list[str]
+    command_argv: list[str]
+    args: argparse.Namespace
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -59,7 +68,7 @@ def _row_sync_check_argv(row: dict[str, str]) -> tuple[list[str], list[str]]:
     raise SystemExit("Manifest rows must include sync_check_argv or command.")
 
 
-def _load_manifest(path: Path) -> list[tuple[dict[str, str], list[str], list[str], argparse.Namespace]]:
+def _load_manifest(path: Path) -> list[SweepRow]:
     with path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     if not rows:
@@ -76,16 +85,16 @@ def _load_manifest(path: Path) -> list[tuple[dict[str, str], list[str], list[str
             args.sweep_id = row["sweep_id"]
         if _has_value(row.get("repeat")):
             args.sweep_repeat = int(row["repeat"])
-        parsed.append((row, argv, command_argv, args))
+        parsed.append(SweepRow(row, argv, command_argv, args))
     return parsed
 
 
 def _validate_persistent_camera_args(parsed_rows) -> None:
-    first_args = parsed_rows[0][3]
+    first_args = parsed_rows[0].args
     first = {name: getattr(first_args, name, None) for name in PERSISTENT_CAMERA_FIELDS}
-    for row_number, (_, _, _, args) in enumerate(parsed_rows[1:], start=2):
+    for row_number, row in enumerate(parsed_rows[1:], start=2):
         for name, expected in first.items():
-            actual = getattr(args, name, None)
+            actual = getattr(row.args, name, None)
             if actual != expected:
                 raise SystemExit(
                     f"Manifest row {row_number} changes --{name.replace('_', '-')} "
@@ -93,34 +102,34 @@ def _validate_persistent_camera_args(parsed_rows) -> None:
 
 
 def dry_run(parsed_rows) -> int:
-    for _, _, command_argv, args in parsed_rows:
-        args.dry_run = True
-        sync_check.dry_run(args, command_argv=command_argv)
+    for row in parsed_rows:
+        row.args.dry_run = True
+        sync_check.dry_run(row.args, command_argv=row.command_argv)
     return 0
 
 
 def live(parsed_rows) -> int:
     _validate_persistent_camera_args(parsed_rows)
-    first_args = parsed_rows[0][3]
+    first_args = parsed_rows[0].args
     capture = None
     try:
         capture, ready = open_ready_camera_capture(first_args)
-        for _, _, command_argv, args in parsed_rows:
-            run = create_run_directory("sync-check", args.output_root, timestamp=args.timestamp)
+        for row in parsed_rows:
+            run = create_run_directory("sync-check", row.args.output_root, timestamp=row.args.timestamp)
             writer = None
             try:
                 flush_stale_batches(
                     capture,
-                    reads=args.camera_flush_reads,
+                    reads=row.args.camera_flush_reads,
                 )
                 writer = open_camera_writer(run, capture)
                 sync_check.live_capture(
-                    args,
+                    row.args,
                     run,
                     capture,
                     writer,
                     ready,
-                    command_argv=command_argv)
+                    command_argv=row.command_argv)
             finally:
                 resources = {"writer": writer}
                 writer = None

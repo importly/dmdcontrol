@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import argparse
 import math
-import shlex
-import sys
 
 from dmdcontrol.camera.capture import (
     AsyncCapture,
@@ -11,6 +9,7 @@ from dmdcontrol.camera.capture import (
     flush_stale_batches,
     record_until_trigger_count,
 )
+from dmdcontrol.camera.command_artifacts import camera_command_argv, command_text
 from dmdcontrol.camera.local_support_filter import (
     add_event_noise_filter_arguments,
     event_noise_filter_config_from_args,
@@ -474,17 +473,11 @@ def _write_capture_artifacts_for_sync_check(
     )
 
 
-def _camera_command_argv(subcommand: str, argv: list[str] | None) -> list[str]:
-    if argv is None:
-        return sys.argv
-    return ["python", "-m", "dmdcontrol", "camera", subcommand, *argv]
-
-
 def dry_run(args: argparse.Namespace, command_argv: list[str] | None = None):
     run = create_run_directory("sync-check", args.output_root, timestamp=args.timestamp)
     event_filter = event_noise_filter_config_from_args(args)
     trigger_policy = _trigger_policy(args)
-    command = command_argv or sys.argv
+    command = command_argv or camera_command_argv("sync-check", None)
     metadata = _sync_check_metadata(args, event_filter, dry_run=True, command=command)
     write_json(run.timing_path, trigger_policy)
     write_run_metadata(
@@ -496,7 +489,7 @@ def dry_run(args: argparse.Namespace, command_argv: list[str] | None = None):
                    "run.log"],
     )
     run.command_path.write_text(
-        shlex.join(command) + "\n",
+        command_text(command),
         encoding="utf-8",
     )
     run.log_path.write_text("dry-run\n", encoding="utf-8")
@@ -523,14 +516,14 @@ def live_capture(
         args,
         event_filter,
         dry_run=False,
-        command=command_argv or sys.argv,
+        command=command_argv or camera_command_argv("sync-check", None),
     )
     _copy_sweep_metadata(args, metadata)
 
     try:
         write_json(run.timing_path, trigger_policy)
         run.command_path.write_text(
-            shlex.join(command_argv or sys.argv) + "\n",
+            command_text(command_argv or camera_command_argv("sync-check", None)),
             encoding="utf-8",
         )
         run.log_path.write_text("live\n", encoding="utf-8")
@@ -611,7 +604,7 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    command_argv = _camera_command_argv("sync-check", argv)
+    command_argv = camera_command_argv("sync-check", argv)
     if args.dry_run:
         dry_run(args, command_argv=command_argv)
         return 0

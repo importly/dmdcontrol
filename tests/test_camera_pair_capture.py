@@ -3,8 +3,8 @@ import json
 import numpy as np
 import pytest
 
+from dmdcontrol.camera.event_records import BoundedArtifactBuffer
 from dmdcontrol.camera.pair_capture import (
-    _BoundedArtifactBuffer,
     _to_pair_runtime_args,
     build_parser,
     dry_run,
@@ -37,7 +37,7 @@ def test_bounded_artifact_buffer_snapshots_numpy_event_batches():
              np.bool_),
         ],
     )
-    buffer = _BoundedArtifactBuffer(max_rising_triggers=None, window_us=10)
+    buffer = BoundedArtifactBuffer(max_rising_triggers=None, window_us=10)
 
     buffer.append_events(FakeNumpyBatch(source))
     source["timestamp"][0] = 999
