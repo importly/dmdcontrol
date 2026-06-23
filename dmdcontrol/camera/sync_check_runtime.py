@@ -94,8 +94,6 @@ def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
         pair_args.extend(["--dark-time-us", str(args.dark_time_us)])
     if args.dmd_config is not None:
         pair_args.extend(["--dmd-config", args.dmd_config])
-    if args.hz is not None:
-        pair_args.extend(["--hz", str(args.hz)])
     for _ in range(args.verbose or 0):
         pair_args.append("-v")
     return pair_args

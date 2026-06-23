@@ -4,10 +4,16 @@
 # and launching the X11 pattern generator
 set -e
 
-echo "=== DLPC900 Initialization & DP Wake ==="
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/scripts/lib/dmd_shell_common.sh"
 
+if dmd_has_flag --dry-run-timing "$@"; then
+    echo "=== Single dry-run timing (no DP wake, no X, no sudo) ==="
+    dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol single run "$@"
+    exit 0
+fi
+
+echo "=== DLPC900 Initialization & DP Wake ==="
 dmd_wake_with_args "$SCRIPT_DIR" "$@"
 
 dmd_wait_for_hotplug "Xorg and GPU to detect the DP hotplug event"

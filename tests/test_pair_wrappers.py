@@ -10,6 +10,19 @@ XINIT = SCRIPTS / "xinit"
 
 class PairWrapperTests(unittest.TestCase):
 
+    def test_run_dmd_dry_run_bypasses_hardware_wake_and_xinit(self):
+        script = (ROOT / "run_dmd.sh").read_text(encoding="utf-8")
+
+        dry_run_idx = script.index("Single dry-run timing")
+        wake_banner_idx = script.index("DLPC900 Initialization & DP Wake")
+        wake_idx = script.index("dmd_wake_with_args")
+        xinit_idx = script.index("dmd_run_xinit")
+
+        self.assertLess(dry_run_idx, wake_banner_idx)
+        self.assertLess(dry_run_idx, wake_idx)
+        self.assertLess(dry_run_idx, xinit_idx)
+        self.assertIn('dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol single run "$@"', script)
+
     def test_run_pair_dry_run_bypasses_hardware_wake_and_xinit(self):
         script = (ROOT / "run_dmd_pair.sh").read_text(encoding="utf-8")
 
@@ -47,11 +60,19 @@ class PairWrapperTests(unittest.TestCase):
     def test_pair_calibration_dry_run_routes_to_package_calibrate_command(self):
         script = (ROOT / "run_dmd_pair_calibr_square.sh").read_text(encoding="utf-8")
 
+        dry_run_idx = script.index("Paired calibration dry-run timing")
+        dry_run_command_idx = script.index(
+            'dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol pair calibrate "$@"')
+        wake_idx = script.index("dmd_wake_configured_dmd")
+
         self.assertIn("Paired calibration dry-run timing", script)
         self.assertIn(
             'dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol pair calibrate "$@"',
             script,
         )
+        self.assertLess(dry_run_idx, wake_idx)
+        self.assertLess(dry_run_command_idx, wake_idx)
+        self.assertIn("exit 0", script[dry_run_command_idx:wake_idx])
 
     def test_preview_server_runner_uses_package_cli_with_default_bind(self):
         script = (ROOT / "run_dmd_preview_server.sh").read_text(encoding="utf-8")
@@ -63,11 +84,19 @@ class PairWrapperTests(unittest.TestCase):
             script,
         )
 
-    def test_xinit_pair_uses_fixed_60hz_modeline(self):
-        script = (XINIT / "xinitrc_dmd_pair.sh").read_text(encoding="utf-8")
-
-        self.assertNotIn("target_hz", script)
-        self.assertIn('TARGET_MODE="$DMD_MODE_60"', script)
+    def test_xinit_scripts_use_fixed_60hz_modeline(self):
+        for name in (
+                "xinitrc_dmd.sh",
+                "xinitrc_dmd_pair.sh",
+                "xinitrc_dmd_pair_capture.sh",
+                "xinitrc_camera_sync_check.sh",
+                "xinitrc_camera_sync_sweep.sh",
+        ):
+            script = (XINIT / name).read_text(encoding="utf-8")
+            self.assertIn('TARGET_MODE="$DMD_MODE_60"', script)
+            self.assertNotIn("dmd_parse_hz_arg", script)
+            self.assertNotIn("dmd_x11_target_mode_for_hz", script)
+            self.assertNotIn("target_hz", script)
 
     def test_runners_source_common_shell_helpers(self):
         for name in (
@@ -112,8 +141,15 @@ class PairWrapperTests(unittest.TestCase):
         self.assertIn('grep -q "current 3840 x 1080"', helper)
         self.assertNotIn('grep -q "Screen 0: current 3840 x 1080"', helper)
         self.assertIn("138.6528 1920 1968 2000 2080 1080 1083 1088 1111", helper)
+        self.assertNotIn("dmd_x11_target_mode_for_hz", helper)
         self.assertNotIn("DMD_MODE_120", helper)
         self.assertNotIn("311.50 1920 1968 2000 2080 1080 1083 1088 1248", helper)
+
+    def test_common_shell_helper_does_not_parse_removed_hz_flag(self):
+        helper = SHELL_HELPER.read_text(encoding="utf-8")
+
+        self.assertNotIn("dmd_parse_hz_arg", helper)
+        self.assertNotIn("--hz", helper)
 
     def test_camera_sync_check_runner_routes_dry_run_without_xinit(self):
         script = (ROOT / "run_camera_sync_check.sh").read_text(encoding="utf-8")
