@@ -1,3 +1,4 @@
+import importlib
 import json
 
 import numpy as np
@@ -10,6 +11,22 @@ from dmdcontrol.camera.runs import (
     write_capture_artifacts,
     write_run_metadata,
 )
+
+
+def test_camera_runs_is_package_with_focused_modules():
+    modules = {
+        importlib.import_module("dmdcontrol.camera.runs.directory"),
+        importlib.import_module("dmdcontrol.camera.runs.capture_artifacts"),
+        importlib.import_module("dmdcontrol.camera.runs.accumulation_artifacts"),
+        importlib.import_module("dmdcontrol.camera.runs.image_artifacts"),
+    }
+
+    assert {module.__name__.rsplit(".", 1)[-1] for module in modules} == {
+        "directory",
+        "capture_artifacts",
+        "accumulation_artifacts",
+        "image_artifacts",
+    }
 
 
 def test_create_run_directory_uses_mode_and_timestamp(tmp_path):

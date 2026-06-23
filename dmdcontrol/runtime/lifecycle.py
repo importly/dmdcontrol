@@ -646,7 +646,7 @@ def prepare_dlpc900_for_video_pattern(
     )
     if timing["measured_frame_hz"] and abs(timing["measured_frame_hz"] - target_hz) > 0.5:
         logger.warning(
-            f"Source VSYNC is {timing['measured_frame_hz']:.3f} Hz while --hz is {target_hz} Hz. "
+            f"Source VSYNC is {timing['measured_frame_hz']:.3f} Hz while fixed target is {target_hz} Hz. "
             f"Sequencer timing follows source VSYNC ({timing['effective_frame_hz']:.3f} Hz).")
     logger.info(
         f"[+] LUT: {timing['entries_count']} entries, exposure={timing['exposure_us']}us, "

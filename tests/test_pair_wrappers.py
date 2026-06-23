@@ -63,13 +63,11 @@ class PairWrapperTests(unittest.TestCase):
             script,
         )
 
-    def test_xinit_pair_uses_configured_target_hz_when_hz_omitted(self):
+    def test_xinit_pair_uses_fixed_60hz_modeline(self):
         script = (XINIT / "xinitrc_dmd_pair.sh").read_text(encoding="utf-8")
 
-        self.assertIn('dmd_config_field "$REPO_ROOT" A target_hz', script)
-        self.assertIn('dmd_config_field "$REPO_ROOT" B target_hz', script)
-        self.assertIn('TARGET_HZ="${A_HZ:-${B_HZ:-60}}"', script)
-        self.assertIn('DMD A and B target_hz values differ', script)
+        self.assertNotIn("target_hz", script)
+        self.assertIn('TARGET_MODE="$DMD_MODE_60"', script)
 
     def test_runners_source_common_shell_helpers(self):
         for name in (
@@ -105,7 +103,7 @@ class PairWrapperTests(unittest.TestCase):
         self.assertIn('--a-calibr-square-control-file "$CONTROL_FILE"', script)
         self.assertIn("--runtime-seconds 0", script)
 
-    def test_common_x11_helper_owns_raw_modelines(self):
+    def test_common_x11_helper_owns_fixed_60hz_raw_modeline(self):
         helper = X11_HELPER.read_text(encoding="utf-8")
 
         self.assertIn("dmd_x11_define_raw_modes", helper)
@@ -114,7 +112,8 @@ class PairWrapperTests(unittest.TestCase):
         self.assertIn('grep -q "current 3840 x 1080"', helper)
         self.assertNotIn('grep -q "Screen 0: current 3840 x 1080"', helper)
         self.assertIn("138.6528 1920 1968 2000 2080 1080 1083 1088 1111", helper)
-        self.assertIn("311.50 1920 1968 2000 2080 1080 1083 1088 1248", helper)
+        self.assertNotIn("DMD_MODE_120", helper)
+        self.assertNotIn("311.50 1920 1968 2000 2080 1080 1083 1088 1248", helper)
 
     def test_camera_sync_check_runner_routes_dry_run_without_xinit(self):
         script = (ROOT / "run_camera_sync_check.sh").read_text(encoding="utf-8")

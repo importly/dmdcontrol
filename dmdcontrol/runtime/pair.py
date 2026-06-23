@@ -92,7 +92,7 @@ def _parse_numbers(value):
     return numbers
 
 
-def resolve_pair_config(config_path=None, target_hz=None):
+def resolve_pair_config(config_path=None):
     dmd_a = resolve_dmd_mapping("A", config_path)
     dmd_b = resolve_dmd_mapping("B", config_path)
     for mapping in (dmd_a, dmd_b):
@@ -101,20 +101,11 @@ def resolve_pair_config(config_path=None, target_hz=None):
         if not mapping.usb_id_path:
             raise ValueError(f"DMD {mapping.name} must define usb_id_path for paired runs.")
 
-    configured_hz = {hz for hz in (dmd_a.target_hz, dmd_b.target_hz) if hz is not None}
-    if len(configured_hz) > 1:
-        raise ValueError(f"Paired DMD target_hz values must match, got {sorted(configured_hz)}")
-    resolved_hz = int(target_hz or next(iter(configured_hz), DEFAULT_HZ))
-    return PairConfig(dmd_a=dmd_a, dmd_b=dmd_b, target_hz=resolved_hz)
+    return PairConfig(dmd_a=dmd_a, dmd_b=dmd_b)
 
 
 def _build_parser():
     parser = argparse.ArgumentParser(description="Dual DLPC900 paired Video Pattern Mode runtime")
-    parser.add_argument(
-        "--hz",
-        type=int,
-        default=None,
-        help=f"Target Hz, default from dmd_devices.json or {DEFAULT_HZ}")
     parser.add_argument("--dmd-config", default=None, help="Path to DMD mapping config")
     parser.add_argument("--test", choices=PAIR_TESTS, default="checkerboard")
     parser.add_argument(
@@ -798,7 +789,7 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
 def _run(argv, before_start=None):
     args = _build_parser().parse_args(argv)
     setup_logger(verbosity=args.verbose)
-    pair_config = resolve_pair_config(args.dmd_config, target_hz=args.hz)
+    pair_config = resolve_pair_config(args.dmd_config)
     _validate_pair_args(args)
     if args.dry_run_timing:
         _dry_run_timing(args, pair_config)

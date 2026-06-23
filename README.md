@@ -186,8 +186,8 @@ laser path.
 ```bash
 ./run_dmd.sh --test checkerboard
 ./run_dmd.sh --test snake --runtime-seconds 300
-./run_dmd.sh --hz 60 -v --seq-utilization 0.70 --test checkerboard --runtime-seconds 1200
-./run_dmd.sh --hz 60 -v --seq-utilization 0.7 --test snake --runtime-seconds 1200 --trig2-frame-zero
+./run_dmd.sh -v --seq-utilization 0.70 --test checkerboard --runtime-seconds 1200
+./run_dmd.sh -v --seq-utilization 0.7 --test snake --runtime-seconds 1200 --trig2-frame-zero
 ./run_dmd.sh --test clock
 ./run_dmd.sh --trigger --test 2x2          # spacebar fires the pattern
 ./run_dmd.sh --capture out.mp4 --test gradient
@@ -204,9 +204,10 @@ python -m dmdcontrol single run --dry-run-timing --test kernel --exposure-us 300
 
 ## Flags
 
+DMD launchers use the custom `1920x1080_60_RAW` modeline and fixed 60.000 Hz timing.
+
 | Flag                                                       | Type / values                                                                                                                                                                                        | Default            | Purpose                                                                                                                                  |
 |------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------|------------------------------------------------------------------------------------------------------------------------------------------|
-| `--hz`                                                     | `60`, `120`                                                                                                                                                                                          | `60`               | Target VSYNC frame rate. 120 Hz is experimental and requires the source to actually deliver 120 Hz.                                      |
 | `--monitor`                                                | int                                                                                                                                                                                                  | `0`                | GLFW monitor index for the fullscreen window.                                                                                            |
 | `--dmd`                                                    | configured name                                                                                                                                                                                      | none               | Select a DMD from `dmd_devices.json` and require its USB physical-path mapping before opening the controller.                            |
 | `--dmd-config`                                             | path                                                                                                                                                                                                 | `dmd_devices.json` | Alternate mapping file for `--dmd`.                                                                                                      |

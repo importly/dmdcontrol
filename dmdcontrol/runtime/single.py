@@ -45,11 +45,6 @@ from dmdcontrol.support.argparse_types import trigger_out_rising_delay_us
 
 def _build_parser():
     parser = argparse.ArgumentParser(description="DLPC900 1080p Video Pattern Runtime")
-    parser.add_argument(
-        "--hz",
-        type=int,
-        default=DEFAULT_HZ,
-        help="Target Hz (60 or 120, experimental)")
     parser.add_argument("--monitor", type=int, default=None, help="GLFW monitor index")
     parser.add_argument(
         "--dmd",
@@ -316,10 +311,10 @@ def _log_calibration_square_summary(args, timing, prefix="[TIMING]"):
 
 
 def _dry_run_timing(args):
-    entries_count, exposure_us = _lut_timing_override(args, args.hz)
+    entries_count, exposure_us = _lut_timing_override(args, DEFAULT_HZ)
     entries, timing = build_lut_entries(
         _DryRunDLPC(),
-        args.hz,
+        DEFAULT_HZ,
         sequence_utilization=args.seq_utilization,
         trig2_frame_zero=args.trig2_frame_zero,
         entries_count=entries_count,
@@ -477,9 +472,6 @@ def main(argv=None):
     args = _build_parser().parse_args(argv)
     setup_logger(args.verbose)
 
-    if args.hz not in (DEFAULT_HZ, 120):
-        logger.error(f"Unsupported Hz: {args.hz}. Only {DEFAULT_HZ}Hz and 120Hz are supported.")
-        raise SystemExit(f"Unsupported Hz: {args.hz}")
     if args.seq_utilization <= 0.0 or args.seq_utilization > 1.0:
         logger.error("--seq-utilization must be in the interval (0, 1].")
         raise SystemExit("Invalid --seq-utilization value")
@@ -505,7 +497,7 @@ def main(argv=None):
         _dry_run_timing(args)
         return 0
 
-    target_hz = args.hz
+    target_hz = DEFAULT_HZ
     dmd_mapping = resolve_dmd_mapping(args.dmd, args.dmd_config) if args.dmd else None
     monitor_index = (
         args.monitor if args.monitor is not None else (

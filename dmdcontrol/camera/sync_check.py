@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import math
 
 from dmdcontrol.camera.capture import (
     AsyncCapture,
@@ -13,7 +12,6 @@ from dmdcontrol.camera.command_artifacts import camera_command_argv, command_tex
 from dmdcontrol.camera.local_support_filter import (
     add_event_noise_filter_arguments,
     event_noise_filter_config_from_args,
-    event_noise_filter_metadata,
 )
 from dmdcontrol.camera.runs import (
     create_run_directory,
@@ -27,8 +25,19 @@ from dmdcontrol.camera.session import (
     close_camera_resources,
     open_ready_camera as _open_ready_camera,
 )
+from dmdcontrol.camera.sync_check_metadata import (
+    _sync_check_test_metadata,
+    sync_check_metadata as _sync_check_metadata,
+)
+from dmdcontrol.camera.sync_check_runtime import (
+    A_COUNT_B_STATIC_TEST,
+    _pair_runtime_seconds,
+    _requested_accumulation_window_us,
+    _to_pair_runtime_args,
+    _trigger_policy,
+    expected_trigger_count,
+)
 from dmdcontrol.patterns.paired import MAX_COUNT_SEQUENCE_FRAMES
-from dmdcontrol.runtime.lifecycle import compute_trigger_out_2_timing
 from dmdcontrol.support.argparse_types import (
     nonnegative_int,
     numbers_bitplane_order,
@@ -36,9 +45,6 @@ from dmdcontrol.support.argparse_types import (
     trigger_out_rising_delay_us,
 )
 from dmdcontrol.support.constants import BITPLANES
-
-A_COUNT_B_STATIC_TEST = "a-count-b-static"
-
 
 class SyncCheckArgumentParser(argparse.ArgumentParser):
 
@@ -148,7 +154,6 @@ def build_parser() -> argparse.ArgumentParser:
         "Use 1.0 only when intentionally using nearly the full VSYNC budget.",
     )
     parser.add_argument("--dmd-config", default=None)
-    parser.add_argument("--hz", type=int, default=None)
     parser.add_argument("--test", default="a-numbers-b-static")
     parser.add_argument("--test-b", default="dot")
     parser.add_argument("--b-dot-x", type=int, default=960)
@@ -226,169 +231,6 @@ def build_parser() -> argparse.ArgumentParser:
     add_event_noise_filter_arguments(parser)
     parser.add_argument("-v", "--verbose", action="count", default=0)
     return parser
-
-
-def expected_trigger_count(args: argparse.Namespace) -> int:
-    if args.test == A_COUNT_B_STATIC_TEST:
-        return args.count_end - args.count_start + 1
-    return len(args.numbers)
-
-
-def _pair_runtime_seconds(args: argparse.Namespace) -> int:
-    runtime_seconds = args.runtime_seconds
-    if runtime_seconds <= 0:
-        if args.exposure_us is None:
-            runtime_seconds = 1
-        else:
-            per_slot_us = args.exposure_us + max(0, args.dark_time_us or 0)
-            sequence_seconds = expected_trigger_count(args) * per_slot_us / 1_000_000.0
-            runtime_seconds = max(1, math.ceil(sequence_seconds))
-    return runtime_seconds
-
-
-def _requested_accumulation_window_us(args: argparse.Namespace) -> int | None:
-    return args.exposure_us
-
-
-def _trigger_policy(args: argparse.Namespace) -> dict[str, object]:
-    timing = compute_trigger_out_2_timing(
-        rising_delay_us=args.trigger_out_2_rising_delay_us)
-    return {
-        "channel": "TRIG_OUT_2",
-        "edge": "rising",
-        "rising_delay_us": timing["rising_delay_us"],
-        "falling_delay_us": timing["falling_delay_us"],
-    }
-
-
-def _sync_check_test_metadata(args: argparse.Namespace, *, dry_run: bool) -> dict[str, object]:
-    if args.test == A_COUNT_B_STATIC_TEST:
-        metadata = {
-            "count_start": args.count_start,
-            "count_end": args.count_end,
-            "count_slots_per_frame": args.count_slots_per_frame,
-            "exposure_us": args.exposure_us,
-        }
-        if dry_run:
-            metadata.update(
-                {
-                    "accumulation_window_us": _requested_accumulation_window_us(args),
-                    "bitplane_count": args.count_slots_per_frame,
-                })
-        return metadata
-
-    metadata = {
-        "number_sequence":
-        list(args.numbers),
-        "numbers_bitplane_order":
-        (list(args.numbers_bitplane_order) if args.numbers_bitplane_order is not None else None),
-        "exposure_us":
-        args.exposure_us,
-    }
-    if dry_run:
-        metadata["bitplane_count"] = len(args.numbers)
-    return metadata
-
-
-def _sync_check_metadata(
-    args: argparse.Namespace,
-    event_filter,
-    *,
-    dry_run: bool,
-    command: list[str],
-) -> dict[str,
-          object]:
-    metadata = {
-        "mode": "sync-check",
-        "dry_run": dry_run,
-        "test": args.test,
-        "command": command,
-        "number_size_px": args.number_size_px,
-        "b_dot_x": args.b_dot_x,
-        "b_dot_y": args.b_dot_y,
-        "b_dot_radius": args.b_dot_radius,
-        "expected_trigger_count": expected_trigger_count(args),
-        "seq_utilization": args.seq_utilization,
-        "trigger_policy": _trigger_policy(args),
-        "bias_sensitivity": args.bias_sensitivity,
-        "efps": args.efps,
-        "polarity_mode": args.polarity_mode,
-        "dark_time_us": args.dark_time_us,
-        "camera_open_method": args.camera_open_method,
-        "camera_flush_reads": args.camera_flush_reads,
-        "camera_post_trigger_event_batches": args.camera_post_trigger_event_batches,
-        "camera_stream_rearm": args.camera_stream_rearm,
-        "camera_shutdown_streams": args.camera_shutdown_streams,
-        "accumulation_cycles": args.requested_accumulation_cycles,
-        "accumulation_start_offset_us": args.accumulation_start_offset_us,
-        "event_noise_filter": event_noise_filter_metadata(event_filter),
-        "save_filtered_events": args.save_filtered_events,
-    }
-    if dry_run:
-        metadata["trigger_mode"] = "per_bitplane"
-    metadata.update(_sync_check_test_metadata(args, dry_run=dry_run))
-    return metadata
-
-
-# special run system for sync check
-def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
-    runtime_seconds = _pair_runtime_seconds(args)
-    pair_args = [
-        "--test",
-        args.test,
-        "--test-b",
-        args.test_b,
-        "--b-dot-x",
-        str(args.b_dot_x),
-        "--b-dot-y",
-        str(args.b_dot_y),
-        "--b-dot-radius",
-        str(args.b_dot_radius),
-        "--runtime-seconds",
-        str(runtime_seconds),
-        "--trigger-out-2-rising-delay-us",
-        str(args.trigger_out_2_rising_delay_us),
-    ]
-
-    if args.test == A_COUNT_B_STATIC_TEST:
-        pair_args.extend(
-            [
-                "--count-start",
-                str(args.count_start),
-                "--count-end",
-                str(args.count_end),
-                "--count-slots-per-frame",
-                str(args.count_slots_per_frame),
-                "--numbers-size-px",
-                str(args.number_size_px),
-            ])
-    else:
-        pair_args.extend(
-            [
-                "--numbers",
-                ",".join(str(number) for number in args.numbers),
-                "--numbers-size-px",
-                str(args.number_size_px),
-            ])
-        if args.numbers_bitplane_order is not None:
-            pair_args.extend(
-                [
-                    "--numbers-bitplane-order",
-                    ",".join(str(index) for index in args.numbers_bitplane_order),
-                ])
-    if args.exposure_us is not None:
-        pair_args.extend(["--exposure-us", str(args.exposure_us)])
-    if args.seq_utilization is not None:
-        pair_args.extend(["--seq-utilization", str(args.seq_utilization)])
-    if getattr(args, "dark_time_us", None) is not None:
-        pair_args.extend(["--dark-time-us", str(args.dark_time_us)])
-    if args.dmd_config is not None:
-        pair_args.extend(["--dmd-config", args.dmd_config])
-    if args.hz is not None:
-        pair_args.extend(["--hz", str(args.hz)])
-    for _ in range(args.verbose or 0):
-        pair_args.append("-v")
-    return pair_args
 
 
 def _run_pair_with_callback(pair_args, before_start):

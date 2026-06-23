@@ -8,4 +8,6 @@ server_backup/
 documentation/
 .ruff_cache
 runs
+!dmdcontrol/camera/runs/
+!dmdcontrol/camera/runs/*.py
 .test_tmp

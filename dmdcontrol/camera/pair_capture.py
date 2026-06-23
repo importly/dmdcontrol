@@ -61,7 +61,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=trigger_out_rising_delay_us,
         default=0)
     parser.add_argument("--dmd-config", default=None)
-    parser.add_argument("--hz", type=positive_int, default=None)
     parser.add_argument(
         "--bias-sensitivity",
         default="default",
@@ -168,7 +167,6 @@ def dmd_config(args: argparse.Namespace) -> dict[str, int | str | None]:
         "exposure_us": args.exposure_us,
         "runtime_seconds": args.runtime_seconds,
         "dmd_config": args.dmd_config,
-        "hz": args.hz,
     }
 
 
@@ -251,8 +249,6 @@ def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
         pair_args.extend(["--dark-time-us", str(args.dark_time_us)])
     if args.dmd_config is not None:
         pair_args.extend(["--dmd-config", args.dmd_config])
-    if args.hz is not None:
-        pair_args.extend(["--hz", str(args.hz)])
     for _ in range(args.verbose or 0):
         pair_args.append("-v")
     return pair_args

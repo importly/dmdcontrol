@@ -4,15 +4,13 @@
       "usb_id_path": "pci-0000:03:00.0-usb-0:1:1.0",
       "usb_devpath_contains": "/usb1/1-1/1-1:1.0/",
       "xrandr_output": "DP-2",
-      "glfw_monitor_index": 1,
-      "target_hz": 60
+      "glfw_monitor_index": 1
     },
     "B": {
       "usb_id_path": "pci-0000:03:00.0-usb-0:8:1.0",
       "usb_devpath_contains": "/usb1/1-8/1-8:1.0/",
       "xrandr_output": "DP-0",
-      "glfw_monitor_index": 0,
-      "target_hz": 60
+      "glfw_monitor_index": 0
     }
   }
 }

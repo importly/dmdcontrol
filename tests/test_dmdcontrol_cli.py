@@ -8,6 +8,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
 
 def run_cli(argv):
     from dmdcontrol.cli.main import main
@@ -213,7 +215,6 @@ class Mapping:
     usb_devpath_contains: str | None = None
     xrandr_output: str | None = "DP-2"
     glfw_monitor_index: int | None = 1
-    target_hz: int | None = 60
 
 
 def test_config_show_prints_json(monkeypatch, capsys):
@@ -232,7 +233,6 @@ def test_config_show_prints_json(monkeypatch, capsys):
         "usb_devpath_contains": None,
         "xrandr_output": "DP-2",
         "glfw_monitor_index": 1,
-        "target_hz": 60,
     }
 
 
@@ -246,6 +246,13 @@ def test_config_show_prints_one_field(monkeypatch, capsys):
     assert run_cli(["config", "show", "--dmd", "A", "--field", "xrandr_output"]) == 0
 
     assert capsys.readouterr().out == "DP-2\n"
+
+
+def test_config_show_rejects_removed_target_hz_field():
+    with pytest.raises(SystemExit) as excinfo:
+        run_cli(["config", "show", "--dmd", "A", "--field", "target_hz"])
+
+    assert excinfo.value.code == 2
 
 
 def test_module_preview_help_subprocess_exits_zero():

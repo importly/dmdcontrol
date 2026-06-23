@@ -41,6 +41,13 @@ def test_pair_runtime_parser_rejects_removed_trigger_delay_fraction_flag():
             ["--dry-run-timing", "--trigger-out-2-delay-fraction", "0.05"])
 
 
+def test_pair_runtime_parser_rejects_removed_hz_flag():
+    from dmdcontrol.runtime import pair
+
+    with pytest.raises(SystemExit):
+        pair._build_parser().parse_args(["--dry-run-timing", "--hz", "120"])
+
+
 def test_pair_runtime_parser_accepts_generic_exposure_us():
     from dmdcontrol.runtime import pair
 

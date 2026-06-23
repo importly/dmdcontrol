@@ -31,6 +31,10 @@ class _Engine:
 
 class KernelRuntimeTests(unittest.TestCase):
 
+    def test_single_runtime_parser_rejects_removed_hz_flag(self):
+        with self.assertRaises(SystemExit):
+            single_runtime._build_parser().parse_args(["--dry-run-timing", "--hz", "120"])
+
     def test_compute_kernel_lut_override_clamps_to_bitplane_count(self):
         entries, exposure_us = compute_kernel_lut_override(
             enabled=True,

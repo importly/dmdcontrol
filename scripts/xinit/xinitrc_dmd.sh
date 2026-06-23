@@ -62,8 +62,7 @@ echo "Detected display output: $DP_OUTPUT"
 # YCbCr 4:2:2 chroma subsampling (which would corrupt our RGB->bitplane pack).
 dmd_x11_define_raw_modes "$DP_OUTPUT"
 
-dmd_parse_hz_arg 60 "$@"
-TARGET_MODE="$(dmd_x11_target_mode_for_hz "$DMD_TARGET_HZ")"
+TARGET_MODE="$DMD_MODE_60"
 echo "Applying custom modeline: $TARGET_MODE"
 dmd_x11_apply_single_mode "$DP_OUTPUT" "$TARGET_MODE"
 

@@ -15,7 +15,6 @@ class DmdMapping:
     usb_devpath_contains: str | None = None
     xrandr_output: str | None = None
     glfw_monitor_index: int | None = None
-    target_hz: int | None = None
 
 
 def _clean_optional_string(value):
@@ -56,19 +55,12 @@ def resolve_dmd_mapping(name, config_path=None):
         if monitor < 0:
             raise ValueError(f"DMD {name!r} glfw_monitor_index must be >= 0")
 
-    target_hz = raw.get("target_hz")
-    if target_hz is not None:
-        target_hz = int(target_hz)
-        if target_hz <= 0:
-            raise ValueError(f"DMD {name!r} target_hz must be positive")
-
     return DmdMapping(
         name=name,
         usb_id_path=usb_id_path,
         usb_devpath_contains=_clean_optional_string(raw.get("usb_devpath_contains")),
         xrandr_output=_clean_optional_string(raw.get("xrandr_output")),
         glfw_monitor_index=monitor,
-        target_hz=target_hz,
     )
 
 
@@ -84,7 +76,6 @@ def _build_parser():
             "usb_devpath_contains",
             "xrandr_output",
             "glfw_monitor_index",
-            "target_hz",
         ),
         required=True,
         help="Field to print",

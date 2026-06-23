@@ -143,6 +143,11 @@ def test_pair_capture_parser_rejects_removed_trigger_delay_fraction_flag():
             ["--dry-run-timing", "--trigger-out-2-delay-fraction", "0.05"])
 
 
+def test_pair_capture_parser_rejects_removed_hz_flag():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--dry-run-timing", "--hz", "120"])
+
+
 @pytest.mark.parametrize("flag", ["--camera-usb-reset", "--no-camera-usb-reset"])
 def test_pair_capture_parser_rejects_removed_usb_reset_flags(flag):
     with pytest.raises(SystemExit):
@@ -195,8 +200,6 @@ def test_pair_capture_dry_run_creates_run_artifacts(tmp_path):
         "-20",
         "--dmd-config",
         "dmd_devices.json",
-        "--hz",
-        "60",
         "-vv",
     ]
     command_argv = ["python", "-m", "dmdcontrol", "camera", "pair-capture", *argv]
@@ -222,7 +225,6 @@ def test_pair_capture_dry_run_creates_run_artifacts(tmp_path):
         "exposure_us": 3000,
         "runtime_seconds": 999,
         "dmd_config": "dmd_devices.json",
-        "hz": 60,
     }
     assert metadata["requested_command_shape"] == [
         "--test",

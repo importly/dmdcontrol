@@ -64,11 +64,10 @@ class DmdUsbMappingTests(unittest.TestCase):
                         "dmds": {
                             "A": {
                                 "usb_id_path": "pci-0000:03:00.0-usb-0:1:1.0",
-                                "usb_devpath_contains": "/usb1/1-1/1-1:1.0/",
-                                "xrandr_output": "DP-2",
-                                "glfw_monitor_index": 0,
-                                "target_hz": 60,
-                            }}}),
+                            "usb_devpath_contains": "/usb1/1-1/1-1:1.0/",
+                            "xrandr_output": "DP-2",
+                            "glfw_monitor_index": 0,
+                        }}}),
                 encoding="utf-8",
             )
 
@@ -79,7 +78,7 @@ class DmdUsbMappingTests(unittest.TestCase):
         self.assertEqual(mapping.usb_devpath_contains, "/usb1/1-1/1-1:1.0/")
         self.assertEqual(mapping.xrandr_output, "DP-2")
         self.assertEqual(mapping.glfw_monitor_index, 0)
-        self.assertEqual(mapping.target_hz, 60)
+        self.assertFalse(hasattr(mapping, "target_hz"))
 
     def test_format_usb_candidates_matches_operator_shape(self):
         props = parse_udevadm_properties(UDEV_HIDRAW0)

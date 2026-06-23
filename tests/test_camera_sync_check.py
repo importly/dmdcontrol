@@ -1,14 +1,27 @@
+import importlib
 import json
+import shlex
 
 import pytest
 
 from dmdcontrol.camera.sync_check import (
+    _sync_check_test_metadata,
     _to_pair_runtime_args,
     build_parser,
     dry_run,
     expected_trigger_count,
     parse_numbers,
 )
+
+
+def test_sync_check_has_focused_helper_modules():
+    runtime = importlib.import_module("dmdcontrol.camera.sync_check_runtime")
+    metadata = importlib.import_module("dmdcontrol.camera.sync_check_metadata")
+
+    assert runtime._to_pair_runtime_args is _to_pair_runtime_args
+    assert runtime.expected_trigger_count is expected_trigger_count
+    assert metadata._sync_check_test_metadata is _sync_check_test_metadata
+    assert hasattr(metadata, "sync_check_metadata")
 
 
 def test_sync_check_parser_defaults_to_digits_one_through_five():
@@ -328,6 +341,11 @@ def test_sync_check_parser_rejects_removed_usb_reset_flags(flag):
         build_parser().parse_args(["--dry-run", flag])
 
 
+def test_sync_check_parser_rejects_removed_hz_flag():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--dry-run", "--hz", "120"])
+
+
 def test_sync_check_parser_uses_mentor_style_camera_lifecycle_by_default():
     args = build_parser().parse_args(["--dry-run"])
 
@@ -393,6 +411,71 @@ def test_sync_check_dry_run_creates_run_artifacts(tmp_path):
     assert "--number-size-px 420" in command
     assert "--accumulation-start-offset-us -250" in command
     assert "dry-run" in log
+
+
+@pytest.mark.parametrize(
+    ("name_override", "accumulation_cycles"),
+    [
+        ("5nums_one_cycle_pretrigger250_onwindow", 1),
+        ("5nums_30frames_pretrigger250_onwindow", 6),
+    ],
+)
+def test_sync_check_dry_run_accepts_selected_five_number_commands(
+    tmp_path,
+    name_override,
+    accumulation_cycles,
+):
+    argv = shlex.split(
+        f"--dry-run --output-root {tmp_path.as_posix()} "
+        f"--name-override {name_override} --test a-numbers-b-static --test-b dot "
+        "--numbers 1,2,3,4,5 --number-size-px 100 "
+        "--b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 "
+        "--exposure-us 4000 --dark-time-us 1000 "
+        "--trigger-out-2-rising-delay-us 0 --accumulation-start-offset-us -250 "
+        "--runtime-seconds 1 --camera-flush-reads 0 "
+        "--camera-post-trigger-event-batches 0 --polarity-mode ignore "
+        f"--event-noise-filter none --save-filtered-events "
+        f"--accumulation-cycles {accumulation_cycles} -v")
+    command_argv = ["python", "-m", "dmdcontrol", "camera", "sync-check", *argv]
+
+    run = dry_run(build_parser().parse_args(argv), command_argv=command_argv)
+
+    assert run.path == tmp_path / f"{name_override}-sync-check"
+    metadata = json.loads(run.metadata_path.read_text(encoding="utf-8"))
+    timing = json.loads(run.timing_path.read_text(encoding="utf-8"))
+    command = run.command_path.read_text(encoding="utf-8")
+
+    expected_metadata = {
+        "dry_run": True,
+        "test": "a-numbers-b-static",
+        "number_sequence": [1, 2, 3, 4, 5],
+        "number_size_px": 100,
+        "b_dot_x": 960,
+        "b_dot_y": 540,
+        "b_dot_radius": 40,
+        "exposure_us": 4000,
+        "dark_time_us": 1000,
+        "expected_trigger_count": 5,
+        "accumulation_cycles": accumulation_cycles,
+        "accumulation_start_offset_us": -250,
+        "camera_flush_reads": 0,
+        "camera_post_trigger_event_batches": 0,
+        "polarity_mode": "ignore",
+        "save_filtered_events": True,
+    }
+    assert {key: metadata[key] for key in expected_metadata} == expected_metadata
+    assert metadata["event_noise_filter"]["algorithm"] == "none"
+    assert metadata["event_noise_filter"]["enabled"] is False
+    assert timing == {
+        "channel": "TRIG_OUT_2",
+        "edge": "rising",
+        "rising_delay_us": 0,
+        "falling_delay_us": 20,
+    }
+    assert f"--name-override {name_override}" in command
+    assert f"--accumulation-cycles {accumulation_cycles}" in command
+    assert "--accumulation-start-offset-us -250" in command
+    assert run.log_path.read_text(encoding="utf-8") == "dry-run\n"
 
 
 def test_sync_check_dry_run_records_event_filter_config(tmp_path):

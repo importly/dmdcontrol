@@ -2,7 +2,6 @@
 # Shared X11/NVIDIA modeline helpers for DMD runner scripts.
 
 DMD_MODE_60="1920x1080_60_RAW"
-DMD_MODE_120="1920x1080_120_RAW"
 
 dmd_x11_define_raw_modes() {
     local output
@@ -11,23 +10,9 @@ dmd_x11_define_raw_modes() {
     xrandr --newmode "$DMD_MODE_60" 138.6528 1920 1968 2000 2080 1080 1083 1088 1111 +hsync -vsync \
         || echo "[WARN] --newmode $DMD_MODE_60 failed (likely already exists or NVIDIA rejected RandR modeline injection)"
 
-    # Experimental 120 Hz mode, only used when upstream explicitly requests --hz 120.
-    xrandr --newmode "$DMD_MODE_120" 311.50 1920 1968 2000 2080 1080 1083 1088 1248 +hsync -vsync \
-        || echo "[WARN] --newmode $DMD_MODE_120 failed"
-
     for output in "$@"; do
         xrandr --addmode "$output" "$DMD_MODE_60" || echo "[WARN] --addmode $DMD_MODE_60 on $output failed"
-        xrandr --addmode "$output" "$DMD_MODE_120" || echo "[WARN] --addmode $DMD_MODE_120 on $output failed"
     done
-}
-
-dmd_x11_target_mode_for_hz() {
-    local hz="$1"
-    if [ "$hz" = "120" ]; then
-        echo "$DMD_MODE_120"
-    else
-        echo "$DMD_MODE_60"
-    fi
 }
 
 dmd_x11_first_connected_output() {

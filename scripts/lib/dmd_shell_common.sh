@@ -39,27 +39,6 @@ dmd_parse_dmd_config_arg() {
     fi
 }
 
-dmd_parse_hz_arg() {
-    local fallback="$1"
-    shift
-    DMD_TARGET_HZ="$fallback"
-
-    local args=("$@")
-    local i
-    for ((i=0; i<${#args[@]}; i++)); do
-        case "${args[i]}" in
-            --hz)
-                if [[ $((i+1)) -lt ${#args[@]} ]]; then
-                    DMD_TARGET_HZ="${args[i+1]}"
-                fi
-                ;;
-            --hz=*)
-                DMD_TARGET_HZ="${args[i]#--hz=}"
-                ;;
-        esac
-    done
-}
-
 dmd_require_pass_file() {
     local pass_file="$1"
     if [ ! -f "$pass_file" ]; then

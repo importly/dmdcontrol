@@ -10,7 +10,6 @@ FIELDS = (
     "usb_devpath_contains",
     "xrandr_output",
     "glfw_monitor_index",
-    "target_hz",
 )
 
 
