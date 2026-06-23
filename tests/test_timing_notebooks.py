@@ -49,6 +49,8 @@ def test_timing_sweep_notebooks_exist_and_are_parseable():
             "b_dot_radius",
             "exposure_us_values",
             "sync_check_argv",
+            "--name-override",
+            "sync-sweep consumes sync_check_argv or command",
         ],
         "02_analyze_timing_sweep_results.ipynb": [
             "summary.json",
@@ -140,28 +142,28 @@ def test_laser3_notebook_separates_display_sequence_from_analysis_phase():
             index,
             labels=display_sequence,
             cycle_length=3,
-            label_phase_shift=2,
+            label_phase_shift=1,
         )
         for index in range(6)
     ]
     legend_labels = namespace["legend_labels_for_analysis_phase"](
         labels=display_sequence,
         cycle_length=3,
-        label_phase_shift=2,
+        label_phase_shift=1,
     )
 
     assert raw_labels == [2, 3, 1]
-    assert shifted_labels == [3, 1, 2, 3, 1, 2]
+    assert shifted_labels == [1, 2, 3, 1, 2, 3]
     assert legend_labels == [
-        {"slot": 0, "label": 3, "segment": 1},
-        {"slot": 1, "label": 1, "segment": 2},
-        {"slot": 2, "label": 2, "segment": 0},
+        {"slot": 0, "label": 1, "segment": 1},
+        {"slot": 1, "label": 2, "segment": 2},
+        {"slot": 2, "label": 3, "segment": 0},
     ]
     assert [
         namespace["rainbow_color_segment_for_slot"](item["slot"], 3, labels=display_sequence)
         for item in legend_labels
     ] == [1, 2, 0]
-    assert "DEFAULT_RAINBOW_LABEL_PHASE_SHIFT = int(globals().get(\"RAINBOW_LABEL_PHASE_SHIFT\", 2" in _joined_source(notebook)
+    assert "DEFAULT_RAINBOW_LABEL_PHASE_SHIFT = int(globals().get(\"RAINBOW_LABEL_PHASE_SHIFT\", 1" in _joined_source(notebook)
 
     title_pairs = []
     for index in range(3, 6):
@@ -170,7 +172,7 @@ def test_laser3_notebook_separates_display_sequence_from_analysis_phase():
             index,
             labels=display_sequence,
             cycle_length=3,
-            label_phase_shift=2,
+            label_phase_shift=1,
         )
         title_pairs.append((analysis_label, raw_label))
     assert title_pairs == [(1, 2), (2, 3), (3, 1)]

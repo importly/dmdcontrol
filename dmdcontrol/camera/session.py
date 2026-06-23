@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import is_dataclass, replace
 import gc
-import os
 
 from dmdcontrol.camera.capture import flush_stale_batches, validate_camera_ready
 from dmdcontrol.camera.discovery import (
@@ -12,7 +11,6 @@ from dmdcontrol.camera.discovery import (
     rearm_camera_streams,
     shutdown_camera_streams,
 )
-from dmdcontrol.camera.usb_reset import reset_camera_usb, run_power_cycle_command
 
 
 def _ready_with_initial_flush(ready, initial_flush):
@@ -28,10 +26,6 @@ def _ready_with_initial_flush(ready, initial_flush):
 def _open_configured_camera_capture(args):
     import dv_processing as dv
 
-    power_cycle_command = args.camera_power_cycle_command or os.environ.get(
-        "DMD_CAMERA_POWER_CYCLE_COMMAND")
-    power_cycle_info = run_power_cycle_command(power_cycle_command)
-    usb_reset_info = reset_camera_usb(dv, enabled=args.camera_usb_reset)
     camera_open_method = getattr(args, "camera_open_method", "modern")
     capture = open_camera_capture(dv, method=camera_open_method)
     writer = None
@@ -50,8 +44,6 @@ def _open_configured_camera_capture(args):
         ready = validate_camera_ready(
             capture,
             stream_rearm=rearm_info,
-            usb_reset=usb_reset_info,
-            power_cycle=power_cycle_info,
             trigger_configuration=trigger_configuration,
         )
     except Exception:

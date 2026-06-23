@@ -19,8 +19,6 @@ class CameraReadyState:
     trigger_configuration: dict | None = None
     initial_flush: dict | None = None
     stream_rearm: dict | None = None
-    usb_reset: dict | None = None
-    power_cycle: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -104,8 +102,6 @@ class AsyncCapture:
 def validate_camera_ready(
     capture,
     stream_rearm=None,
-    usb_reset=None,
-    power_cycle=None,
     trigger_configuration=None,
 ) -> CameraReadyState:
     event_available = bool(capture.isEventStreamAvailable())
@@ -127,8 +123,6 @@ def validate_camera_ready(
         event_resolution=tuple(capture.getEventResolution()),
         trigger_configuration=trigger_configuration,
         stream_rearm=stream_rearm,
-        usb_reset=usb_reset,
-        power_cycle=power_cycle,
     )
 
 

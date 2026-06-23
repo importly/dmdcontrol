@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shlex
 import sys
 
 import numpy as np
@@ -94,28 +95,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Camera API used to open the device. Use legacy to mirror mentor CameraCapture code.",
     )
     parser.add_argument(
-        "--camera-usb-reset",
-        dest="camera_usb_reset",
-        action="store_true",
-        default=False,
-        help=
-        "Diagnostic: run a Linux USB device reset before opening the camera. Disabled by default.",
-    )
-    parser.add_argument(
-        "--no-camera-usb-reset",
-        dest="camera_usb_reset",
-        action="store_false",
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument(
-        "--camera-power-cycle-command",
-        default=None,
-        help=(
-            "Optional command run before camera open to power-cycle the USB port, "
-            "for example: \"uhubctl -l 1-2 -p 3 -a cycle -d 2\". "
-            "Defaults to DMD_CAMERA_POWER_CYCLE_COMMAND when set."),
-    )
-    parser.add_argument(
         "--camera-flush-reads",
         type=nonnegative_int,
         default=1,
@@ -206,14 +185,21 @@ def trigger_policy(args: argparse.Namespace) -> dict[str, str | int]:
     }
 
 
-def dry_run(args: argparse.Namespace):
+def _camera_command_argv(subcommand: str, argv: list[str] | None) -> list[str]:
+    if argv is None:
+        return sys.argv
+    return ["python", "-m", "dmdcontrol", "camera", subcommand, *argv]
+
+
+def dry_run(args: argparse.Namespace, command_argv: list[str] | None = None):
     run = create_run_directory("pair-capture", args.output_root, timestamp=args.timestamp)
     policy = trigger_policy(args)
     event_filter = event_noise_filter_config_from_args(args)
+    command = command_argv or sys.argv
     metadata = {
         "mode": "pair-capture",
         "dry_run": True,
-        "command": sys.argv,
+        "command": command,
         "dmd": dmd_config(args),
         "requested_command_shape": requested_command_shape(args),
         "expected_shape": expected_shape(args),
@@ -222,8 +208,6 @@ def dry_run(args: argparse.Namespace):
         "efps": args.efps,
         "polarity_mode": args.polarity_mode,
         "dark_time_us": args.dark_time_us,
-        "camera_usb_reset": args.camera_usb_reset,
-        "camera_power_cycle_command": args.camera_power_cycle_command,
         "camera_open_method": args.camera_open_method,
         "camera_flush_reads": args.camera_flush_reads,
         "camera_post_trigger_event_batches": args.camera_post_trigger_event_batches,
@@ -243,7 +227,7 @@ def dry_run(args: argparse.Namespace):
                    "run.log"],
     )
     run.command_path.write_text(
-        "python -m dmdcontrol camera pair-capture --dry-run-timing\n",
+        shlex.join(command) + "\n",
         encoding="utf-8",
     )
     run.log_path.write_text("dry-run\n", encoding="utf-8")
@@ -418,7 +402,7 @@ def _run_pair_with_callback(pair_args, before_start):
     return pair_module.run_with_before_start_callback(pair_args, before_start)
 
 
-def live(args: argparse.Namespace) -> int:
+def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int:
     run = create_run_directory("pair-capture", args.output_root, timestamp=args.timestamp)
     event_filter = event_noise_filter_config_from_args(args)
     capture = None
@@ -433,7 +417,7 @@ def live(args: argparse.Namespace) -> int:
     metadata = {
         "mode": "pair-capture",
         "dry_run": False,
-        "command": sys.argv,
+        "command": command_argv or sys.argv,
         "dmd": dmd_config(args),
         "requested_command_shape": requested_command_shape(args),
         "expected_shape": expected_shape(args),
@@ -442,8 +426,6 @@ def live(args: argparse.Namespace) -> int:
         "efps": args.efps,
         "polarity_mode": args.polarity_mode,
         "dark_time_us": args.dark_time_us,
-        "camera_usb_reset": args.camera_usb_reset,
-        "camera_power_cycle_command": args.camera_power_cycle_command,
         "camera_open_method": args.camera_open_method,
         "camera_flush_reads": args.camera_flush_reads,
         "camera_post_trigger_event_batches": args.camera_post_trigger_event_batches,
@@ -457,7 +439,7 @@ def live(args: argparse.Namespace) -> int:
     try:
         capture, writer, ready = _open_ready_camera(run, args)
         write_json(run.timing_path, metadata["trigger_policy"])
-        run.command_path.write_text(" ".join(sys.argv) + "\n", encoding="utf-8")
+        run.command_path.write_text(shlex.join(command_argv or sys.argv) + "\n", encoding="utf-8")
         run.log_path.write_text("live\n", encoding="utf-8")
 
         def before_start(context):
@@ -537,7 +519,8 @@ def live(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    command_argv = _camera_command_argv("pair-capture", argv)
     if args.dry_run_timing:
-        dry_run(args)
+        dry_run(args, command_argv=command_argv)
         return 0
-    return live(args)
+    return live(args, command_argv=command_argv)

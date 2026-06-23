@@ -143,14 +143,10 @@ def test_pair_capture_parser_rejects_removed_trigger_delay_fraction_flag():
             ["--dry-run-timing", "--trigger-out-2-delay-fraction", "0.05"])
 
 
-def test_pair_capture_parser_does_not_reset_camera_usb_by_default():
-    args = build_parser().parse_args(["--dry-run-timing"])
-    enabled = build_parser().parse_args(["--dry-run-timing", "--camera-usb-reset"])
-    disabled = build_parser().parse_args(["--dry-run-timing", "--no-camera-usb-reset"])
-
-    assert args.camera_usb_reset is False
-    assert enabled.camera_usb_reset is True
-    assert disabled.camera_usb_reset is False
+@pytest.mark.parametrize("flag", ["--camera-usb-reset", "--no-camera-usb-reset"])
+def test_pair_capture_parser_rejects_removed_usb_reset_flags(flag):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--dry-run-timing", flag])
 
 
 def test_pair_capture_parser_uses_mentor_style_camera_lifecycle_by_default():
@@ -160,17 +156,6 @@ def test_pair_capture_parser_uses_mentor_style_camera_lifecycle_by_default():
     assert args.camera_shutdown_streams is False
     assert args.camera_flush_reads == 1
     assert args.camera_post_trigger_event_batches == 0
-
-
-def test_pair_capture_parser_accepts_power_cycle_command():
-    args = build_parser().parse_args(
-        [
-            "--dry-run-timing",
-            "--camera-power-cycle-command",
-            "uhubctl -l 1-2 -p 3 -a cycle -d 2",
-        ])
-
-    assert args.camera_power_cycle_command == "uhubctl -l 1-2 -p 3 -a cycle -d 2"
 
 
 def test_pair_capture_parser_accepts_name_override_alias():
@@ -184,39 +169,40 @@ def test_pair_capture_parser_accepts_name_override_alias():
 
 
 def test_pair_capture_dry_run_creates_run_artifacts(tmp_path):
-    args = build_parser().parse_args(
-        [
-            "--dry-run-timing",
-            "--output-root",
-            str(tmp_path),
-            "--timestamp",
-            "20260527-120104",
-            "--test",
-            "a-kernel-b-static",
-            "--test-b",
-            "dot",
-            "--b-dot-x",
-            "960",
-            "--b-dot-y",
-            "540",
-            "--b-dot-radius",
-            "40",
-            "--kernel-px",
-            "1080",
-            "--exposure-us",
-            "3000",
-            "--runtime-seconds",
-            "999",
-            "--trigger-out-2-rising-delay-us",
-            "-20",
-            "--dmd-config",
-            "dmd_devices.json",
-            "--hz",
-            "60",
-            "-vv",
-        ])
+    argv = [
+        "--dry-run-timing",
+        "--output-root",
+        str(tmp_path),
+        "--timestamp",
+        "20260527-120104",
+        "--test",
+        "a-kernel-b-static",
+        "--test-b",
+        "dot",
+        "--b-dot-x",
+        "960",
+        "--b-dot-y",
+        "540",
+        "--b-dot-radius",
+        "40",
+        "--kernel-px",
+        "1080",
+        "--exposure-us",
+        "3000",
+        "--runtime-seconds",
+        "999",
+        "--trigger-out-2-rising-delay-us",
+        "-20",
+        "--dmd-config",
+        "dmd_devices.json",
+        "--hz",
+        "60",
+        "-vv",
+    ]
+    command_argv = ["python", "-m", "dmdcontrol", "camera", "pair-capture", *argv]
+    args = build_parser().parse_args(argv)
 
-    run = dry_run(args)
+    run = dry_run(args, command_argv=command_argv)
 
     assert run.path == tmp_path / "20260527-120104-pair-capture"
     metadata = json.loads(run.metadata_path.read_text(encoding="utf-8"))
@@ -267,8 +253,10 @@ def test_pair_capture_dry_run_creates_run_artifacts(tmp_path):
         "falling_delay_us": 0,
     }
     assert metadata["artifacts"] == ["metadata.json", "timing.json", "command.txt", "run.log"]
+    assert metadata["command"] == command_argv
     assert timing == metadata["trigger_policy"]
-    assert "dmdcontrol camera pair-capture --dry-run-timing" in command
+    assert "--kernel-px 1080" in command
+    assert "--trigger-out-2-rising-delay-us -20" in command
     assert "dry-run" in log
 
 

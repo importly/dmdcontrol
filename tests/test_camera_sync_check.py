@@ -322,14 +322,10 @@ def test_sync_check_parser_accepts_event_noise_filter_options():
     assert args.save_filtered_events is True
 
 
-def test_sync_check_parser_does_not_reset_camera_usb_by_default():
-    args = build_parser().parse_args(["--dry-run"])
-    enabled = build_parser().parse_args(["--dry-run", "--camera-usb-reset"])
-    disabled = build_parser().parse_args(["--dry-run", "--no-camera-usb-reset"])
-
-    assert args.camera_usb_reset is False
-    assert enabled.camera_usb_reset is True
-    assert disabled.camera_usb_reset is False
+@pytest.mark.parametrize("flag", ["--camera-usb-reset", "--no-camera-usb-reset"])
+def test_sync_check_parser_rejects_removed_usb_reset_flags(flag):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--dry-run", flag])
 
 
 def test_sync_check_parser_uses_mentor_style_camera_lifecycle_by_default():
@@ -339,17 +335,6 @@ def test_sync_check_parser_uses_mentor_style_camera_lifecycle_by_default():
     assert args.camera_shutdown_streams is False
     assert args.camera_flush_reads == 32
     assert args.camera_post_trigger_event_batches == 0
-
-
-def test_sync_check_parser_accepts_power_cycle_command():
-    args = build_parser().parse_args(
-        [
-            "--dry-run",
-            "--camera-power-cycle-command",
-            "uhubctl -l 1-2 -p 3 -a cycle -d 2",
-        ])
-
-    assert args.camera_power_cycle_command == "uhubctl -l 1-2 -p 3 -a cycle -d 2"
 
 
 def test_sync_check_parser_accepts_name_override_alias():
@@ -363,22 +348,25 @@ def test_sync_check_parser_accepts_name_override_alias():
 
 
 def test_sync_check_dry_run_creates_run_artifacts(tmp_path):
-    args = build_parser().parse_args(
-        [
-            "--dry-run",
-            "--output-root",
-            str(tmp_path),
-            "--timestamp",
-            "20260527-120102",
-            "--number-size-px",
-            "420",
-            "--numbers",
-            "1,2,3,4,5",
-            "--trigger-out-2-rising-delay-us",
-            "-20",
-        ])
+    argv = [
+        "--dry-run",
+        "--output-root",
+        str(tmp_path),
+        "--timestamp",
+        "20260527-120102",
+        "--number-size-px",
+        "420",
+        "--numbers",
+        "1,2,3,4,5",
+        "--trigger-out-2-rising-delay-us",
+        "-20",
+        "--accumulation-start-offset-us",
+        "-250",
+    ]
+    command_argv = ["python", "-m", "dmdcontrol", "camera", "sync-check", *argv]
+    args = build_parser().parse_args(argv)
 
-    run = dry_run(args)
+    run = dry_run(args, command_argv=command_argv)
 
     assert run.path == tmp_path / "20260527-120102-sync-check"
     metadata = json.loads(run.metadata_path.read_text(encoding="utf-8"))
@@ -400,8 +388,10 @@ def test_sync_check_dry_run_creates_run_artifacts(tmp_path):
         "falling_delay_us": 0,
     }
     assert metadata["artifacts"] == ["metadata.json", "timing.json", "command.txt", "run.log"]
+    assert metadata["command"] == command_argv
     assert timing == metadata["trigger_policy"]
-    assert "dmdcontrol camera sync-check --dry-run" in command
+    assert "--number-size-px 420" in command
+    assert "--accumulation-start-offset-us -250" in command
     assert "dry-run" in log
 
 

@@ -13,26 +13,6 @@ def test_camera_probe_accepts_duration_seconds():
     assert args.duration_seconds == 10.0
 
 
-def test_camera_probe_does_not_reset_usb_by_default():
-    args = camera_probe.build_parser().parse_args([])
-    enabled = camera_probe.build_parser().parse_args(["--usb-reset"])
-    disabled = camera_probe.build_parser().parse_args(["--no-usb-reset"])
-
-    assert args.usb_reset is False
-    assert enabled.usb_reset is True
-    assert disabled.usb_reset is False
-
-
-def test_camera_probe_accepts_power_cycle_command():
-    args = camera_probe.build_parser().parse_args(
-        [
-            "--power-cycle-command",
-            "uhubctl -l 1-2 -p 3 -a cycle -d 2",
-        ])
-
-    assert args.power_cycle_command == "uhubctl -l 1-2 -p 3 -a cycle -d 2"
-
-
 def test_camera_probe_does_not_rearm_event_stream_by_default():
     args = camera_probe.build_parser().parse_args([])
 

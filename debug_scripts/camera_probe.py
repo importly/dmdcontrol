@@ -6,7 +6,7 @@ Purpose:
 - No DMD.
 - No triggers.
 - No AEDAT writer.
-- Uses dmdcontrol camera USB reset helper, then reads live event batches from dv_processing.
+- Reads live event batches from dv_processing.
 - Accumulates ON / positive polarity events into one PNG.
 
 Expected result:
@@ -18,7 +18,6 @@ import argparse
 import gc
 import json
 import math
-import os
 import struct
 import sys
 import time
@@ -30,7 +29,6 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from dmdcontrol.camera.discovery import configure_camera_performance, open_camera_capture
-from dmdcontrol.camera.usb_reset import reset_camera_usb, run_power_cycle_command
 
 
 def positive_float(value: str) -> float:
@@ -129,28 +127,6 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=99.5,
         help="Percentile used for image normalization.",
-    )
-    parser.add_argument(
-        "--usb-reset",
-        dest="usb_reset",
-        action="store_true",
-        default=False,
-        help=
-        "Diagnostic: run a Linux USB device reset before opening the camera. Disabled by default.",
-    )
-    parser.add_argument(
-        "--no-usb-reset",
-        dest="usb_reset",
-        action="store_false",
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument(
-        "--power-cycle-command",
-        default=None,
-        help=(
-            "Optional command run before camera open to power-cycle the USB port, "
-            "for example: \"uhubctl -l 1-2 -p 3 -a cycle -d 2\". "
-            "Defaults to DMD_CAMERA_POWER_CYCLE_COMMAND when set."),
     )
     parser.add_argument(
         "--stream-rearm",
@@ -282,11 +258,6 @@ def run() -> int:
 
     print("[probe] dv_processing:", dv)
     print("[probe] dv_processing version:", getattr(dv, "__version__", "unknown"))
-    power_cycle_command = args.power_cycle_command or os.environ.get(
-        "DMD_CAMERA_POWER_CYCLE_COMMAND")
-    print("[probe] power cycle:", run_power_cycle_command(power_cycle_command))
-    print("[probe] usb reset:", reset_camera_usb(dv, enabled=args.usb_reset))
-
     descs = dv.io.camera.discover()
     print(f"[probe] discovered {len(descs)} camera(s)")
     for i, d in enumerate(descs):

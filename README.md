@@ -304,13 +304,14 @@ Current default camera behavior is intended to match the original modern `dv_pro
 - The open-time stale batch flush uses `--camera-flush-reads`, default `1`.
 - No legacy `dv.io.CameraCapture()` path is used unless `--camera-open-method legacy` is passed.
 - No post-trigger grace reads are used unless `--camera-post-trigger-event-batches N` is passed. The default is `0`.
-- No USB reset, stream rearm, shutdown, or power-cycle command runs unless the corresponding flag/env option is passed.
+- No stream rearm or shutdown runs unless the corresponding flag is passed.
 
 For timing sweeps, prefer `notebooks/01_generate_timing_sweep_commands.ipynb` plus the generated
 `run_camera_sync_sweep.sh --manifest ...` launcher. That command opens the DVXplorer once, reuses the same capture
 handle for every manifest row, and closes it only after the sweep finishes. After a physical replug, run the persistent
 sweep directly; do not run `python -m dmdcontrol camera status`, `camera_probe.py`, or a one-row sync check first if the
-goal is to preserve the first good camera open for the sweep.
+goal is to preserve the first good camera open for the sweep. Each manifest row must include an explicit `sync_check_argv`
+or `command` value; `sync-sweep` does not infer `sync-check` flags from separate CSV option columns.
 
 The extra camera flags are diagnostic switches, not normal-run requirements:
 
@@ -318,14 +319,13 @@ The extra camera flags are diagnostic switches, not normal-run requirements:
 |------|---------|-----|
 | `--camera-open-method modern|legacy` | `modern` | Compare current `dv.io.camera.open()` against the mentor/Hannah legacy `dv.io.CameraCapture()` path. |
 | `--camera-post-trigger-event-batches N` | `0` | Keep reading up to `N` event batches after the expected trigger count. This did not fix the current no-optical-response state. |
-| `--camera-usb-reset` | off | Try Linux USBDEVFS reset before open. On the current DVXplorer issue this succeeded at the OS level but did not behave like a physical unplug/replug. |
 | `--camera-stream-rearm` | off | Toggle event/trigger running state after open, when the API exposes those controls. |
 | `--bias-sensitivity` / `--efps` | `default` | Camera performance configuration. In the modern DVXplorer API, `--bias-sensitivity low` maps through contrast-threshold APIs and is not guaranteed to mean the same thing as mentor's legacy `BiasSensitivity.Low`. |
 
 Current DVXplorer investigation state:
 
 - Event counts alone are not enough evidence. A bad camera state can still stream background-like events while the spatial PNG looks like the no-stimulus noise image.
-- Physical unplug/replug has restored stimulus-correlated optical response. Software open/close, stream rearm, threshold changes, and Linux USB reset have not reliably restored it.
+- Physical unplug/replug has restored stimulus-correlated optical response. Software open/close, stream rearm, and threshold changes have not reliably restored it.
 - Under user `main` on `eodla`, `dv_processing` was observed as version `2.0.3`, with `dv.io.camera.open()` present and `dv.io.CameraCapture` absent. Mentor backup code uses `dv.io.CameraCapture()`, so that exact path cannot run in the observed `main` environment.
 - If Hannah's separate Linux user does not show this issue, first compare her Python/dv environment before changing sync-check logic.
 
@@ -343,9 +343,8 @@ print("has camera.open", hasattr(dv.io, "camera") and hasattr(dv.io.camera, "ope
 PY
 ```
 
-If a physical replug makes `camera_probe.py` images show the stimulus but `--camera-usb-reset` does not, treat the root
-cause as device/libcaer/dv-processing state that needs a fuller hardware or driver-level reinitialization, not as a DMD
-timing or accumulation-window-only bug.
+If a physical replug makes `camera_probe.py` images show the stimulus, treat the root cause as device/libcaer/dv-processing
+state that needs a fuller hardware or driver-level reinitialization, not as a DMD timing or accumulation-window-only bug.
 
 ## Trigger output behavior
 

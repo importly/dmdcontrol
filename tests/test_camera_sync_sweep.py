@@ -1,7 +1,10 @@
 import csv
 import json
+import shlex
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from dmdcontrol.camera import sync_sweep
 
@@ -14,25 +17,55 @@ def _write_manifest(path, rows):
         writer.writerows(rows)
 
 
-def _row(tmp_path, timestamp, exposure, rising_delay_us):
+def _sync_check_argv(tmp_path, timestamp, exposure, rising_delay_us):
+    return [
+        "--output-root",
+        str(tmp_path),
+        "--timestamp",
+        timestamp,
+        "--test",
+        "a-numbers-b-static",
+        "--test-b",
+        "dot",
+        "--numbers",
+        "1,2,3,4,5",
+        "--number-size-px",
+        "100",
+        "--b-dot-x",
+        "960",
+        "--b-dot-y",
+        "540",
+        "--b-dot-radius",
+        "20",
+        "--exposure-us",
+        str(exposure),
+        "--dark-time-us",
+        "100",
+        "--trigger-out-2-rising-delay-us",
+        str(rising_delay_us),
+        "--accumulation-start-offset-us",
+        "-250",
+        "--runtime-seconds",
+        "1",
+        "--polarity-mode",
+        "ignore",
+        "--event-noise-filter",
+        "none",
+        "--save-filtered-events",
+        "--accumulation-cycles",
+        "1",
+        "-v",
+    ]
+
+
+def _argv_row(tmp_path, timestamp, exposure, rising_delay_us):
+    return {"sync_check_argv": shlex.join(_sync_check_argv(tmp_path, timestamp, exposure, rising_delay_us))}
+
+
+def _command_row(tmp_path, timestamp, exposure, rising_delay_us):
     return {
-        "output_root": str(tmp_path),
-        "timestamp": timestamp,
-        "test": "a-numbers-b-static",
-        "test_b": "dot",
-        "numbers": "1,2,3,4,5",
-        "number_size_px": "100",
-        "b_dot_x": "960",
-        "b_dot_y": "540",
-        "b_dot_radius": "20",
-        "exposure_us": str(exposure),
-        "dark_time_us": "100",
-        "trigger_rising_delay_us": str(rising_delay_us),
-        "runtime_seconds": "1",
-        "polarity_mode": "ignore",
-        "event_noise_filter": "none",
-        "save_filtered_events": "True",
-        "verbose": "1",
+        "command":
+        shlex.join(["./run_camera_sync_check.sh", *_sync_check_argv(tmp_path, timestamp, exposure, rising_delay_us)])
     }
 
 
@@ -41,14 +74,14 @@ def test_sync_sweep_dry_run_creates_one_run_per_manifest_row(tmp_path):
     _write_manifest(
         manifest,
         [
-            _row(tmp_path,
-                 "sweep-000",
-                 600,
-                 0),
-            _row(tmp_path,
-                 "sweep-001",
-                 1000,
-                 -20),
+            _argv_row(tmp_path,
+                      "sweep-000",
+                      600,
+                      0),
+            _argv_row(tmp_path,
+                      "sweep-001",
+                      1000,
+                      -20),
         ],
     )
 
@@ -60,9 +93,13 @@ def test_sync_sweep_dry_run_creates_one_run_per_manifest_row(tmp_path):
         (tmp_path / "sweep-001-sync-check" / "metadata.json").read_text(encoding="utf-8"))
     assert first["dry_run"] is True
     assert first["exposure_us"] == 600
+    assert first["accumulation_start_offset_us"] == -250
+    assert first["accumulation_cycles"] == 1
     assert first["trigger_policy"]["rising_delay_us"] == 0
     assert first["trigger_policy"]["falling_delay_us"] == 20
     assert second["exposure_us"] == 1000
+    assert second["accumulation_start_offset_us"] == -250
+    assert second["accumulation_cycles"] == 1
     assert second["trigger_policy"]["rising_delay_us"] == -20
     assert second["trigger_policy"]["falling_delay_us"] == 0
 
@@ -71,7 +108,7 @@ def test_camera_sync_sweep_cli_dry_run_creates_artifacts(tmp_path):
     from dmdcontrol.cli.main import main
 
     manifest = tmp_path / "sweep.csv"
-    _write_manifest(manifest, [_row(tmp_path, "sweep-000", 600, 0)])
+    _write_manifest(manifest, [_argv_row(tmp_path, "sweep-000", 600, 0)])
 
     assert main([
         "camera",
@@ -87,21 +124,35 @@ def test_camera_sync_sweep_cli_dry_run_creates_artifacts(tmp_path):
     assert metadata["exposure_us"] == 600
 
 
-def test_sync_sweep_forwards_accumulation_cycle_options_from_manifest(tmp_path):
-    argv = sync_sweep._row_sync_check_argv(
-        {
-            **_row(tmp_path,
-                   "sweep-000",
-                   600,
-                   0),
-            "accumulation_cycles": "2",
-            "trigger_cluster_us": "0",
-            "cycle_selection": "strongest",
-        })
+def test_sync_sweep_command_row_preserves_original_command_in_artifacts(tmp_path):
+    manifest = tmp_path / "sweep.csv"
+    _write_manifest(manifest, [_command_row(tmp_path, "sweep-000", 600, 0)])
 
-    assert argv[argv.index("--accumulation-cycles") + 1] == "2"
-    assert "--trigger-cluster-us" not in argv
-    assert "--cycle-selection" not in argv
+    assert sync_sweep.main(["--dry-run", "--manifest", str(manifest)]) == 0
+
+    run = tmp_path / "sweep-000-sync-check"
+    metadata = json.loads((run / "metadata.json").read_text(encoding="utf-8"))
+    command = (run / "command.txt").read_text(encoding="utf-8")
+
+    assert metadata["command"][0] == "./run_camera_sync_check.sh"
+    assert command.startswith("./run_camera_sync_check.sh ")
+
+
+def test_sync_sweep_rejects_manifest_without_explicit_command(tmp_path):
+    manifest = tmp_path / "sweep.csv"
+    _write_manifest(
+        manifest,
+        [
+            {
+                "output_root": str(tmp_path),
+                "timestamp": "sweep-000",
+                "exposure_us": "600",
+            }
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="sync_check_argv or command"):
+        sync_sweep.main(["--dry-run", "--manifest", str(manifest)])
 
 
 def test_sync_sweep_live_opens_camera_once_for_all_rows(tmp_path, monkeypatch):
@@ -109,14 +160,14 @@ def test_sync_sweep_live_opens_camera_once_for_all_rows(tmp_path, monkeypatch):
     _write_manifest(
         manifest,
         [
-            _row(tmp_path,
-                 "sweep-000",
-                 600,
-                 0),
-            _row(tmp_path,
-                 "sweep-001",
-                 1000,
-                 -20),
+            _argv_row(tmp_path,
+                      "sweep-000",
+                      600,
+                      0),
+            _argv_row(tmp_path,
+                      "sweep-001",
+                      1000,
+                      -20),
         ],
     )
     calls = {

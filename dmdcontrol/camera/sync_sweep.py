@@ -14,82 +14,8 @@ from dmdcontrol.camera.session import (
     open_ready_camera_capture,
 )
 
-ROW_OPTION_MAP = [
-    ("test",
-     "--test"),
-    ("test_b",
-     "--test-b"),
-    ("numbers",
-     "--numbers"),
-    ("number_size_px",
-     "--number-size-px"),
-    ("b_dot_x",
-     "--b-dot-x"),
-    ("b_dot_y",
-     "--b-dot-y"),
-    ("b_dot_radius",
-     "--b-dot-radius"),
-    ("exposure_us",
-     "--exposure-us"),
-    ("dark_time_us",
-     "--dark-time-us"),
-    ("trigger_rising_delay_us",
-     "--trigger-out-2-rising-delay-us"),
-    ("runtime_seconds",
-     "--runtime-seconds"),
-    ("seq_utilization",
-     "--seq-utilization"),
-    ("dmd_config",
-     "--dmd-config"),
-    ("hz",
-     "--hz"),
-    ("polarity_mode",
-     "--polarity-mode"),
-    ("event_noise_filter",
-     "--event-noise-filter"),
-    ("event_filter_delta_us",
-     "--event-filter-delta-us"),
-    ("event_filter_window_px",
-     "--event-filter-window-px"),
-    ("event_filter_threshold",
-     "--event-filter-threshold"),
-    ("event_filter_polarity",
-     "--event-filter-polarity"),
-    ("output_root",
-     "--output-root"),
-    ("timestamp",
-     "--timestamp"),
-    ("camera_open_method",
-     "--camera-open-method"),
-    ("camera_power_cycle_command",
-     "--camera-power-cycle-command"),
-    ("camera_flush_reads",
-     "--camera-flush-reads"),
-    ("camera_post_trigger_event_batches",
-     "--camera-post-trigger-event-batches"),
-    ("accumulation_cycles",
-     "--accumulation-cycles"),
-    ("bias_sensitivity",
-     "--bias-sensitivity"),
-    ("efps",
-     "--efps"),
-]
-
-ROW_FLAG_MAP = [
-    ("save_filtered_events",
-     "--save-filtered-events"),
-    ("camera_usb_reset",
-     "--camera-usb-reset"),
-    ("camera_stream_rearm",
-     "--camera-stream-rearm"),
-    ("camera_shutdown_streams",
-     "--camera-shutdown-streams"),
-]
-
 PERSISTENT_CAMERA_FIELDS = [
     "camera_open_method",
-    "camera_usb_reset",
-    "camera_power_cycle_command",
     "camera_stream_rearm",
     "camera_shutdown_streams",
     "camera_flush_reads",
@@ -115,37 +41,25 @@ def _has_value(value) -> bool:
     return value is not None and str(value).strip() not in {"", "None", "none", "nan"}
 
 
-def _row_sync_check_argv(row: dict[str, str]) -> list[str]:
+def _row_sync_check_argv(row: dict[str, str]) -> tuple[list[str], list[str]]:
     explicit = row.get("sync_check_argv", "")
     if explicit.strip():
-        return shlex.split(explicit)
+        argv = shlex.split(explicit)
+        return argv, ["python", "-m", "dmdcontrol", "camera", "sync-check", *argv]
 
     command = row.get("command", "")
     if command.strip():
         tokens = shlex.split(command)
         if tokens and tokens[0].endswith("run_camera_sync_check.sh"):
-            return tokens[1:]
+            return tokens[1:], tokens
         if "sync-check" in tokens:
-            return tokens[tokens.index("sync-check") + 1:]
-        return tokens
+            return tokens[tokens.index("sync-check") + 1:], tokens
+        return tokens, tokens
 
-    argv = []
-    for key, flag in ROW_OPTION_MAP:
-        value = row.get(key)
-        if _has_value(value):
-            argv.extend([flag, str(value)])
-    for key, flag in ROW_FLAG_MAP:
-        if str(row.get(key, "")).strip().lower() in {"1", "true", "yes", "y", "on"}:
-            argv.append(flag)
-    verbose = row.get("verbose")
-    if _has_value(verbose):
-        count = int(float(verbose))
-        if count > 0:
-            argv.append("-" + ("v" * count))
-    return argv
+    raise SystemExit("Manifest rows must include sync_check_argv or command.")
 
 
-def _load_manifest(path: Path) -> list[tuple[dict[str, str], list[str], argparse.Namespace]]:
+def _load_manifest(path: Path) -> list[tuple[dict[str, str], list[str], list[str], argparse.Namespace]]:
     with path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     if not rows:
@@ -154,7 +68,7 @@ def _load_manifest(path: Path) -> list[tuple[dict[str, str], list[str], argparse
     parsed = []
     parser = sync_check.build_parser()
     for index, row in enumerate(rows):
-        argv = _row_sync_check_argv(row)
+        argv, command_argv = _row_sync_check_argv(row)
         args = parser.parse_args(argv)
         args.sweep_manifest = str(path)
         args.sweep_index = int(row["index"]) if _has_value(row.get("index")) else index
@@ -162,14 +76,14 @@ def _load_manifest(path: Path) -> list[tuple[dict[str, str], list[str], argparse
             args.sweep_id = row["sweep_id"]
         if _has_value(row.get("repeat")):
             args.sweep_repeat = int(row["repeat"])
-        parsed.append((row, argv, args))
+        parsed.append((row, argv, command_argv, args))
     return parsed
 
 
 def _validate_persistent_camera_args(parsed_rows) -> None:
-    first_args = parsed_rows[0][2]
+    first_args = parsed_rows[0][3]
     first = {name: getattr(first_args, name, None) for name in PERSISTENT_CAMERA_FIELDS}
-    for row_number, (_, _, args) in enumerate(parsed_rows[1:], start=2):
+    for row_number, (_, _, _, args) in enumerate(parsed_rows[1:], start=2):
         for name, expected in first.items():
             actual = getattr(args, name, None)
             if actual != expected:
@@ -179,19 +93,19 @@ def _validate_persistent_camera_args(parsed_rows) -> None:
 
 
 def dry_run(parsed_rows) -> int:
-    for _, _, args in parsed_rows:
+    for _, _, command_argv, args in parsed_rows:
         args.dry_run = True
-        sync_check.dry_run(args)
+        sync_check.dry_run(args, command_argv=command_argv)
     return 0
 
 
 def live(parsed_rows) -> int:
     _validate_persistent_camera_args(parsed_rows)
-    first_args = parsed_rows[0][2]
+    first_args = parsed_rows[0][3]
     capture = None
     try:
         capture, ready = open_ready_camera_capture(first_args)
-        for _, argv, args in parsed_rows:
+        for _, _, command_argv, args in parsed_rows:
             run = create_run_directory("sync-check", args.output_root, timestamp=args.timestamp)
             writer = None
             try:
@@ -200,7 +114,6 @@ def live(parsed_rows) -> int:
                     reads=args.camera_flush_reads,
                 )
                 writer = open_camera_writer(run, capture)
-                command_argv = ["python", "-m", "dmdcontrol", "camera", "sync-check", *argv]
                 sync_check.live_capture(
                     args,
                     run,

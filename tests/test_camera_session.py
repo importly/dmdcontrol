@@ -35,8 +35,6 @@ class FakeWriter:
 
 def _args(**overrides):
     values = {
-        "camera_power_cycle_command": None,
-        "camera_usb_reset": False,
         "camera_stream_rearm": False,
         "camera_shutdown_streams": False,
         "camera_open_method": "modern",
@@ -62,17 +60,6 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
     ready = SimpleNamespace(event_resolution=(320, 240))
 
     monkeypatch.setitem(sys.modules, "dv_processing", fake_dv)
-    monkeypatch.setenv("DMD_CAMERA_POWER_CYCLE_COMMAND", "cycle-camera")
-    monkeypatch.setattr(
-        session,
-        "run_power_cycle_command",
-        lambda command: calls.append(("power", command)) or {"command": command},
-    )
-    monkeypatch.setattr(
-        session,
-        "reset_camera_usb",
-        lambda dv, enabled: calls.append(("reset", dv is fake_dv, enabled)) or {"enabled": enabled},
-    )
     monkeypatch.setattr(
         session,
         "rearm_camera_streams",
@@ -94,21 +81,17 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
     monkeypatch.setattr(
         session,
         "validate_camera_ready",
-        lambda opened_capture, stream_rearm, usb_reset, power_cycle, trigger_configuration: calls.
-        append(
+        lambda opened_capture, stream_rearm, trigger_configuration: calls.append(
             (
                 "ready",
                 opened_capture is capture,
                 stream_rearm,
-                usb_reset,
-                power_cycle,
                 trigger_configuration, )) or ready,
     )
 
     opened_capture, writer, opened_ready = session.open_ready_camera(
         run,
         _args(
-            camera_usb_reset=True,
             camera_stream_rearm=True,
             bias_sensitivity="low",
             efps="variable_5000",
@@ -124,11 +107,6 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
     assert capture.event_reads == 1
     assert capture.trigger_reads == 1
     assert calls == [
-        ("power",
-         "cycle-camera"),
-        ("reset",
-         True,
-         True),
         "open",
         ("rearm",
          True),
@@ -144,10 +122,6 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
             True,
             {
                 "rearmed": True},
-            {
-                "enabled": True},
-            {
-                "command": "cycle-camera"},
             {
                 "configured": True},
         ),
@@ -175,8 +149,6 @@ def test_open_ready_camera_cleans_up_when_flush_fails(monkeypatch, tmp_path):
     run = SimpleNamespace(raw_recording_path=tmp_path / "raw.aedat4")
 
     monkeypatch.setitem(sys.modules, "dv_processing", fake_dv)
-    monkeypatch.setattr(session, "run_power_cycle_command", lambda command: None)
-    monkeypatch.setattr(session, "reset_camera_usb", lambda dv, enabled: None)
     monkeypatch.setattr(session, "configure_camera_performance", lambda *args, **kwargs: None)
     monkeypatch.setattr(session, "configure_rising_edge_triggers", lambda *args, **kwargs: None)
     monkeypatch.setattr(session, "validate_camera_ready", lambda *args, **kwargs: SimpleNamespace())
@@ -264,8 +236,6 @@ def test_open_ready_camera_can_use_legacy_camera_open_method(monkeypatch, tmp_pa
     run = SimpleNamespace(raw_recording_path=tmp_path / "raw.aedat4")
 
     monkeypatch.setitem(sys.modules, "dv_processing", fake_dv)
-    monkeypatch.setattr(session, "run_power_cycle_command", lambda command: None)
-    monkeypatch.setattr(session, "reset_camera_usb", lambda dv, enabled: None)
     monkeypatch.setattr(
         session,
         "open_camera_capture",
