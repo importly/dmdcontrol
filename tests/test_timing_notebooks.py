@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -112,6 +113,157 @@ def test_laser3_notebook_repeats_rainbow_phase_per_number_cycle():
     assert "rainbow_frame_slider" in source
 
 
+def test_laser3_notebook_separates_display_sequence_from_analysis_phase():
+    notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
+    namespace = _exec_notebook_functions(
+        notebook,
+        [
+            "analysis_label_for_frame",
+            "frame_title_label_for_frame",
+            "legend_labels_for_analysis_phase",
+            "rainbow_color_segment_for_slot",
+        ],
+    )
+
+    display_sequence = [2, 3, 1]
+    raw_labels = [
+        namespace["analysis_label_for_frame"](
+            index,
+            labels=display_sequence,
+            cycle_length=3,
+            label_phase_shift=0,
+        )
+        for index in range(3)
+    ]
+    shifted_labels = [
+        namespace["analysis_label_for_frame"](
+            index,
+            labels=display_sequence,
+            cycle_length=3,
+            label_phase_shift=2,
+        )
+        for index in range(6)
+    ]
+    legend_labels = namespace["legend_labels_for_analysis_phase"](
+        labels=display_sequence,
+        cycle_length=3,
+        label_phase_shift=2,
+    )
+
+    assert raw_labels == [2, 3, 1]
+    assert shifted_labels == [3, 1, 2, 3, 1, 2]
+    assert legend_labels == [
+        {"slot": 0, "label": 3, "segment": 1},
+        {"slot": 1, "label": 1, "segment": 2},
+        {"slot": 2, "label": 2, "segment": 0},
+    ]
+    assert [
+        namespace["rainbow_color_segment_for_slot"](item["slot"], 3, labels=display_sequence)
+        for item in legend_labels
+    ] == [1, 2, 0]
+    assert "DEFAULT_RAINBOW_LABEL_PHASE_SHIFT = int(globals().get(\"RAINBOW_LABEL_PHASE_SHIFT\", 2" in _joined_source(notebook)
+
+    title_pairs = []
+    for index in range(3, 6):
+        raw_label = display_sequence[index % 3]
+        analysis_label = namespace["frame_title_label_for_frame"](
+            index,
+            labels=display_sequence,
+            cycle_length=3,
+            label_phase_shift=2,
+        )
+        title_pairs.append((analysis_label, raw_label))
+    assert title_pairs == [(1, 2), (2, 3), (3, 1)]
+
+
+def test_laser3_notebook_counts_temporal_provenance_buckets():
+    notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
+    namespace = _exec_notebook_functions(notebook, ["event_provenance_counts_for_frame"])
+
+    trigger_ts = np.array([0, 5000, 10000, 15000], dtype=np.int64)
+    event_ts = np.array(
+        [
+            4800,  # outside the accumulation window, before the previous-trigger tail
+            4900,  # selected pre-trigger event from previous phase
+            5050,  # selected current-phase event
+            8849,  # selected current-phase event near accumulation end
+            8900,  # post-window diagnostic event
+            10020,  # next-phase diagnostic event
+        ],
+        dtype=np.int64,
+    )
+
+    counts = namespace["event_provenance_counts_for_frame"](
+        frame_index=1,
+        event_ts=event_ts,
+        trigger_ts=trigger_ts,
+        offset_us=-150,
+        window_us=4000,
+        post_window_us=1500,
+    )
+
+    assert counts["window_start_us"] == 4850
+    assert counts["window_stop_us"] == 8850
+    assert counts["selected_events"] == 3
+    assert counts["pre_trigger_events"] == 1
+    assert counts["in_window_events"] == 2
+    assert counts["post_window_events"] == 1
+    assert counts["previous_phase_events"] == 1
+    assert counts["current_phase_events"] == 3
+    assert counts["next_phase_events"] == 1
+
+
+def test_laser3_notebook_computes_trimmed_aedat4_time_window():
+    notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
+    namespace = _exec_notebook_functions(
+        notebook,
+        ["displayed_trigger_trim_window", "trim_event_arrays_for_time_window"],
+    )
+
+    trigger_ts = np.array([1000, 6000, 11000, 16000], dtype=np.int64)
+    window = namespace["displayed_trigger_trim_window"](
+        trigger_ts,
+        frame_count=3,
+        buffer_us=2000,
+    )
+
+    assert window == {
+        "start_us": -1000,
+        "stop_us": 13000,
+        "first_trigger_us": 1000,
+        "last_trigger_us": 11000,
+        "selected_trigger_count": 3,
+        "buffer_us": 2000,
+    }
+
+    arrays = {
+        "t": np.array([0, 999, 1000, 12999, 13000], dtype=np.int64),
+        "x": np.array([1, 2, 3, 4, 5], dtype=np.int64),
+        "y": np.array([6, 7, 8, 9, 10], dtype=np.int64),
+        "p": np.array([True, False, True, False, True], dtype=np.bool_),
+    }
+    trimmed = namespace["trim_event_arrays_for_time_window"](arrays, window)
+
+    assert trimmed["t"].tolist() == [0, 999, 1000, 12999]
+    assert trimmed["x"].tolist() == [1, 2, 3, 4]
+    assert trimmed["y"].tolist() == [6, 7, 8, 9]
+    assert trimmed["p"].tolist() == [True, False, True, False]
+
+
+def test_laser3_notebook_writes_trimmed_display_aedat4_artifact():
+    notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
+    source = _joined_source(notebook)
+
+    assert "TRIMMED_AEDAT4_TRIGGER_COUNT = STATIC_RAINBOW_FRAME_COUNT" in source
+    assert "TRIMMED_AEDAT4_BUFFER_US = 2000" in source
+    assert "trimmed_displayed_30_triggers_plus_2000us.aedat4" in source
+    assert "write_trimmed_display_aedat4(" in source
+    assert "addEventStream" in source
+    assert "addTriggerStream" in source
+    assert "writeEvents" in source
+    assert "writeTriggerPacket" in source
+
+
 def test_laser3_notebook_uses_readable_rainbow_view_defaults():
     notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
     source = _joined_source(notebook)
@@ -125,6 +277,37 @@ def test_laser3_notebook_uses_readable_rainbow_view_defaults():
     assert "rainbow_dot_slider = widgets.IntSlider(value=1" in source
     assert "rainbow_tile_scale_slider = widgets.IntSlider(value=3" in source
     assert "rainbow_focus_scale_slider = widgets.IntSlider(value=6" in source
+    assert "DEFAULT_RAINBOW_LABEL_PHASE_SHIFT" in source
+    assert "rainbow_phase_shift_slider = widgets.IntSlider" in source
+    assert "pre_trigger_events" in source
+    assert "next_phase_events" in source
+
+
+def test_laser3_rainbow_header_keeps_analysis_legend_above_focus():
+    notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
+    source = _joined_source(notebook)
+    render_block_match = re.search(
+        r"def render_rainbow_provenance_sheet\(.*?\ndef render_shape_leakage_sheet\(",
+        source,
+        re.S,
+    )
+    assert render_block_match is not None
+    render_block = render_block_match.group(0)
+    layout = re.search(
+        r"header_h = (?P<header>\d+).*?"
+        r"draw_rainbow_cycle_legend\(draw, 10, (?P<y>\d+), min\(420, canvas_w - 30\), (?P<height>\d+), "
+        r"label_phase_shift=int\(label_phase_shift\)\)",
+        render_block,
+        re.S,
+    )
+    assert layout is not None
+
+    header_h = int(layout.group("header"))
+    legend_y = int(layout.group("y"))
+    legend_height = int(layout.group("height"))
+    shifted_label_bottom = legend_y + legend_height + 29 + 24
+
+    assert header_h >= shifted_label_bottom
 
 
 def test_laser3_notebook_uses_aedat4_triggers_instead_of_trigger_csv():
@@ -144,7 +327,12 @@ def test_laser3_shape_leakage_scores_detect_off_label_structure():
     source = _joined_source(notebook)
     namespace = _exec_notebook_functions(
         notebook,
-        ["shape_label_for_frame", "shape_template_label_map", "shape_overlap_scores"],
+        [
+            "analysis_label_for_frame",
+            "shape_label_for_frame",
+            "shape_template_label_map",
+            "shape_overlap_scores",
+        ],
     )
 
     frames = np.zeros((6, 6, 6), dtype=np.float32)
