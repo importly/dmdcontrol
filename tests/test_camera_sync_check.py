@@ -277,6 +277,24 @@ def test_sync_check_count_mode_expects_one_trigger_per_count():
     assert expected_trigger_count(args) == 100
 
 
+def test_sync_check_count_blank_between_frames_doubles_expected_triggers():
+    args = build_parser().parse_args(
+        [
+            "--test",
+            "a-count-b-static",
+            "--count-start",
+            "1",
+            "--count-end",
+            "4",
+            "--count-slots-per-frame",
+            "1",
+            "--count-blank-between-frames",
+        ])
+
+    assert args.count_blank_between_frames is True
+    assert expected_trigger_count(args) == 8
+
+
 def test_sync_check_runtime_args_forward_count_options_without_numbers():
     args = build_parser().parse_args(
         [
@@ -309,6 +327,28 @@ def test_sync_check_runtime_args_forward_count_options_without_numbers():
     assert pair_args[pair_args.index("--count-slots-per-frame") + 1] == "2"
     assert pair_args[pair_args.index("--exposure-us") + 1] == "7000"
     assert pair_args[pair_args.index("--numbers-size-px") + 1] == "123"
+    assert "--count-blank-between-frames" not in pair_args
+
+
+def test_sync_check_runtime_args_forward_count_blank_between_frames():
+    args = build_parser().parse_args(
+        [
+            "--test",
+            "a-count-b-static",
+            "--test-b",
+            "dot",
+            "--count-start",
+            "1",
+            "--count-end",
+            "4",
+            "--count-slots-per-frame",
+            "1",
+            "--count-blank-between-frames",
+        ])
+
+    pair_args = _to_pair_runtime_args(args)
+
+    assert "--count-blank-between-frames" in pair_args
 
 
 def test_sync_check_runtime_args_auto_resolve_count_slots_from_timing():
@@ -589,10 +629,41 @@ def test_sync_check_count_mode_dry_run_records_count_metadata(tmp_path):
     assert metadata["count_end"] == 100
     assert metadata["count_slots_per_frame"] == 2
     assert metadata["count_slots_per_frame_mode"] == "auto"
+    assert metadata["count_blank_between_frames"] is False
     assert metadata["exposure_us"] == 4000
     assert metadata["expected_trigger_count"] == 100
     assert metadata["accumulation_window_us"] == 4000
     assert metadata["bitplane_count"] == 2
+
+
+def test_sync_check_count_mode_dry_run_records_blank_between_frames_metadata(tmp_path):
+    args = build_parser().parse_args(
+        [
+            "--dry-run",
+            "--output-root",
+            str(tmp_path),
+            "--timestamp",
+            "20260629-120100",
+            "--test",
+            "a-count-b-static",
+            "--count-start",
+            "1",
+            "--count-end",
+            "4",
+            "--count-slots-per-frame",
+            "1",
+            "--count-blank-between-frames",
+            "--exposure-us",
+            "8000",
+            "--seq-utilization",
+            "1.0",
+        ])
+
+    run = dry_run(args)
+
+    metadata = json.loads(run.metadata_path.read_text(encoding="utf-8"))
+    assert metadata["count_blank_between_frames"] is True
+    assert metadata["expected_trigger_count"] == 8
 
 
 def test_camera_sync_check_cli_dry_run_creates_artifacts(tmp_path):

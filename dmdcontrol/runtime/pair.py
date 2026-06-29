@@ -33,7 +33,9 @@ from dmdcontrol.patterns.paired import (
     PAIR_TESTS,
     PAIR_WIDTH,
     STATIC_PAIR_TESTS,
+    STATIC_IMAGES_PAIR_TEST,
     SingleDmdFrameAdapter,
+    count_lut_entries_per_frame,
     count_sequence_frame_count,
     generate_dot_frame,
     generate_static_frame,
@@ -47,7 +49,10 @@ from dmdcontrol.runtime.lifecycle import (
     prepare_dlpc900_for_video_pattern,
     start_loaded_pattern_sequences,
 )
-from dmdcontrol.runtime.count_slots import resolve_count_slots_per_frame
+from dmdcontrol.runtime.count_slots import (
+    resolve_count_slots_per_frame,
+    validate_count_lut_sequence_does_not_repeat,
+)
 from dmdcontrol.support.constants import (
     BITPLANES,
     DEFAULT_HZ,
@@ -216,6 +221,29 @@ def _build_parser():
             "Use 'auto' or omit to choose the fastest timing-valid divisor."),
     )
     parser.add_argument(
+        "--count-blank-between-frames",
+        action="store_true",
+        help="A-count paired recipe: insert an all-black A frame after each count frame.",
+    )
+    parser.add_argument(
+        "--static-image-a",
+        default=None,
+        help="Static-images paired recipe: image path displayed on DMD A",
+    )
+    parser.add_argument(
+        "--static-image-b",
+        default=None,
+        help="Static-images paired recipe: image path displayed on DMD B",
+    )
+    parser.add_argument(
+        "--static-image-size-px",
+        type=positive_int,
+        default=DMD_HEIGHT,
+        help=(
+            "Static-images paired recipe: longest image side after aspect-preserving resize; "
+            "the result is centered on each DMD."),
+    )
+    parser.add_argument(
         "--wake-dp",
         action="store_true",
         help="Wake both DP receivers before runtime")
@@ -284,6 +312,7 @@ def _resolve_count_recipe_args(args, target_hz=DEFAULT_HZ):
                 count_end=args.count_end,
                 exposure_us=args.exposure_us,
                 dark_time_us=args.dark_time_us,
+                count_blank_between_frames=args.count_blank_between_frames,
                 target_hz=target_hz,
                 sequence_utilization=args.seq_utilization,
             )
@@ -301,13 +330,21 @@ def _validate_pair_args(args, target_hz=DEFAULT_HZ):
         raise SystemExit(f"--trigger-out-2-rising-delay-us is invalid: {exc}") from exc
     if args.dark_time_us is not None and args.dark_time_us < 0:
         raise SystemExit("--dark-time-us must be non-negative")
+    if not _is_count_recipe(args.test) and args.count_blank_between_frames:
+        raise SystemExit("--count-blank-between-frames is only valid for a-count-b-static")
+    if args.test == STATIC_IMAGES_PAIR_TEST:
+        if args.test_a or args.test_b:
+            raise SystemExit("--test-a/--test-b are not valid for static-images; use image paths")
+        if not args.static_image_a or not args.static_image_b:
+            raise SystemExit("static-images requires --static-image-a and --static-image-b")
+        return
     if args.test == KERNEL_STATIC_PAIR_TEST:
         if args.test_a:
             raise SystemExit("--test-a is not valid for a-kernel-b-static; A is the kernel stream")
         return
     if _is_count_recipe(args.test):
         _resolve_count_recipe_args(args, target_hz=target_hz)
-        _validate_count_recipe_args(args)
+        _validate_count_recipe_args(args, target_hz=target_hz)
         return
     if _is_numbers_recipe(args.test):
         if args.test == A_NUMBERS_B_STATIC_PAIR_TEST and args.test_a:
@@ -334,13 +371,21 @@ def _is_count_recipe(test):
     return test == A_COUNT_B_STATIC_PAIR_TEST
 
 
-def _validate_count_recipe_args(args):
+def _validate_count_recipe_args(args, target_hz=DEFAULT_HZ):
     if args.test_a:
         raise SystemExit("--test-a is not valid for a-count-b-static; A is the count stream")
     if args.count_start > args.count_end:
         raise SystemExit("--count-start must be <= --count-end")
     if args.count_slots_per_frame <= 0 or args.count_slots_per_frame > BITPLANES:
         raise SystemExit(f"--count-slots-per-frame must be in the range 1..{BITPLANES}")
+    lut_entries = count_lut_entries_per_frame(
+        args.count_slots_per_frame,
+        count_blank_between_frames=args.count_blank_between_frames,
+    )
+    if lut_entries > BITPLANES:
+        raise SystemExit(
+            f"--count-slots-per-frame {args.count_slots_per_frame} with "
+            f"--count-blank-between-frames needs {lut_entries} LUT entries; max is {BITPLANES}")
     count_total = args.count_end - args.count_start + 1
     if count_total % args.count_slots_per_frame != 0:
         raise SystemExit("count range length must be divisible by --count-slots-per-frame")
@@ -348,6 +393,17 @@ def _validate_count_recipe_args(args):
     if frame_count > MAX_COUNT_SEQUENCE_FRAMES:
         raise SystemExit(
             f"a-count-b-static can span at most {MAX_COUNT_SEQUENCE_FRAMES} VSYNC frames")
+    try:
+        validate_count_lut_sequence_does_not_repeat(
+            count_slots_per_frame=args.count_slots_per_frame,
+            exposure_us=args.exposure_us,
+            dark_time_us=args.dark_time_us,
+            count_blank_between_frames=args.count_blank_between_frames,
+            target_hz=target_hz,
+            sequence_utilization=args.seq_utilization,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def _kernel_lut_override(args, target_hz):
@@ -370,7 +426,10 @@ def _lut_override(args, target_hz):
         # impossible at 60 Hz; e.g. 24 * 3000 us.
         return len(args.numbers), getattr(args, "exposure_us", None)
     if _is_count_recipe(args.test):
-        return args.count_slots_per_frame, getattr(args, "exposure_us", None)
+        return count_lut_entries_per_frame(
+            args.count_slots_per_frame,
+            count_blank_between_frames=args.count_blank_between_frames,
+        ), getattr(args, "exposure_us", None)
     if args.test == KERNEL_STATIC_PAIR_TEST:
         return _kernel_lut_override(args, target_hz)
     return None, getattr(args, "exposure_us", None)
@@ -457,6 +516,15 @@ def _make_runtime_pair_frame_provider(args, engine, target_hz):
             height=DMD_HEIGHT,
             dot_radius=args.dot_radius,
         )
+    if args.test == STATIC_IMAGES_PAIR_TEST:
+        return make_pair_frame_provider(
+            args.test,
+            static_image_a=args.static_image_a,
+            static_image_b=args.static_image_b,
+            static_image_size_px=args.static_image_size_px,
+            width=DMD_WIDTH,
+            height=DMD_HEIGHT,
+        )
     if _is_numbers_recipe(args.test):
         return make_pair_frame_provider(
             args.test,
@@ -479,6 +547,7 @@ def _make_runtime_pair_frame_provider(args, engine, target_hz):
             count_start=args.count_start,
             count_end=args.count_end,
             count_slots_per_frame=args.count_slots_per_frame,
+            count_blank_between_frames=getattr(args, "count_blank_between_frames", False),
             numbers_size_px=args.numbers_size_px,
             b_dot_x=args.b_dot_x,
             b_dot_y=args.b_dot_y,
@@ -544,11 +613,20 @@ def _dry_run_timing(args, pair_config):
             args.count_end,
             args.count_slots_per_frame,
         )
+        blank_entries_per_vsync = args.count_slots_per_frame if args.count_blank_between_frames else 0
         logger.info(
             f"[DRY RUN] Pair content: A=count {args.count_start}..{args.count_end}, "
             f"slots_per_frame={args.count_slots_per_frame}, "
+            f"blank_between_frames={args.count_blank_between_frames}, "
             f"per-count exposure={args.exposure_us or timing['exposure_us']}us, "
-            f"payload_vsyncs={payload_vsyncs}; B={args.test_b or 'dot'} static.")
+            f"payload_vsyncs={payload_vsyncs}, "
+            f"blank_lut_entries_per_vsync={blank_entries_per_vsync}; "
+            f"B={args.test_b or 'dot'} static.")
+    elif args.test == STATIC_IMAGES_PAIR_TEST:
+        logger.info(
+            f"[DRY RUN] Pair content: A=image {args.static_image_a}, "
+            f"B=image {args.static_image_b}, size_px={args.static_image_size_px}, "
+            f"centered on black {DMD_WIDTH}x{DMD_HEIGHT} canvases.")
     elif args.test in STATIC_PAIR_TESTS:
         logger.info(
             f"[DRY RUN] Pair content: test={args.test}, test_a={args.test_a or args.test}, "
@@ -616,6 +694,11 @@ def _build_live_preview_metadata(args, pair_config, state_a, state_b):
             "end": args.count_end,
             "slots_per_frame": args.count_slots_per_frame,
             "slots_per_frame_mode": getattr(args, "count_slots_per_frame_mode", "explicit"),
+            "blank_between_frames": getattr(args, "count_blank_between_frames", False),
+            "lut_entries_per_frame": count_lut_entries_per_frame(
+                args.count_slots_per_frame,
+                count_blank_between_frames=getattr(args, "count_blank_between_frames", False),
+            ),
             "exposure_us": args.exposure_us,
         }
     if lut_state:

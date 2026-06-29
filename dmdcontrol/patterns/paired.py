@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
+from PIL import Image
 
 from dmdcontrol.patterns.bitplanes import pack_bitplanes_rgb
 from dmdcontrol.patterns.modes import (
@@ -33,10 +35,16 @@ STATIC_PAIR_TESTS = ("checkerboard", "lines", "colors", "dot") + HUMAN_VISIBLE_P
 NUMBER_PAIR_TEST = "numbers"
 A_NUMBERS_B_STATIC_PAIR_TEST = "a-numbers-b-static"
 A_COUNT_B_STATIC_PAIR_TEST = "a-count-b-static"
+STATIC_IMAGES_PAIR_TEST = "static-images"
 DYNAMIC_PAIR_TESTS = ("gradient", "snake", NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST)
 CALIBRATION_DOT_PAIR_TEST = "a-calibr-square-b-dot"
 KERNEL_STATIC_PAIR_TEST = "a-kernel-b-static"
-RECIPE_PAIR_TESTS = (CALIBRATION_DOT_PAIR_TEST, KERNEL_STATIC_PAIR_TEST, A_COUNT_B_STATIC_PAIR_TEST)
+RECIPE_PAIR_TESTS = (
+    CALIBRATION_DOT_PAIR_TEST,
+    KERNEL_STATIC_PAIR_TEST,
+    A_COUNT_B_STATIC_PAIR_TEST,
+    STATIC_IMAGES_PAIR_TEST,
+)
 PAIR_TESTS = STATIC_PAIR_TESTS + DYNAMIC_PAIR_TESTS + RECIPE_PAIR_TESTS
 MAX_COUNT_SEQUENCE_FRAMES = 64
 
@@ -77,6 +85,40 @@ def _lines(width, height):
     img[:, ::2, :] = 255
     img[::16, :, :] = 255
     return img
+
+
+def load_static_image_frame(path, width=DMD_WIDTH, height=DMD_HEIGHT, size_px=DMD_HEIGHT):
+    """Load one RGBA/RGB image as a centered RGB frame on a black DMD canvas."""
+    if width <= 0 or height <= 0:
+        raise ValueError("width and height must be positive")
+    if size_px <= 0:
+        raise ValueError("size_px must be positive")
+
+    image_path = Path(path)
+    if not image_path.exists():
+        raise FileNotFoundError(f"static image not found: {image_path}")
+
+    with Image.open(image_path) as image:
+        rgba = image.convert("RGBA")
+
+    source_w, source_h = rgba.size
+    if source_w <= 0 or source_h <= 0:
+        raise ValueError(f"static image must have non-zero dimensions: {image_path}")
+
+    scale = size_px / max(source_w, source_h)
+    target_w = max(1, int(round(source_w * scale)))
+    target_h = max(1, int(round(source_h * scale)))
+    if target_w > width or target_h > height:
+        raise ValueError(
+            f"resized static image {image_path} would be {target_w}x{target_h}, "
+            f"larger than DMD canvas {width}x{height}")
+
+    resized = rgba.resize((target_w, target_h), resample=Image.Resampling.NEAREST)
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 255))
+    x0 = (width - target_w) // 2
+    y0 = (height - target_h) // 2
+    canvas.alpha_composite(resized, dest=(x0, y0))
+    return np.ascontiguousarray(np.array(canvas.convert("RGB"), dtype=np.uint8))
 
 
 def _fill_rect_rgb(frame, x0, y0, x1, y1, value=255):
@@ -315,6 +357,35 @@ class StaticPairFrameProvider(PairFrameProvider):
         return self._frame_a, self._frame_b
 
 
+@dataclass
+class StaticImagePairFrameProvider(PairFrameProvider):
+    path_a: str | Path
+    path_b: str | Path
+    width: int = DMD_WIDTH
+    height: int = DMD_HEIGHT
+    size_px: int = DMD_HEIGHT
+
+    def __post_init__(self):
+        self._frame_a = load_static_image_frame(
+            self.path_a,
+            width=self.width,
+            height=self.height,
+            size_px=self.size_px,
+        )
+        self._frame_b = load_static_image_frame(
+            self.path_b,
+            width=int(self.width),
+            height=int(self.height),
+            size_px=int(self.size_px*0.5),
+        )
+
+    def initial_pair(self):
+        return self._frame_a, self._frame_b
+
+    def next_pair(self):
+        return self._frame_a, self._frame_b
+
+
 class DynamicAStaticBPairFrameProvider(PairFrameProvider):
 
     def __init__(self, frame_provider_a, frame_b, initial_frame_a=None):
@@ -536,11 +607,18 @@ class CountSequenceAStaticBPairFrameProvider(PairFrameProvider):
         b_dot_shape="circle",
         b_dot_invert=False,
         numbers_bitplane_order=None,
+        count_blank_between_frames=False,
     ):
-        _validate_count_sequence_args(count_start, count_end, count_slots_per_frame)
+        _validate_count_sequence_args(
+            count_start,
+            count_end,
+            count_slots_per_frame,
+            count_blank_between_frames=count_blank_between_frames,
+        )
         self.width = width
         self.height = height
         self.frame_index = 0
+        self.count_blank_between_frames = bool(count_blank_between_frames)
         self._frames_a = _pack_count_sequence_frames(
             count_start,
             count_end,
@@ -548,6 +626,7 @@ class CountSequenceAStaticBPairFrameProvider(PairFrameProvider):
             width=width,
             height=height,
             size_px=size_px,
+            count_blank_between_frames=count_blank_between_frames,
         )
         self._frame_b = generate_static_frame(
             mode_b,
@@ -596,24 +675,58 @@ def _pack_count_sequence_frames(
         count_slots_per_frame,
         width,
         height,
-        size_px=None):
-    _validate_count_sequence_args(count_start, count_end, count_slots_per_frame)
+        size_px=None,
+        count_blank_between_frames=False):
+    _validate_count_sequence_args(
+        count_start,
+        count_end,
+        count_slots_per_frame,
+        count_blank_between_frames=count_blank_between_frames,
+    )
     frames = []
     counts = tuple(range(count_start, count_end + 1))
+    blank_mask = np.zeros((height, width), dtype=np.uint8)
     for offset in range(0, len(counts), count_slots_per_frame):
         chunk = counts[offset:offset + count_slots_per_frame]
-        masks = _decimal_number_bitplane_masks(chunk, width=width, height=height, size_px=size_px)
+        count_masks = _decimal_number_bitplane_masks(
+            chunk,
+            width=width,
+            height=height,
+            size_px=size_px,
+        )
+        masks = []
+        for mask in count_masks:
+            masks.append(mask)
+            if count_blank_between_frames:
+                masks.append(blank_mask)
         frames.append(_pack_binary_masks_bitplanes(masks, width, height))
     return tuple(frames)
 
 
-def _validate_count_sequence_args(count_start, count_end, count_slots_per_frame):
+def count_lut_entries_per_frame(count_slots_per_frame, count_blank_between_frames=False):
+    return int(count_slots_per_frame) * (2 if count_blank_between_frames else 1)
+
+
+def _validate_count_sequence_args(
+        count_start,
+        count_end,
+        count_slots_per_frame,
+        count_blank_between_frames=False):
     if count_start <= 0 or count_end <= 0:
         raise ValueError("count range values must be positive")
     if count_start > count_end:
         raise ValueError("count_start must be <= count_end")
     if count_slots_per_frame <= 0 or count_slots_per_frame > BITPLANES:
         raise ValueError(f"count_slots_per_frame must be in the range 1..{BITPLANES}")
+    lut_entries = count_lut_entries_per_frame(
+        count_slots_per_frame,
+        count_blank_between_frames=count_blank_between_frames,
+    )
+
+    if lut_entries > BITPLANES:
+        raise ValueError(
+            f"count_slots_per_frame with blank frames needs {lut_entries} LUT entries, "
+            f"but only {BITPLANES} bitplanes are available")
     count_total = count_end - count_start + 1
     if count_total % count_slots_per_frame != 0:
         raise ValueError("count range length must be divisible by count_slots_per_frame")
@@ -677,6 +790,10 @@ def make_pair_frame_provider(
     count_start=1,
     count_end=100,
     count_slots_per_frame=2,
+    count_blank_between_frames=False,
+    static_image_a=None,
+    static_image_b=None,
+    static_image_size_px=DMD_HEIGHT,
     dot_radius=40,
     b_dot_x=None,
     b_dot_y=None,
@@ -691,6 +808,16 @@ def make_pair_frame_provider(
             width=width,
             height=height,
             dot_radius=dot_radius,
+        )
+    if test == STATIC_IMAGES_PAIR_TEST:
+        if static_image_a is None or static_image_b is None:
+            raise ValueError("static-images requires static_image_a and static_image_b")
+        return StaticImagePairFrameProvider(
+            static_image_a,
+            static_image_b,
+            width=width,
+            height=height,
+            size_px=static_image_size_px,
         )
     if test == "gradient":
         return DynamicGradientPairFrameProvider(width=width, height=height)
@@ -723,6 +850,7 @@ def make_pair_frame_provider(
             count_start=count_start,
             count_end=count_end,
             count_slots_per_frame=count_slots_per_frame,
+            count_blank_between_frames=count_blank_between_frames,
             width=width,
             height=height,
             size_px=numbers_size_px,

@@ -3,7 +3,11 @@ import types
 import numpy as np
 import pytest
 
-from dmdcontrol.patterns.paired import A_COUNT_B_STATIC_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST
+from dmdcontrol.patterns.paired import (
+    A_COUNT_B_STATIC_PAIR_TEST,
+    A_NUMBERS_B_STATIC_PAIR_TEST,
+    STATIC_IMAGES_PAIR_TEST,
+)
 from dmdcontrol.runtime.pair import _lut_override, main
 
 
@@ -55,6 +59,27 @@ def test_pair_runtime_parser_accepts_generic_exposure_us():
         ["--dry-run-timing", "--test", "dot", "--exposure-us", "4000"])
 
     assert args.exposure_us == 4000
+
+
+def test_pair_runtime_parser_accepts_static_images_options():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args([
+        "--dry-run-timing",
+        "--test",
+        STATIC_IMAGES_PAIR_TEST,
+        "--static-image-a",
+        "images/T.png",
+        "--static-image-b",
+        "images/O.png",
+        "--static-image-size-px",
+        "777",
+    ])
+
+    assert args.test == STATIC_IMAGES_PAIR_TEST
+    assert args.static_image_a == "images/T.png"
+    assert args.static_image_b == "images/O.png"
+    assert args.static_image_size_px == 777
 
 
 def test_pair_runtime_rejects_negative_dark_time():
@@ -109,6 +134,7 @@ def test_lut_override_a_count_b_static_returns_count_slots():
     args = types.SimpleNamespace(
         test=A_COUNT_B_STATIC_PAIR_TEST,
         count_slots_per_frame=2,
+        count_blank_between_frames=False,
         exposure_us=7000,
     )
 
@@ -116,6 +142,20 @@ def test_lut_override_a_count_b_static_returns_count_slots():
 
     assert entries_count == 2
     assert exposure == 7000
+
+
+def test_lut_override_a_count_b_static_doubles_slots_for_blank_bitplanes():
+    args = types.SimpleNamespace(
+        test=A_COUNT_B_STATIC_PAIR_TEST,
+        count_slots_per_frame=2,
+        count_blank_between_frames=True,
+        exposure_us=4000,
+    )
+
+    entries_count, exposure = _lut_override(args, target_hz=60)
+
+    assert entries_count == 4
+    assert exposure == 4000
 
 
 def test_lut_override_non_numbers_test_delegates_to_kernel():
@@ -154,6 +194,7 @@ def test_pair_runtime_parser_accepts_count_mode_options():
             "100",
             "--count-slots-per-frame",
             "2",
+            "--count-blank-between-frames",
             "--exposure-us",
             "7000",
         ])
@@ -161,6 +202,7 @@ def test_pair_runtime_parser_accepts_count_mode_options():
     assert args.count_start == 1
     assert args.count_end == 100
     assert args.count_slots_per_frame == 2
+    assert args.count_blank_between_frames is True
     assert args.exposure_us == 7000
 
 
@@ -186,6 +228,32 @@ def test_pair_runtime_auto_count_slots_uses_fastest_valid_timing():
 
     assert args.count_slots_per_frame == 2
     assert args.count_slots_per_frame_mode == "auto"
+
+
+def test_pair_runtime_auto_count_slots_accounts_for_blank_bitplanes():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--test",
+            A_COUNT_B_STATIC_PAIR_TEST,
+            "--count-start",
+            "1",
+            "--count-end",
+            "60",
+            "--exposure-us",
+            "4000",
+            "--seq-utilization",
+            "1.0",
+            "--count-blank-between-frames",
+        ])
+
+    pair._validate_pair_args(args)
+
+    assert args.count_slots_per_frame == 2
+    assert args.count_slots_per_frame_mode == "auto"
+    assert _lut_override(args, target_hz=60) == (4, 4000)
 
 
 def test_pair_runtime_count_slots_accepts_auto_literal():
@@ -229,7 +297,7 @@ def test_pair_runtime_explicit_count_slots_override_is_preserved():
             "--count-slots-per-frame",
             "5",
             "--exposure-us",
-            "1000",
+            "2500",
             "--dark-time-us",
             "250",
         ])
@@ -238,6 +306,31 @@ def test_pair_runtime_explicit_count_slots_override_is_preserved():
 
     assert args.count_slots_per_frame == 5
     assert args.count_slots_per_frame_mode == "explicit"
+
+
+def test_pair_runtime_rejects_count_sequences_that_repeat_before_vsync():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--test",
+            A_COUNT_B_STATIC_PAIR_TEST,
+            "--count-start",
+            "1",
+            "--count-end",
+            "60",
+            "--count-slots-per-frame",
+            "1",
+            "--exposure-us",
+            "4000",
+            "--seq-utilization",
+            "1.0",
+            "--count-blank-between-frames",
+        ])
+
+    with pytest.raises(SystemExit, match="use --count-slots-per-frame 2"):
+        pair._validate_pair_args(args)
 
 
 def test_pair_runtime_auto_count_slots_rejects_ranges_without_valid_divisor():
@@ -478,6 +571,7 @@ def test_a_count_b_static_runtime_forwards_count_geometry(monkeypatch):
         count_start=1,
         count_end=100,
         count_slots_per_frame=2,
+        count_blank_between_frames=True,
         numbers_size_px=123,
         b_dot_x=955,
         b_dot_y=535,
@@ -497,12 +591,45 @@ def test_a_count_b_static_runtime_forwards_count_geometry(monkeypatch):
     assert captured["kwargs"]["count_start"] == 1
     assert captured["kwargs"]["count_end"] == 100
     assert captured["kwargs"]["count_slots_per_frame"] == 2
+    assert captured["kwargs"]["count_blank_between_frames"] is True
     assert captured["kwargs"]["numbers_size_px"] == 123
     assert captured["kwargs"]["b_dot_x"] == 955
     assert captured["kwargs"]["b_dot_y"] == 535
     assert captured["kwargs"]["b_dot_radius"] == 12
     assert captured["kwargs"]["b_dot_shape"] == "circle"
     assert captured["kwargs"]["b_dot_invert"] is False
+
+
+def test_static_images_runtime_forwards_paths_and_size(monkeypatch):
+    from dmdcontrol.runtime import pair
+
+    captured = {}
+    provider = object()
+
+    def fake_make_pair_frame_provider(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return provider
+
+    monkeypatch.setattr(pair, "make_pair_frame_provider", fake_make_pair_frame_provider)
+
+    args = types.SimpleNamespace(
+        test=STATIC_IMAGES_PAIR_TEST,
+        static_image_a="images/T.png",
+        static_image_b="images/O.png",
+        static_image_size_px=777,
+    )
+
+    result = pair._make_runtime_pair_frame_provider(
+        args,
+        engine=types.SimpleNamespace(window=None),
+        target_hz=60)
+
+    assert result is provider
+    assert captured["args"] == (STATIC_IMAGES_PAIR_TEST, )
+    assert captured["kwargs"]["static_image_a"] == "images/T.png"
+    assert captured["kwargs"]["static_image_b"] == "images/O.png"
+    assert captured["kwargs"]["static_image_size_px"] == 777
 
 
 def test_pair_live_preview_metadata_includes_count_mode():
@@ -515,6 +642,7 @@ def test_pair_live_preview_metadata_includes_count_mode():
         count_start=1,
         count_end=100,
         count_slots_per_frame=2,
+        count_blank_between_frames=True,
         exposure_us=7000,
     )
     pair_config = types.SimpleNamespace(
@@ -534,6 +662,8 @@ def test_pair_live_preview_metadata_includes_count_mode():
         "end": 100,
         "slots_per_frame": 2,
         "slots_per_frame_mode": "explicit",
+        "blank_between_frames": True,
+        "lut_entries_per_frame": 4,
         "exposure_us": 7000,
     }
 

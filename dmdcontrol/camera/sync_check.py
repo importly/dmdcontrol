@@ -37,7 +37,7 @@ from dmdcontrol.camera.sync_check_runtime import (
     _trigger_policy,
     expected_trigger_count,
 )
-from dmdcontrol.patterns.paired import MAX_COUNT_SEQUENCE_FRAMES
+from dmdcontrol.patterns.paired import MAX_COUNT_SEQUENCE_FRAMES, count_lut_entries_per_frame
 from dmdcontrol.runtime.count_slots import resolve_count_slots_per_frame
 from dmdcontrol.support.argparse_types import (
     count_slots_per_frame,
@@ -53,6 +53,7 @@ class SyncCheckArgumentParser(argparse.ArgumentParser):
     def parse_args(self, args=None, namespace=None):
         parsed = super().parse_args(args, namespace)
         try:
+            _validate_count_blank_between_frames_mode(parsed)
             _validate_count_mode_args(parsed, require_resolved_slots=False)
             _resolve_count_mode_slots(parsed)
             _validate_count_mode_args(parsed)
@@ -90,13 +91,14 @@ def _resolve_count_mode_slots(args: argparse.Namespace) -> None:
         return
     mode = "auto" if args.count_slots_per_frame is None else "explicit"
     if mode == "auto":
-        args.count_slots_per_frame = resolve_count_slots_per_frame(
-            count_start=args.count_start,
-            count_end=args.count_end,
-            exposure_us=args.exposure_us,
-            dark_time_us=args.dark_time_us,
-            sequence_utilization=args.seq_utilization,
-        )
+            args.count_slots_per_frame = resolve_count_slots_per_frame(
+                count_start=args.count_start,
+                count_end=args.count_end,
+                exposure_us=args.exposure_us,
+                dark_time_us=args.dark_time_us,
+                count_blank_between_frames=args.count_blank_between_frames,
+                sequence_utilization=args.seq_utilization,
+            )
     args.count_slots_per_frame_mode = mode
 
 
@@ -111,6 +113,14 @@ def _validate_count_mode_args(args: argparse.Namespace, *, require_resolved_slot
         return
     if args.count_slots_per_frame <= 0 or args.count_slots_per_frame > BITPLANES:
         raise ValueError(f"--count-slots-per-frame must be in the range 1..{BITPLANES}")
+    lut_entries = count_lut_entries_per_frame(
+        args.count_slots_per_frame,
+        count_blank_between_frames=args.count_blank_between_frames,
+    )
+    if lut_entries > BITPLANES:
+        raise ValueError(
+            f"--count-slots-per-frame {args.count_slots_per_frame} with "
+            f"--count-blank-between-frames needs {lut_entries} LUT entries; max is {BITPLANES}")
     count_total = args.count_end - args.count_start + 1
     if count_total % args.count_slots_per_frame != 0:
         raise ValueError("count range length must be divisible by --count-slots-per-frame")
@@ -118,6 +128,11 @@ def _validate_count_mode_args(args: argparse.Namespace, *, require_resolved_slot
     if frame_count > MAX_COUNT_SEQUENCE_FRAMES:
         raise ValueError(
             f"a-count-b-static can span at most {MAX_COUNT_SEQUENCE_FRAMES} VSYNC frames")
+
+
+def _validate_count_blank_between_frames_mode(args: argparse.Namespace) -> None:
+    if args.test != A_COUNT_B_STATIC_TEST and args.count_blank_between_frames:
+        raise ValueError("--count-blank-between-frames is only valid for --test a-count-b-static")
 
 
 def _validate_numbers_mode_args(args: argparse.Namespace) -> None:
@@ -164,6 +179,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--count-start", type=positive_int, default=1)
     parser.add_argument("--count-end", type=positive_int, default=100)
     parser.add_argument("--count-slots-per-frame", type=count_slots_per_frame, default=None)
+    parser.add_argument(
+        "--count-blank-between-frames",
+        action="store_true",
+        help="Count mode only: insert an all-black A frame after each count frame.",
+    )
     parser.add_argument(
         "--trigger-out-2-rising-delay-us",
         type=trigger_out_rising_delay_us,

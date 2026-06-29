@@ -9,6 +9,7 @@ from dmdcontrol.camera.sync_check_runtime import (
     _trigger_policy,
     expected_trigger_count,
 )
+from dmdcontrol.patterns.paired import count_lut_entries_per_frame
 
 
 def _sync_check_test_metadata(args: argparse.Namespace, *, dry_run: bool) -> dict[str, object]:
@@ -18,13 +19,18 @@ def _sync_check_test_metadata(args: argparse.Namespace, *, dry_run: bool) -> dic
             "count_end": args.count_end,
             "count_slots_per_frame": args.count_slots_per_frame,
             "count_slots_per_frame_mode": getattr(args, "count_slots_per_frame_mode", "explicit"),
+            "count_blank_between_frames": getattr(args, "count_blank_between_frames", False),
+            "count_lut_entries_per_frame": count_lut_entries_per_frame(
+                args.count_slots_per_frame,
+                count_blank_between_frames=getattr(args, "count_blank_between_frames", False),
+            ),
             "exposure_us": args.exposure_us,
         }
         if dry_run:
             metadata.update(
                 {
                     "accumulation_window_us": _requested_accumulation_window_us(args),
-                    "bitplane_count": args.count_slots_per_frame,
+                    "bitplane_count": metadata["count_lut_entries_per_frame"],
                 })
         return metadata
 

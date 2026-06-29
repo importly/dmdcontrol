@@ -141,6 +141,7 @@ python -m dmdcontrol pair run --dry-run-timing --mode snake
 ./run_dmd_pair.sh --test gradient --runtime-seconds 300
 ./run_dmd_pair.sh --test a-kernel-b-static --test-b lines --kernel-px 900 --exposure-us 14000 --runtime-seconds 999
 ./run_dmd_pair.sh --test a-kernel-b-static --test-b dot --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --kernel-px 201 --runtime-seconds 999
+./run_dmd_pair.sh --test static-images --static-image-b images/O.png --static-image-a images/T.png --static-image-size-px 1080 --runtime-seconds 999
 ./run_dmd_pair_calibr_square.sh --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
 ```
 
@@ -148,6 +149,10 @@ python -m dmdcontrol pair run --dry-run-timing --mode snake
 `python -m dmdcontrol pair run`. The paired X layout is one X screen at `3840x1080`: B/`DP-0` is the left half at
 `+0+0`, and A/`DP-2` is the right half at `+1920+0`. The runtime opens one undecorated GLFW window at `(0, 0)`, renders
 B into `x=0..1919`, renders A into `x=1920..3839`, and performs one buffer swap per paired frame.
+
+`--test static-images` loads one image for each DMD, keeps each image's aspect ratio, resizes the longest side to
+`--static-image-size-px`, alpha-composites onto black, centers the result on each 1920x1080 DMD canvas, and repeats those
+static frames for the full run. The B image is shown on the left output and the A image is shown on the right output.
 
 For visual inspection through the tiny optical images, use `coarse-grid` or `coarse-lines`. They draw thick geometry and
 large A/B block markers without adding an artificial outer border to the 1920x1080 DMD image. `lines` and `colors`
@@ -261,7 +266,10 @@ fits 3 entries per VSYNC and runs at 180 Hz.
 
 For `a-count-b-static`, omit `--count-slots-per-frame` or pass `--count-slots-per-frame auto` to choose the fastest slot
 count that fits the LUT timing, evenly divides the count range, and stays within the 64-VSYNC count-sequence cap. Explicit
-integer overrides still work when you need a specific packing.
+integer overrides still work when you need a specific packing. Add `--count-blank-between-frames` when each count should
+be followed by an all-black A LUT bitplane slot, for example `count 1`, `blank`, `count 2`, `blank` on consecutive
+`TRIG_OUT_2` pulses. B remains the configured static pattern, and the expected trigger count doubles because the blank
+bitplanes also consume LUT trigger slots.
 
 `camera sync-check --dry-run` validates the paired runtime LUT budget before writing run artifacts. This catches commands
 that would later fail during live DLPC900 preparation, for example five numbers at `--exposure-us 4000 --dark-time-us 1000`

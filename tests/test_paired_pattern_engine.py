@@ -1,6 +1,9 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import numpy as np
+from PIL import Image
 
 from dmdcontrol.patterns.paired import (
     CalibrationSquareDotPairFrameProvider,
@@ -10,10 +13,13 @@ from dmdcontrol.patterns.paired import (
     NumberSequencePairFrameProvider,
     PAIR_TESTS,
     STATIC_PAIR_TESTS,
+    STATIC_IMAGES_PAIR_TEST,
     StaticPairFrameProvider,
+    StaticImagePairFrameProvider,
     compose_pair_frame,
     generate_dot_frame,
     generate_static_frame,
+    make_pair_frame_provider,
 )
 from dmdcontrol.patterns.modes import generate_number_rgb
 from dmdcontrol.patterns.visual import DEFAULT_COARSE_GRID_SPACING, generate_coarse_grid_rgb
@@ -62,6 +68,67 @@ class PairedPatternEngineTests(unittest.TestCase):
         np.testing.assert_array_equal(first_a, next_a)
         np.testing.assert_array_equal(first_b, next_b)
         self.assertFalse(np.array_equal(first_a, first_b))
+
+    def test_static_image_pair_provider_centers_scaled_rgba_images_on_black(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            image_a = Image.new("RGBA", (4, 2), (255, 255, 255, 255))
+            image_a.putpixel((0, 0), (255, 255, 255, 0))
+            image_b = Image.new("RGBA", (2, 4), (255, 0, 0, 255))
+            path_a = tmp_path / "T.png"
+            path_b = tmp_path / "O.png"
+            image_a.save(path_a)
+            image_b.save(path_b)
+
+            provider = StaticImagePairFrameProvider(
+                path_a,
+                path_b,
+                width=10,
+                height=10,
+                size_px=8,
+            )
+
+            frame_a, frame_b = provider.initial_pair()
+            next_a, next_b = provider.next_pair()
+
+        self.assertEqual(frame_a.shape, (10, 10, 3))
+        self.assertEqual(frame_b.shape, (10, 10, 3))
+        np.testing.assert_array_equal(frame_a, next_a)
+        np.testing.assert_array_equal(frame_b, next_b)
+
+        # A is 4:2, so size_px=8 becomes an 8x4 image centered at x=1, y=3.
+        self.assertEqual(frame_a[:3, :, :].sum(), 0)
+        self.assertEqual(frame_a[7:, :, :].sum(), 0)
+        self.assertEqual(frame_a[:, :1, :].sum(), 0)
+        self.assertEqual(frame_a[:, 9:, :].sum(), 0)
+        np.testing.assert_array_equal(frame_a[3, 1], [0, 0, 0])
+        np.testing.assert_array_equal(frame_a[3, 3], [255, 255, 255])
+
+        # B is 2:4, so size_px=8 becomes a 4x8 image centered at x=3, y=1.
+        self.assertEqual(frame_b[:1, :, :].sum(), 0)
+        self.assertEqual(frame_b[9:, :, :].sum(), 0)
+        self.assertEqual(frame_b[:, :3, :].sum(), 0)
+        self.assertEqual(frame_b[:, 7:, :].sum(), 0)
+        np.testing.assert_array_equal(frame_b[1, 3], [255, 0, 0])
+
+    def test_make_pair_frame_provider_supports_static_images_recipe(self):
+        with TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            path_a = tmp_path / "T.png"
+            path_b = tmp_path / "O.png"
+            Image.new("RGBA", (4, 4), (255, 255, 255, 255)).save(path_a)
+            Image.new("RGBA", (4, 4), (255, 255, 255, 255)).save(path_b)
+
+            provider = make_pair_frame_provider(
+                STATIC_IMAGES_PAIR_TEST,
+                static_image_a=path_a,
+                static_image_b=path_b,
+                static_image_size_px=4,
+                width=8,
+                height=8,
+            )
+
+        self.assertIsInstance(provider, StaticImagePairFrameProvider)
 
     def test_dynamic_gradient_provider_uses_shared_frame_index(self):
         provider = DynamicGradientPairFrameProvider(width=8, height=4)
@@ -214,6 +281,54 @@ class PairedPatternEngineTests(unittest.TestCase):
         self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame0_a, 2))), 0)
         self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame1_a, 2))), 0)
         np.testing.assert_array_equal(frame0_a, frame0_again_a)
+        np.testing.assert_array_equal(frame0_b, frame1_b)
+        np.testing.assert_array_equal(frame0_b, frame0_again_b)
+
+    def test_count_a_static_b_provider_can_insert_blank_bitplanes_between_counts(self):
+        from dmdcontrol.patterns.modes import generate_decimal_number_rgb
+        from dmdcontrol.patterns.paired import A_COUNT_B_STATIC_PAIR_TEST, make_pair_frame_provider
+
+        provider = make_pair_frame_provider(
+            A_COUNT_B_STATIC_PAIR_TEST,
+            test_b="dot",
+            count_start=1,
+            count_end=4,
+            count_slots_per_frame=2,
+            count_blank_between_frames=True,
+            width=120,
+            height=160,
+            numbers_size_px=80,
+            b_dot_x=60,
+            b_dot_y=80,
+            b_dot_radius=3,
+        )
+
+        frame0_a, frame0_b = provider.initial_pair()
+        frame1_a, frame1_b = provider.next_pair()
+        frame0_again_a, frame0_again_b = provider.next_pair()
+
+        np.testing.assert_array_equal(
+            _extract_packed_bitplane(frame0_a, 0),
+            generate_decimal_number_rgb(1, width=120, height=160, size_px=80)[:, :, 0],
+        )
+        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame0_a, 1))), 0)
+        np.testing.assert_array_equal(
+            _extract_packed_bitplane(frame0_a, 2),
+            generate_decimal_number_rgb(2, width=120, height=160, size_px=80)[:, :, 0],
+        )
+        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame0_a, 3))), 0)
+        np.testing.assert_array_equal(
+            _extract_packed_bitplane(frame1_a, 0),
+            generate_decimal_number_rgb(3, width=120, height=160, size_px=80)[:, :, 0],
+        )
+        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame1_a, 1))), 0)
+        np.testing.assert_array_equal(
+            _extract_packed_bitplane(frame1_a, 2),
+            generate_decimal_number_rgb(4, width=120, height=160, size_px=80)[:, :, 0],
+        )
+        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame1_a, 3))), 0)
+        np.testing.assert_array_equal(frame0_a, frame0_again_a)
+        self.assertGreater(int(np.count_nonzero(frame0_b)), 0)
         np.testing.assert_array_equal(frame0_b, frame1_b)
         np.testing.assert_array_equal(frame0_b, frame0_again_b)
 

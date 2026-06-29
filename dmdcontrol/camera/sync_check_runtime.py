@@ -10,7 +10,10 @@ A_COUNT_B_STATIC_TEST = "a-count-b-static"
 
 def expected_trigger_count(args: argparse.Namespace) -> int:
     if args.test == A_COUNT_B_STATIC_TEST:
-        return args.count_end - args.count_start + 1
+        count_total = args.count_end - args.count_start + 1
+        if getattr(args, "count_blank_between_frames", False):
+            count_total *= 2
+        return count_total
     return len(args.numbers)
 
 
@@ -72,6 +75,8 @@ def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
             ])
         if args.count_slots_per_frame is not None:
             pair_args.extend(["--count-slots-per-frame", str(args.count_slots_per_frame)])
+        if getattr(args, "count_blank_between_frames", False):
+            pair_args.append("--count-blank-between-frames")
     else:
         pair_args.extend(
             [
