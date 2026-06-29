@@ -47,6 +47,7 @@ from dmdcontrol.runtime.lifecycle import (
     prepare_dlpc900_for_video_pattern,
     start_loaded_pattern_sequences,
 )
+from dmdcontrol.runtime.count_slots import resolve_count_slots_per_frame
 from dmdcontrol.support.constants import (
     BITPLANES,
     DEFAULT_HZ,
@@ -55,6 +56,7 @@ from dmdcontrol.support.constants import (
     DMD_WIDTH,
 )
 from dmdcontrol.support.argparse_types import (
+    count_slots_per_frame,
     nonnegative_int,
     numbers_bitplane_order,
     positive_int,
@@ -207,9 +209,11 @@ def _build_parser():
     )
     parser.add_argument(
         "--count-slots-per-frame",
-        type=int,
-        default=2,
-        help="A-count paired recipe: count labels packed into bitplanes per VSYNC frame",
+        type=count_slots_per_frame,
+        default=None,
+        help=(
+            "A-count paired recipe: count labels packed into bitplanes per VSYNC frame. "
+            "Use 'auto' or omit to choose the fastest timing-valid divisor."),
     )
     parser.add_argument(
         "--wake-dp",
@@ -269,7 +273,26 @@ def _build_parser():
     return parser
 
 
-def _validate_pair_args(args):
+def _resolve_count_recipe_args(args, target_hz=DEFAULT_HZ):
+    if not _is_count_recipe(args.test):
+        return
+    mode = "auto" if args.count_slots_per_frame is None else "explicit"
+    if mode == "auto":
+        try:
+            args.count_slots_per_frame = resolve_count_slots_per_frame(
+                count_start=args.count_start,
+                count_end=args.count_end,
+                exposure_us=args.exposure_us,
+                dark_time_us=args.dark_time_us,
+                target_hz=target_hz,
+                sequence_utilization=args.seq_utilization,
+            )
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
+    args.count_slots_per_frame_mode = mode
+
+
+def _validate_pair_args(args, target_hz=DEFAULT_HZ):
     if args.preview_fps <= 0:
         raise SystemExit("--preview-fps must be positive")
     try:
@@ -283,6 +306,7 @@ def _validate_pair_args(args):
             raise SystemExit("--test-a is not valid for a-kernel-b-static; A is the kernel stream")
         return
     if _is_count_recipe(args.test):
+        _resolve_count_recipe_args(args, target_hz=target_hz)
         _validate_count_recipe_args(args)
         return
     if _is_numbers_recipe(args.test):
@@ -591,6 +615,7 @@ def _build_live_preview_metadata(args, pair_config, state_a, state_b):
             "start": args.count_start,
             "end": args.count_end,
             "slots_per_frame": args.count_slots_per_frame,
+            "slots_per_frame_mode": getattr(args, "count_slots_per_frame_mode", "explicit"),
             "exposure_us": args.exposure_us,
         }
     if lut_state:
@@ -790,7 +815,7 @@ def _run(argv, before_start=None):
     args = _build_parser().parse_args(argv)
     setup_logger(verbosity=args.verbose)
     pair_config = resolve_pair_config(args.dmd_config)
-    _validate_pair_args(args)
+    _validate_pair_args(args, target_hz=pair_config.target_hz)
     if args.dry_run_timing:
         _dry_run_timing(args, pair_config)
         return 0

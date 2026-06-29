@@ -215,16 +215,17 @@ def test_sync_check_parser_accepts_count_mode_options():
             "1",
             "--count-end",
             "100",
-            "--count-slots-per-frame",
-            "2",
             "--exposure-us",
-            "7000",
+            "4000",
+            "--dark-time-us",
+            "1000",
         ])
 
     assert args.count_start == 1
     assert args.count_end == 100
     assert args.count_slots_per_frame == 2
-    assert args.exposure_us == 7000
+    assert args.count_slots_per_frame_mode == "auto"
+    assert args.exposure_us == 4000
 
 
 @pytest.mark.parametrize(
@@ -308,6 +309,32 @@ def test_sync_check_runtime_args_forward_count_options_without_numbers():
     assert pair_args[pair_args.index("--count-slots-per-frame") + 1] == "2"
     assert pair_args[pair_args.index("--exposure-us") + 1] == "7000"
     assert pair_args[pair_args.index("--numbers-size-px") + 1] == "123"
+
+
+def test_sync_check_runtime_args_auto_resolve_count_slots_from_timing():
+    args = build_parser().parse_args(
+        [
+            "--test",
+            "a-count-b-static",
+            "--test-b",
+            "dot",
+            "--count-start",
+            "1",
+            "--count-end",
+            "100",
+            "--exposure-us",
+            "4000",
+            "--dark-time-us",
+            "1000",
+            "--runtime-seconds",
+            "2",
+        ])
+
+    pair_args = _to_pair_runtime_args(args)
+
+    assert args.count_slots_per_frame == 2
+    assert args.count_slots_per_frame_mode == "auto"
+    assert pair_args[pair_args.index("--count-slots-per-frame") + 1] == "2"
 
 
 def test_sync_check_parser_accepts_event_noise_filter_options():
@@ -430,7 +457,7 @@ def test_sync_check_dry_run_accepts_selected_five_number_commands(
         f"--name-override {name_override} --test a-numbers-b-static --test-b dot "
         "--numbers 1,2,3,4,5 --number-size-px 100 "
         "--b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 "
-        "--exposure-us 4000 --dark-time-us 1000 "
+        "--exposure-us 1900 --dark-time-us 1000 "
         "--trigger-out-2-rising-delay-us 0 --accumulation-start-offset-us -250 "
         "--runtime-seconds 1 --camera-flush-reads 0 "
         "--camera-post-trigger-event-batches 0 --polarity-mode ignore "
@@ -453,7 +480,7 @@ def test_sync_check_dry_run_accepts_selected_five_number_commands(
         "b_dot_x": 960,
         "b_dot_y": 540,
         "b_dot_radius": 40,
-        "exposure_us": 4000,
+        "exposure_us": 1900,
         "dark_time_us": 1000,
         "expected_trigger_count": 5,
         "accumulation_cycles": accumulation_cycles,
@@ -476,6 +503,20 @@ def test_sync_check_dry_run_accepts_selected_five_number_commands(
     assert f"--accumulation-cycles {accumulation_cycles}" in command
     assert "--accumulation-start-offset-us -250" in command
     assert run.log_path.read_text(encoding="utf-8") == "dry-run\n"
+
+
+def test_sync_check_dry_run_rejects_invalid_paired_lut_timing(tmp_path):
+    argv = shlex.split(
+        f"--dry-run --output-root {tmp_path.as_posix()} "
+        "--test a-numbers-b-static --test-b dot "
+        "--numbers 1,2,3,4,5 "
+        "--exposure-us 4000 --dark-time-us 1000 "
+        "--runtime-seconds 1")
+
+    with pytest.raises(SystemExit, match="Invalid paired DMD timing: .*need .* usable"):
+        dry_run(build_parser().parse_args(argv))
+
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_sync_check_dry_run_records_event_filter_config(tmp_path):
@@ -534,10 +575,10 @@ def test_sync_check_count_mode_dry_run_records_count_metadata(tmp_path):
             "1",
             "--count-end",
             "100",
-            "--count-slots-per-frame",
-            "2",
             "--exposure-us",
-            "7000",
+            "4000",
+            "--dark-time-us",
+            "1000",
         ])
 
     run = dry_run(args)
@@ -547,9 +588,11 @@ def test_sync_check_count_mode_dry_run_records_count_metadata(tmp_path):
     assert metadata["count_start"] == 1
     assert metadata["count_end"] == 100
     assert metadata["count_slots_per_frame"] == 2
-    assert metadata["exposure_us"] == 7000
+    assert metadata["count_slots_per_frame_mode"] == "auto"
+    assert metadata["exposure_us"] == 4000
     assert metadata["expected_trigger_count"] == 100
-    assert metadata["accumulation_window_us"] == 7000
+    assert metadata["accumulation_window_us"] == 4000
+    assert metadata["bitplane_count"] == 2
 
 
 def test_camera_sync_check_cli_dry_run_creates_artifacts(tmp_path):

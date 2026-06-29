@@ -38,7 +38,9 @@ from dmdcontrol.camera.sync_check_runtime import (
     expected_trigger_count,
 )
 from dmdcontrol.patterns.paired import MAX_COUNT_SEQUENCE_FRAMES
+from dmdcontrol.runtime.count_slots import resolve_count_slots_per_frame
 from dmdcontrol.support.argparse_types import (
+    count_slots_per_frame,
     nonnegative_int,
     numbers_bitplane_order,
     positive_int,
@@ -51,6 +53,8 @@ class SyncCheckArgumentParser(argparse.ArgumentParser):
     def parse_args(self, args=None, namespace=None):
         parsed = super().parse_args(args, namespace)
         try:
+            _validate_count_mode_args(parsed, require_resolved_slots=False)
+            _resolve_count_mode_slots(parsed)
             _validate_count_mode_args(parsed)
             _validate_numbers_mode_args(parsed)
         except ValueError as exc:
@@ -81,11 +85,30 @@ def _requested_accumulation_cycles(args: argparse.Namespace) -> int | None:
     return 1
 
 
-def _validate_count_mode_args(args: argparse.Namespace) -> None:
+def _resolve_count_mode_slots(args: argparse.Namespace) -> None:
+    if args.test != A_COUNT_B_STATIC_TEST:
+        return
+    mode = "auto" if args.count_slots_per_frame is None else "explicit"
+    if mode == "auto":
+        args.count_slots_per_frame = resolve_count_slots_per_frame(
+            count_start=args.count_start,
+            count_end=args.count_end,
+            exposure_us=args.exposure_us,
+            dark_time_us=args.dark_time_us,
+            sequence_utilization=args.seq_utilization,
+        )
+    args.count_slots_per_frame_mode = mode
+
+
+def _validate_count_mode_args(args: argparse.Namespace, *, require_resolved_slots: bool = True) -> None:
     if args.test != A_COUNT_B_STATIC_TEST:
         return
     if args.count_start > args.count_end:
         raise ValueError("--count-start must be <= --count-end")
+    if args.count_slots_per_frame is None:
+        if require_resolved_slots:
+            raise ValueError("--count-slots-per-frame auto did not resolve")
+        return
     if args.count_slots_per_frame <= 0 or args.count_slots_per_frame > BITPLANES:
         raise ValueError(f"--count-slots-per-frame must be in the range 1..{BITPLANES}")
     count_total = args.count_end - args.count_start + 1
@@ -140,7 +163,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--count-start", type=positive_int, default=1)
     parser.add_argument("--count-end", type=positive_int, default=100)
-    parser.add_argument("--count-slots-per-frame", type=positive_int, default=2)
+    parser.add_argument("--count-slots-per-frame", type=count_slots_per_frame, default=None)
     parser.add_argument(
         "--trigger-out-2-rising-delay-us",
         type=trigger_out_rising_delay_us,
@@ -239,6 +262,15 @@ def _run_pair_with_callback(pair_args, before_start):
     return pair_module.run_with_before_start_callback(pair_args, before_start)
 
 
+def _validate_pair_dry_run_timing(args: argparse.Namespace) -> None:
+    from dmdcontrol.runtime import pair as pair_module
+
+    try:
+        pair_module.main(["--dry-run-timing", *_to_pair_runtime_args(args)])
+    except ValueError as exc:
+        raise SystemExit(f"Invalid paired DMD timing: {exc}") from exc
+
+
 def _copy_sweep_metadata(args: argparse.Namespace, metadata: dict[str, object]) -> None:
     for source_name, metadata_name in (
         ("sweep_id", "sweep_id"),
@@ -316,6 +348,7 @@ def _write_capture_artifacts_for_sync_check(
 
 
 def dry_run(args: argparse.Namespace, command_argv: list[str] | None = None):
+    _validate_pair_dry_run_timing(args)
     run = create_run_directory("sync-check", args.output_root, timestamp=args.timestamp)
     event_filter = event_noise_filter_config_from_args(args)
     trigger_policy = _trigger_policy(args)

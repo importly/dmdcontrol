@@ -164,6 +164,104 @@ def test_pair_runtime_parser_accepts_count_mode_options():
     assert args.exposure_us == 7000
 
 
+def test_pair_runtime_auto_count_slots_uses_fastest_valid_timing():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--test",
+            A_COUNT_B_STATIC_PAIR_TEST,
+            "--count-start",
+            "1",
+            "--count-end",
+            "100",
+            "--exposure-us",
+            "4000",
+            "--dark-time-us",
+            "1000",
+        ])
+
+    pair._validate_pair_args(args)
+
+    assert args.count_slots_per_frame == 2
+    assert args.count_slots_per_frame_mode == "auto"
+
+
+def test_pair_runtime_count_slots_accepts_auto_literal():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--test",
+            A_COUNT_B_STATIC_PAIR_TEST,
+            "--count-start",
+            "1",
+            "--count-end",
+            "100",
+            "--count-slots-per-frame",
+            "auto",
+            "--exposure-us",
+            "4000",
+            "--dark-time-us",
+            "1000",
+        ])
+
+    pair._validate_pair_args(args)
+
+    assert args.count_slots_per_frame == 2
+    assert args.count_slots_per_frame_mode == "auto"
+
+
+def test_pair_runtime_explicit_count_slots_override_is_preserved():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--test",
+            A_COUNT_B_STATIC_PAIR_TEST,
+            "--count-start",
+            "1",
+            "--count-end",
+            "100",
+            "--count-slots-per-frame",
+            "5",
+            "--exposure-us",
+            "1000",
+            "--dark-time-us",
+            "250",
+        ])
+
+    pair._validate_pair_args(args)
+
+    assert args.count_slots_per_frame == 5
+    assert args.count_slots_per_frame_mode == "explicit"
+
+
+def test_pair_runtime_auto_count_slots_rejects_ranges_without_valid_divisor():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--test",
+            A_COUNT_B_STATIC_PAIR_TEST,
+            "--count-start",
+            "1",
+            "--count-end",
+            "99",
+            "--exposure-us",
+            "4000",
+            "--dark-time-us",
+            "1000",
+        ])
+
+    with pytest.raises(SystemExit, match="No valid --count-slots-per-frame"):
+        pair._validate_pair_args(args)
+
+
 def test_pair_runtime_parser_accepts_numbers_bitplane_order():
     from dmdcontrol.runtime import pair
 
@@ -272,12 +370,6 @@ def test_static_dot_radius_applies_to_both_dmds():
         (
             ["--test",
              A_COUNT_B_STATIC_PAIR_TEST,
-             "--count-slots-per-frame",
-             "0"],
-            "--count-slots-per-frame must be in the range"),
-        (
-            ["--test",
-             A_COUNT_B_STATIC_PAIR_TEST,
              "--test-a",
              "dot"],
             "--test-a is not valid for a-count-b-static"),
@@ -312,6 +404,14 @@ def test_pair_runtime_validates_count_mode_options(argv, message):
 
     with pytest.raises(SystemExit, match=message):
         pair._validate_pair_args(args)
+
+
+def test_pair_runtime_parser_rejects_nonpositive_count_slots():
+    from dmdcontrol.runtime import pair
+
+    with pytest.raises(SystemExit):
+        pair._build_parser().parse_args(
+            ["--test", A_COUNT_B_STATIC_PAIR_TEST, "--count-slots-per-frame", "0"])
 
 
 def test_a_numbers_b_static_runtime_forwards_b_static_geometry(monkeypatch):
@@ -433,6 +533,7 @@ def test_pair_live_preview_metadata_includes_count_mode():
         "start": 1,
         "end": 100,
         "slots_per_frame": 2,
+        "slots_per_frame_mode": "explicit",
         "exposure_us": 7000,
     }
 

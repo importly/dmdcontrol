@@ -17,6 +17,7 @@ def _sync_check_test_metadata(args: argparse.Namespace, *, dry_run: bool) -> dic
             "count_start": args.count_start,
             "count_end": args.count_end,
             "count_slots_per_frame": args.count_slots_per_frame,
+            "count_slots_per_frame_mode": getattr(args, "count_slots_per_frame_mode", "explicit"),
             "exposure_us": args.exposure_us,
         }
         if dry_run:

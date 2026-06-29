@@ -28,6 +28,20 @@ def nonnegative_int(value: str) -> int:
     return number
 
 
+def count_slots_per_frame(value: str) -> int | None:
+    if value.strip().lower() == "auto":
+        return None
+    try:
+        number = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "count slots per frame must be a positive integer or 'auto'") from exc
+    if number <= 0:
+        raise argparse.ArgumentTypeError(
+            "count slots per frame must be a positive integer or 'auto'")
+    return number
+
+
 def trigger_out_rising_delay_us(value: str) -> int:
     try:
         number = int(value)

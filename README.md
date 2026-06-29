@@ -259,6 +259,14 @@ the runtime uses `floor(usable_frame_us / (exposure_us + dark_time_us))`, capped
 source rate, the effective binary pattern rate is `60 * entries`; for example `--exposure-us 4000 --dark-time-us 250`
 fits 3 entries per VSYNC and runs at 180 Hz.
 
+For `a-count-b-static`, omit `--count-slots-per-frame` or pass `--count-slots-per-frame auto` to choose the fastest slot
+count that fits the LUT timing, evenly divides the count range, and stays within the 64-VSYNC count-sequence cap. Explicit
+integer overrides still work when you need a specific packing.
+
+`camera sync-check --dry-run` validates the paired runtime LUT budget before writing run artifacts. This catches commands
+that would later fail during live DLPC900 preparation, for example five numbers at `--exposure-us 4000 --dark-time-us 1000`
+on the fixed 60 Hz source.
+
 `--test numbers` is a dynamic DisplayPort-frame mode, not a custom LUT sequence. `TRIG_OUT_2` remains the real
 acquisition/index signal from the Video Pattern Mode LUT and may pulse multiple times per displayed digit. `TRIG_OUT_1`
 is advisory only.

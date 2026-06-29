@@ -67,11 +67,11 @@ def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
                 str(args.count_start),
                 "--count-end",
                 str(args.count_end),
-                "--count-slots-per-frame",
-                str(args.count_slots_per_frame),
                 "--numbers-size-px",
                 str(args.number_size_px),
             ])
+        if args.count_slots_per_frame is not None:
+            pair_args.extend(["--count-slots-per-frame", str(args.count_slots_per_frame)])
     else:
         pair_args.extend(
             [
