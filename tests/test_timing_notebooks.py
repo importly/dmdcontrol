@@ -1,5 +1,6 @@
 import json
 import re
+from types import SimpleNamespace
 from pathlib import Path
 
 import numpy as np
@@ -35,6 +36,77 @@ def _exec_notebook_functions(notebook, function_names):
         end = min(candidates) if candidates else len(source)
         exec(source[start:end], namespace)
     return namespace
+
+
+def _notebook_cell_source_containing(notebook, required_text):
+    for cell in notebook["cells"]:
+        source = "".join(cell.get("source", []))
+        if required_text in source:
+            return source
+    raise AssertionError(f"{required_text!r} missing from notebook")
+
+
+def _exec_trim_cell_tail_without_resolution_global(notebook):
+    source = _notebook_cell_source_containing(notebook, "def write_trimmed_display_aedat4(")
+    prefix, tail = source.split("\ntrim_cycles =", 1)
+    tail = "trim_cycles =" + tail
+    captured = {}
+
+    def fake_process_accumulation_triggers(*args, **kwargs):
+        trigger_count = int(kwargs["max_accumulation_triggers"])
+        return SimpleNamespace(
+            final=[
+                {"timestamp": 1000 + index * 1000, "edge": "rising"}
+                for index in range(trigger_count)
+            ]
+        )
+
+    def fake_write_trimmed_display_aedat4(
+        output_path,
+        metadata_path,
+        arrays,
+        selected_triggers,
+        resolution,
+        source_aedat4_path,
+        buffer_us=2000,
+    ):
+        captured["output_path"] = str(output_path)
+        captured["metadata_path"] = str(metadata_path)
+        captured["resolution"] = resolution
+        captured["selected_trigger_count"] = len(selected_triggers)
+        return {
+            "resolution": [int(resolution[0]), int(resolution[1])],
+            "selected_trigger_count": len(selected_triggers),
+            "buffer_us": int(buffer_us),
+        }
+
+    namespace = {
+        "AEDAT4_PATH": ROOT / "raw.aedat4",
+        "RUN_DIR": ROOT,
+        "STATIC_RAINBOW_FRAME_COUNT": 30,
+        "Path": Path,
+        "ceil": __import__("math").ceil,
+        "cycle_length": 120,
+        "default_cycles": 1,
+        "default_offset_us": 0,
+        "default_window_us": 8000,
+        "event_arrays": {
+            "t": np.array([1000, 2000], dtype=np.int64),
+            "x": np.array([1, 2], dtype=np.int64),
+            "y": np.array([3, 4], dtype=np.int64),
+            "p": np.array([True, False], dtype=np.bool_),
+        },
+        "json": json,
+        "np": np,
+        "recording": SimpleNamespace(triggers=[]),
+        "width": 640,
+        "height": 480,
+    }
+    exec(prefix, namespace)
+    namespace["_process_accumulation_triggers"] = fake_process_accumulation_triggers
+    namespace["write_trimmed_display_aedat4"] = fake_write_trimmed_display_aedat4
+    exec(tail, namespace)
+    return captured
 
 
 def test_timing_sweep_notebooks_exist_and_are_parseable():
@@ -264,6 +336,68 @@ def test_laser3_notebook_writes_trimmed_display_aedat4_artifact():
     assert "addTriggerStream" in source
     assert "writeEvents" in source
     assert "writeTriggerPacket" in source
+
+
+def test_count_offset_notebook_writes_trimmed_display_aedat4_artifact():
+    notebook = _load_notebook("07_fast_accumulation_offset_explorer_count_20260629_174138.ipynb")
+    source = _joined_source(notebook)
+    namespace = _exec_notebook_functions(
+        notebook,
+        ["displayed_trigger_trim_window", "trim_event_arrays_for_time_window"],
+    )
+
+    trigger_ts = np.array([10_000, 20_000, 30_000, 40_000], dtype=np.int64)
+    window = namespace["displayed_trigger_trim_window"](
+        trigger_ts,
+        frame_count=3,
+        buffer_us=2000,
+    )
+
+    assert window == {
+        "start_us": 8000,
+        "stop_us": 32000,
+        "first_trigger_us": 10000,
+        "last_trigger_us": 30000,
+        "selected_trigger_count": 3,
+        "buffer_us": 2000,
+    }
+
+    arrays = {
+        "t": np.array([7999, 8000, 10000, 31999, 32000], dtype=np.int64),
+        "x": np.array([1, 2, 3, 4, 5], dtype=np.int64),
+        "y": np.array([6, 7, 8, 9, 10], dtype=np.int64),
+        "p": np.array([True, False, True, False, True], dtype=np.bool_),
+    }
+    trimmed = namespace["trim_event_arrays_for_time_window"](arrays, window)
+
+    assert trimmed["t"].tolist() == [8000, 10000, 31999]
+    assert trimmed["x"].tolist() == [2, 3, 4]
+    assert trimmed["y"].tolist() == [7, 8, 9]
+    assert trimmed["p"].tolist() == [False, True, False]
+    assert "TRIMMED_AEDAT4_TRIGGER_COUNT = max(1, int(default_cycles) * int(cycle_length))" in source
+    assert "TRIMMED_AEDAT4_BUFFER_US = 2000" in source
+    assert "trimmed_displayed_{TRIMMED_AEDAT4_TRIGGER_COUNT}_triggers_plus_{TRIMMED_AEDAT4_BUFFER_US}us.aedat4" in source
+    assert "write_trimmed_display_aedat4(" in source
+    assert "addEventStream" in source
+    assert "addTriggerStream" in source
+    assert "writeEvents" in source
+    assert "writeTriggerPacket" in source
+
+
+def test_trim_cells_use_defined_recording_resolution_and_displayed_frame_count():
+    expected_counts = {
+        "07_fast_accumulation_offset_explorer_laser3.ipynb": 30,
+        "07_fast_accumulation_offset_explorer_count_20260629_174138.ipynb": 120,
+    }
+
+    for notebook_name, expected_count in expected_counts.items():
+        notebook = _load_notebook(notebook_name)
+        captured = _exec_trim_cell_tail_without_resolution_global(notebook)
+
+        assert captured["resolution"] == (640, 480), notebook_name
+        assert captured["selected_trigger_count"] == expected_count, notebook_name
+        assert f"trimmed_displayed_{expected_count}_triggers_plus_2000us.aedat4" in captured["output_path"], notebook_name
+        assert f"trimmed_displayed_{expected_count}_triggers_plus_2000us.json" in captured["metadata_path"], notebook_name
 
 
 def test_laser3_notebook_uses_readable_rainbow_view_defaults():

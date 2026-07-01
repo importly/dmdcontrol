@@ -5,10 +5,11 @@ __pycache__/
 .idea/
 .ipynb_checkpoints/
 *.log
-context/
+/context/
 dlpc900.pdf.txt
 search_pdf.py
 .ssh/
 server_backup/
-runs
+/runs/
 .venv/
+.pytest_cache/

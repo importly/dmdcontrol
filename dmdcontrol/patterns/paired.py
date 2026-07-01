@@ -699,7 +699,10 @@ def _pack_count_sequence_frames(
             masks.append(mask)
             if count_blank_between_frames:
                 masks.append(blank_mask)
+        # print(_pack_binary_masks_bitplanes(masks, width, height))
+        # print(np.shape(_pack_binary_masks_bitplanes(masks, width, height)))
         frames.append(_pack_binary_masks_bitplanes(masks, width, height))
+    # print(len(frames))
     return tuple(frames)
 
 
@@ -766,7 +769,11 @@ def _pack_binary_masks_bitplanes(masks, width, height):
     masks = list(masks)
     if len(masks) > BITPLANES:
         raise ValueError(f"masks can contain at most {BITPLANES} entries")
+    
     masks.extend(np.zeros((height, width), dtype=np.uint8) for _ in range(BITPLANES - len(masks)))
+    # print(type(masks))
+    # print(len(masks))
+    # print(masks)
 
     r = np.zeros((height, width), dtype=np.uint8)
     g = np.zeros((height, width), dtype=np.uint8)

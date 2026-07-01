@@ -257,6 +257,8 @@ def build_lut_entries(
                 trig2_disable,
                 bit_pos,
             ))
+        # print(len(entries))
+        # print(entries_count)
 
     timing = {
         "timing_source": timing_source,
