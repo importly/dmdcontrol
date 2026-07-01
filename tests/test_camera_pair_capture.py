@@ -86,6 +86,11 @@ def test_pair_capture_parser_rejects_removed_kernel_exposure_flag():
         build_parser().parse_args(["--dry-run-timing", "--kernel-exposure-us", "3000"])
 
 
+def test_pair_capture_parser_rejects_removed_camera_open_method_flag():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--dry-run-timing", "--camera-open-method", "modern"])
+
+
 def test_pair_capture_parser_accepts_event_noise_filter_options():
     args = build_parser().parse_args(
         [

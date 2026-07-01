@@ -37,7 +37,6 @@ def _args(**overrides):
     values = {
         "camera_stream_rearm": False,
         "camera_shutdown_streams": False,
-        "camera_open_method": "modern",
         "bias_sensitivity": "default",
         "efps": "default",
         "camera_flush_reads": 1,
@@ -69,8 +68,8 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
     monkeypatch.setattr(
         session,
         "configure_camera_performance",
-        lambda opened_capture, bias_sensitivity, efps, prefer_legacy: calls.append(
-            ("performance", opened_capture is capture, bias_sensitivity, efps, prefer_legacy)),
+        lambda opened_capture, bias_sensitivity, efps: calls.append(
+            ("performance", opened_capture is capture, bias_sensitivity, efps)),
     )
     monkeypatch.setattr(
         session,
@@ -113,8 +112,7 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
         ("performance",
          True,
          "low",
-         "variable_5000",
-         False),
+         "variable_5000"),
         ("triggers",
          True),
         (
@@ -227,45 +225,3 @@ def test_close_camera_resources_skips_optional_stream_shutdown(monkeypatch, tmp_
     assert calls == ["gc"]
 
 
-def test_open_ready_camera_can_use_legacy_camera_open_method(monkeypatch, tmp_path):
-    from dmdcontrol.camera import session
-
-    capture = FakeCapture()
-    calls = []
-    fake_dv = SimpleNamespace(io=SimpleNamespace(MonoCameraWriter=FakeWriter))
-    run = SimpleNamespace(raw_recording_path=tmp_path / "raw.aedat4")
-
-    monkeypatch.setitem(sys.modules, "dv_processing", fake_dv)
-    monkeypatch.setattr(
-        session,
-        "open_camera_capture",
-        lambda dv, method: calls.append(("open", dv is fake_dv, method)) or capture,
-    )
-    monkeypatch.setattr(
-        session,
-        "configure_camera_performance",
-        lambda opened_capture, bias_sensitivity, efps, prefer_legacy: calls.append(
-            ("performance", opened_capture is capture, bias_sensitivity, efps, prefer_legacy)),
-    )
-    monkeypatch.setattr(session, "configure_rising_edge_triggers", lambda *args, **kwargs: None)
-    monkeypatch.setattr(session, "validate_camera_ready", lambda *args, **kwargs: SimpleNamespace())
-
-    session.open_ready_camera(
-        run,
-        _args(
-            camera_open_method="legacy",
-            bias_sensitivity="low",
-            efps="variable_5000",
-        ),
-    )
-
-    assert calls == [
-        ("open",
-         True,
-         "legacy"),
-        ("performance",
-         True,
-         "low",
-         "variable_5000",
-         True),
-    ]

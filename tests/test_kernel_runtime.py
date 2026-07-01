@@ -181,6 +181,16 @@ def test_single_runtime_static_dry_run_forwards_generic_exposure(monkeypatch):
     }
 
 
+def test_single_runtime_warns_that_dark_time_is_unreliable_in_video_pattern_mode(caplog):
+    args = single_runtime._build_parser().parse_args(
+        ["--test", "checkerboard", "--dark-time-us", "250", "--dry-run-timing"])
+
+    single_runtime._warn_dark_time_video_pattern_mode(args)
+
+    assert "--dark-time-us" in caplog.text
+    assert "does not work as expected with DLPC900 Video Pattern Mode" in caplog.text
+
+
 def test_single_runtime_numbers_mode_ignores_generic_exposure_for_wall_clock_dwell():
     args = single_runtime._build_parser().parse_args(
         [

@@ -26,8 +26,7 @@ def _ready_with_initial_flush(ready, initial_flush):
 def _open_configured_camera_capture(args):
     import dv_processing as dv
 
-    camera_open_method = getattr(args, "camera_open_method", "modern")
-    capture = open_camera_capture(dv, method=camera_open_method)
+    capture = open_camera_capture(dv)
     writer = None
     try:
         rearm_info = (
@@ -38,7 +37,6 @@ def _open_configured_camera_capture(args):
             capture,
             bias_sensitivity=args.bias_sensitivity,
             efps=args.efps,
-            prefer_legacy=(camera_open_method == "legacy"),
         )
         trigger_configuration = configure_rising_edge_triggers(capture)
         ready = validate_camera_ready(

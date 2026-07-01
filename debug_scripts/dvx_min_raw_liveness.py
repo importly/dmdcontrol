@@ -107,7 +107,7 @@ def open_first_camera():
 def apply_dv_view_defaults(camera):
     """
     Name is intentional: these are the settings copied from DV-view/C++-style testing,
-    not mentor/legacy settings.
+    not the old mentor camera settings.
     """
     results = [
         call_setting(camera, "setContrastThresholdOn", 9),

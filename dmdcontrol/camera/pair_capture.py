@@ -85,13 +85,6 @@ def build_parser() -> argparse.ArgumentParser:
                  "ignore"])
     parser.add_argument("--dark-time-us", type=int, default=None)
     parser.add_argument(
-        "--camera-open-method",
-        default="modern",
-        choices=["modern",
-                 "legacy"],
-        help="Camera API used to open the device. Use legacy to mirror mentor CameraCapture code.",
-    )
-    parser.add_argument(
         "--camera-flush-reads",
         type=nonnegative_int,
         default=1,
@@ -198,7 +191,6 @@ def dry_run(args: argparse.Namespace, command_argv: list[str] | None = None):
         "efps": args.efps,
         "polarity_mode": args.polarity_mode,
         "dark_time_us": args.dark_time_us,
-        "camera_open_method": args.camera_open_method,
         "camera_flush_reads": args.camera_flush_reads,
         "camera_post_trigger_event_batches": args.camera_post_trigger_event_batches,
         "camera_stream_rearm": args.camera_stream_rearm,
@@ -290,7 +282,6 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
         "efps": args.efps,
         "polarity_mode": args.polarity_mode,
         "dark_time_us": args.dark_time_us,
-        "camera_open_method": args.camera_open_method,
         "camera_flush_reads": args.camera_flush_reads,
         "camera_post_trigger_event_batches": args.camera_post_trigger_event_batches,
         "camera_stream_rearm": args.camera_stream_rearm,
@@ -299,6 +290,7 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
         "event_noise_filter": event_noise_filter_metadata(event_filter),
         "save_filtered_events": args.save_filtered_events,
     }
+    startup_leader_trigger_count = {"value": 0}
 
     try:
         capture, writer, ready = _open_ready_camera(run, args)
@@ -311,6 +303,12 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
 
         def before_start(context):
             nonlocal recording
+            startup_leader = context.get("startup_leader") or {}
+            startup_leader_trigger_count["value"] = int(
+                startup_leader.get("trigger_count") or 0)
+            if args.max_accumulation_triggers is not None:
+                artifact_buffer.max_rising_triggers = (
+                    args.max_accumulation_triggers + startup_leader_trigger_count["value"])
             metadata.update(
                 {
                     "camera_ready": metadata_dict(ready),
@@ -318,6 +316,8 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
                     "timing_a": context["state_a"]["timing"],
                     "timing_b": context["state_b"]["timing"],
                 })
+            if startup_leader:
+                metadata["startup_leader"] = startup_leader
             if recording is None:
                 recording = AsyncCapture(
                     capture,
@@ -352,6 +352,7 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
                 event_noise_filter=event_filter,
                 save_filtered_events=args.save_filtered_events,
                 max_accumulation_triggers=args.max_accumulation_triggers,
+                startup_leader_trigger_count=startup_leader_trigger_count["value"],
             )
             metadata["artifact_capture"] = artifact_buffer.to_metadata()
             metadata["artifact_summary"] = artifact_summary

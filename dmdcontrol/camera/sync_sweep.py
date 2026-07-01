@@ -16,7 +16,6 @@ from dmdcontrol.camera.session import (
 )
 
 PERSISTENT_CAMERA_FIELDS = [
-    "camera_open_method",
     "camera_stream_rearm",
     "camera_shutdown_streams",
     "camera_flush_reads",

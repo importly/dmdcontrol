@@ -21,19 +21,6 @@ class ModernDVXplorerCapture:
         self.readout_fps.append(value)
 
 
-class LegacyDVXplorerCapture:
-
-    def __init__(self):
-        self.bias = []
-        self.efps = []
-
-    def setDVSBiasSensitivity(self, value):
-        self.bias.append(value)
-
-    def setDVXplorerEFPS(self, value):
-        self.efps.append(value)
-
-
 class ResettableCapture:
 
     def __init__(self):
@@ -226,40 +213,8 @@ def test_configure_camera_performance_uses_dvxplorer_readout_fps(monkeypatch):
     assert capture.readout_fps == ["variable-5000"]
 
 
-def test_configure_camera_performance_can_prefer_legacy_setters(monkeypatch):
-    import sys
-    capture = LegacyDVXplorerCapture()
-    bias = SimpleNamespace(Low="legacy-low")
-    efps = SimpleNamespace(EFPS_VARIABLE_5000="legacy-variable-5000")
-    dv = SimpleNamespace(
-        io=SimpleNamespace(CameraCapture=SimpleNamespace(
-            BiasSensitivity=bias,
-            DVXeFPS=efps,
-        ),
-                           ),
-    )
-    monkeypatch.setitem(sys.modules, "dv_processing", dv)
-
-    discovery.configure_camera_performance(
-        capture,
-        bias_sensitivity="low",
-        efps="variable_5000",
-        prefer_legacy=True,
-    )
-
-    assert capture.bias == ["legacy-low"]
-    assert capture.efps == ["legacy-variable-5000"]
-
-
-def test_open_camera_capture_supports_legacy_camera_capture_api():
+def test_open_camera_capture_uses_current_camera_open_api():
     opened = object()
-    dv = SimpleNamespace(io=SimpleNamespace(CameraCapture=lambda: opened, ), )
+    dv = SimpleNamespace(io=SimpleNamespace(camera=SimpleNamespace(open=lambda: opened)))
 
-    assert discovery.open_camera_capture(dv, method="legacy") is opened
-
-
-def test_open_camera_capture_reports_missing_legacy_api():
-    dv = SimpleNamespace(io=SimpleNamespace())
-
-    with pytest.raises(RuntimeError, match="CameraCapture is not available"):
-        discovery.open_camera_capture(dv, method="legacy")
+    assert discovery.open_camera_capture(dv) is opened

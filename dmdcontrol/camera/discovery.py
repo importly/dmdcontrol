@@ -36,16 +36,7 @@ def discover_cameras():
     return [descriptor_to_dict(index, descriptor) for index, descriptor in enumerate(cameras)]
 
 
-def open_camera_capture(dv, *, method="modern", descriptor=None):
-    if method == "legacy":
-        camera_capture = getattr(dv.io, "CameraCapture", None)
-        if camera_capture is None:
-            raise RuntimeError(
-                "dv.io.CameraCapture is not available in this dv_processing build; "
-                "use --camera-open-method modern or run in an environment with the legacy API.")
-        return camera_capture()
-    if method != "modern":
-        raise ValueError(f"Unsupported camera open method: {method}")
+def open_camera_capture(dv, *, descriptor=None):
     if descriptor is not None:
         return dv.io.camera.open(descriptor)
     return dv.io.camera.open()
@@ -156,30 +147,12 @@ def configure_rising_edge_triggers(capture):
     return result
 
 
-def configure_camera_performance(capture, bias_sensitivity=None, efps=None, prefer_legacy=False):
+def configure_camera_performance(capture, bias_sensitivity=None, efps=None):
     if bias_sensitivity is not None and bias_sensitivity != "default":
-        configured = (
-            _configure_legacy_dvs_bias_sensitivity(capture,
-                                                   bias_sensitivity) if prefer_legacy else
-            _configure_dvxplorer_contrast_thresholds(capture,
-                                                     bias_sensitivity))
-        if not configured:
-            if prefer_legacy:
-                _configure_dvxplorer_contrast_thresholds(capture, bias_sensitivity)
-            else:
-                _configure_legacy_dvs_bias_sensitivity(capture, bias_sensitivity)
+        _configure_dvxplorer_contrast_thresholds(capture, bias_sensitivity)
 
     if efps is not None and efps != "default":
-        configured = (
-            _configure_legacy_dvxplorer_efps(capture,
-                                             efps)
-            if prefer_legacy else _configure_dvxplorer_readout_fps(capture,
-                                                                   efps))
-        if not configured:
-            if prefer_legacy:
-                _configure_dvxplorer_readout_fps(capture, efps)
-            else:
-                _configure_legacy_dvxplorer_efps(capture, efps)
+        _configure_dvxplorer_readout_fps(capture, efps)
 
 
 def _configure_dvxplorer_contrast_thresholds(capture, bias_sensitivity):
@@ -207,58 +180,6 @@ def _configure_dvxplorer_readout_fps(capture, efps):
     if value is None:
         return False
     capture.setReadoutFPS(value)
-    return True
-
-
-def _configure_legacy_dvs_bias_sensitivity(capture, bias_sensitivity):
-    if not hasattr(capture, "setDVSBiasSensitivity"):
-        return False
-    import dv_processing as dv
-    bias = getattr(getattr(dv.io, "CameraCapture", None), "BiasSensitivity", None)
-    mapping = {
-        "verylow": getattr(bias,
-                           "VeryLow",
-                           None),
-        "low": getattr(bias,
-                       "Low",
-                       None),
-        "high": getattr(bias,
-                        "High",
-                        None),
-        "veryhigh": getattr(bias,
-                            "VeryHigh",
-                            None),
-    }
-    value = mapping.get(bias_sensitivity.lower())
-    if value is None:
-        return False
-    capture.setDVSBiasSensitivity(value)
-    return True
-
-
-def _configure_legacy_dvxplorer_efps(capture, efps):
-    if not hasattr(capture, "setDVXplorerEFPS"):
-        return False
-    import dv_processing as dv
-    efps_enum = getattr(getattr(dv.io, "CameraCapture", None), "DVXeFPS", None)
-    mapping = {
-        "variable": getattr(efps_enum,
-                            "EFPS_VARIABLE",
-                            None),
-        "variable_5000": getattr(efps_enum,
-                                 "EFPS_VARIABLE_5000",
-                                 None),
-        "constant_1000": getattr(efps_enum,
-                                 "EFPS_CONSTANT_1000",
-                                 None),
-        "constant_100": getattr(efps_enum,
-                                "EFPS_CONSTANT_100",
-                                None),
-    }
-    value = mapping.get(efps.lower())
-    if value is None:
-        return False
-    capture.setDVXplorerEFPS(value)
     return True
 
 

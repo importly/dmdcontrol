@@ -232,7 +232,7 @@ DMD launchers use the custom `1920x1080_60_RAW` modeline and fixed 60.000 Hz tim
 | `--kernel-blank-end-frame` / `--no-kernel-blank-end-frame` | flag                                                                                                                                                                                                 | on                 | Append one all-black 24-bitplane VSYNC frame at the end of each kernel cycle, or disable it explicitly.                                  |
 | `--kernel-leader-frames`                                   | int                                                                                                                                                                                                  | `3`                | Prepend all-black VSYNC frames to each kernel cycle. DAQ should ignore these leader trigger pulses before kernel index 0.                |
 | `--exposure-us`                                            | int µs                                                                                                                                                                                               | auto               | Generic DLPC900 LUT-entry exposure. With `--dark-time-us`, controls how many entries fit per 60 Hz VSYNC and therefore the effective pattern rate. Ignored by dynamic wall-clock modes that do not use LUT exposure timing. |
-| `--dark-time-us`                                           | int µs                                                                                                                                                                                               | `0`                | Dark time after each active LUT entry. Omit for existing dynamic defaults; combine with `--exposure-us` to control the effective slot rate. |
+| `--dark-time-us`                                           | int µs                                                                                                                                                                                               | `0`                | Unreliable for visible off-time in DLPC900 Video Pattern Mode. Prefer explicit blank frames or blank bitplanes.                            |
 | `--dry-run-timing`                                         | flag                                                                                                                                                                                                 | off                | Print LUT timing, cycle length, and trigger-to-kernel mapping without opening OpenGL or USB hardware.                                    |
 | `-v`, `--verbose`                                          | repeatable                                                                                                                                                                                           | basic              | Logging level: basic = INFO, `-v` = DEBUG + 2s watchdog, `-vv` = DEBUG with source paths + 1s watchdog + full board snapshots.           |
 
@@ -263,6 +263,11 @@ DMD launchers use the custom `1920x1080_60_RAW` modeline and fixed 60.000 Hz tim
 the runtime uses `floor(usable_frame_us / (exposure_us + dark_time_us))`, capped at 24 entries. At the fixed 60 Hz DMD
 source rate, the effective binary pattern rate is `60 * entries`; for example `--exposure-us 4000 --dark-time-us 250`
 fits 3 entries per VSYNC and runs at 180 Hz.
+
+`--dark-time-us` is kept for LUT timing and budget accounting, but it does not work reliably as visible off-time in
+DLPC900 Video Pattern Mode. For camera-visible off frames, use explicit blank frames or blank bitplanes instead. For
+example, count-mode camera checks should use `--count-blank-between-frames` rather than trying to make an off window
+with `--dark-time-us`.
 
 For `a-count-b-static`, omit `--count-slots-per-frame` or pass `--count-slots-per-frame auto` to choose the fastest slot
 count that fits the LUT timing, evenly divides the count range, and stays within the 64-VSYNC count-sequence cap. Explicit
@@ -315,11 +320,10 @@ The normal camera entrypoints are:
 python debug_scripts/camera_probe.py [flags]
 ```
 
-Current default camera behavior is intended to match the original modern `dv_processing` path:
+Current camera behavior uses the `dv_processing` camera API directly:
 
 - Camera open defaults to `dv.io.camera.open()`.
 - The open-time stale batch flush uses `--camera-flush-reads`, default `1`.
-- No legacy `dv.io.CameraCapture()` path is used unless `--camera-open-method legacy` is passed.
 - No post-trigger grace reads are used unless `--camera-post-trigger-event-batches N` is passed. The default is `0`.
 - No stream rearm or shutdown runs unless the corresponding flag is passed.
 
@@ -334,16 +338,15 @@ The extra camera flags are diagnostic switches, not normal-run requirements:
 
 | Flag | Default | Use |
 |------|---------|-----|
-| `--camera-open-method modern|legacy` | `modern` | Compare current `dv.io.camera.open()` against the mentor/Hannah legacy `dv.io.CameraCapture()` path. |
 | `--camera-post-trigger-event-batches N` | `0` | Keep reading up to `N` event batches after the expected trigger count. This did not fix the current no-optical-response state. |
 | `--camera-stream-rearm` | off | Toggle event/trigger running state after open, when the API exposes those controls. |
-| `--bias-sensitivity` / `--efps` | `default` | Camera performance configuration. In the modern DVXplorer API, `--bias-sensitivity low` maps through contrast-threshold APIs and is not guaranteed to mean the same thing as mentor's legacy `BiasSensitivity.Low`. |
+| `--bias-sensitivity` / `--efps` | `default` | Camera performance configuration through current DVXplorer contrast-threshold/readout APIs. Leave these at `default` unless deliberately testing camera settings. |
 
 Current DVXplorer investigation state:
 
 - Event counts alone are not enough evidence. A bad camera state can still stream background-like events while the spatial PNG looks like the no-stimulus noise image.
 - Physical unplug/replug has restored stimulus-correlated optical response. Software open/close, stream rearm, and threshold changes have not reliably restored it.
-- Under user `main` on `eodla`, `dv_processing` was observed as version `2.0.3`, with `dv.io.camera.open()` present and `dv.io.CameraCapture` absent. Mentor backup code uses `dv.io.CameraCapture()`, so that exact path cannot run in the observed `main` environment.
+- Under user `main` on `eodla`, `dv_processing` was observed as version `2.0.3`, with `dv.io.camera.open()` present.
 - If Hannah's separate Linux user does not show this issue, first compare her Python/dv environment before changing sync-check logic.
 
 Environment comparison command for each Linux user:
@@ -355,7 +358,6 @@ python - <<'PY'
 import dv_processing as dv
 print(getattr(dv, "__version__", "unknown"))
 print(getattr(dv, "__file__", None))
-print("has CameraCapture", hasattr(dv.io, "CameraCapture"))
 print("has camera.open", hasattr(dv.io, "camera") and hasattr(dv.io.camera, "open"))
 PY
 ```

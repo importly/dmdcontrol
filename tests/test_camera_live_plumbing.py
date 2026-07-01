@@ -1,3 +1,4 @@
+import json
 from threading import Event
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -16,6 +17,16 @@ def _fake_run_directory(tmp_path):
         contact_sheet_path=tmp_path / "contact_sheet.png",
         summary_path=tmp_path / "summary.json",
     )
+
+
+def _startup_leader(trigger_count=8, entries_count=4):
+    return {
+        "vsyncs": 2,
+        "trigger_count": trigger_count,
+        "entries_count": entries_count,
+        "trig2_mode": "per_bitplane",
+        "frame_role": "blank_startup_leader",
+    }
 
 
 def test_pair_capture_live_records_while_dmd_runtime_is_active(monkeypatch, tmp_path):
@@ -178,8 +189,16 @@ def test_pair_capture_live_writes_capture_artifacts_with_event_filter(monkeypatc
 
     monkeypatch.setattr(pair_capture, "record_until_trigger_count", fake_record)
 
+    startup_leader = _startup_leader()
+
     def fake_run(pair_args, before_start):
-        before_start({"state_a": {"timing": {}}, "state_b": {"timing": {}}})
+        before_start({
+            "state_a": {
+                "timing": {}},
+            "state_b": {
+                "timing": {}},
+            "startup_leader": startup_leader,
+        })
         assert record_started.wait(timeout=1.0)
         runtime_can_finish.set()
 
@@ -219,11 +238,14 @@ def test_pair_capture_live_writes_capture_artifacts_with_event_filter(monkeypatc
     assert artifact_call["triggers"] == [{"timestamp": 100, "edge": "rising"}]
     assert artifact_call["resolution"] == (320, 240)
     assert artifact_call["window_us"] == 600
+    assert artifact_call["startup_leader_trigger_count"] == 8
     assert artifact_call["event_noise_filter"].enabled is True
     assert artifact_call["event_noise_filter"].delta_t_us == 50000
     assert artifact_call["event_noise_filter"].window_px == 3
     assert artifact_call["event_noise_filter"].threshold == 2
     assert artifact_call["event_noise_filter"].polarity == "same"
+    metadata = json.loads((tmp_path / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["startup_leader"] == startup_leader
 
 
 def test_pair_capture_live_limits_in_memory_artifact_batches(monkeypatch, tmp_path):
@@ -302,8 +324,16 @@ def test_pair_capture_live_limits_in_memory_artifact_batches(monkeypatch, tmp_pa
 
     monkeypatch.setattr(pair_capture, "record_until_trigger_count", fake_record)
 
+    startup_leader = _startup_leader(trigger_count=2, entries_count=1)
+
     def fake_run(pair_args, before_start):
-        before_start({"state_a": {"timing": {}}, "state_b": {"timing": {}}})
+        before_start({
+            "state_a": {
+                "timing": {}},
+            "state_b": {
+                "timing": {}},
+            "startup_leader": startup_leader,
+        })
         assert record_started.wait(timeout=1.0)
         runtime_can_finish.set()
 
@@ -332,7 +362,12 @@ def test_pair_capture_live_limits_in_memory_artifact_batches(monkeypatch, tmp_pa
 
     assert pair_capture.live(args) == 0
     assert artifact_call["max_accumulation_triggers"] == 1
-    assert artifact_call["triggers"] == [{"timestamp": 100, "edge": "rising"}]
+    assert artifact_call["startup_leader_trigger_count"] == 2
+    assert artifact_call["triggers"] == [
+        {"timestamp": 100, "edge": "rising"},
+        {"timestamp": 200, "edge": "rising"},
+        {"timestamp": 300, "edge": "rising"},
+    ]
     assert artifact_call["events"] == [
         {
             "timestamp": 101,
@@ -340,9 +375,19 @@ def test_pair_capture_live_limits_in_memory_artifact_batches(monkeypatch, tmp_pa
             "y": 1,
             "polarity": True},
         {
+            "timestamp": 112,
+            "x": 9,
+            "y": 9,
+            "polarity": True},
+        {
             "timestamp": 104,
             "x": 2,
             "y": 2,
+            "polarity": True},
+        {
+            "timestamp": 120,
+            "x": 3,
+            "y": 3,
             "polarity": True},
     ]
 
@@ -574,8 +619,16 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
         lambda run, args: (Mock(), Mock(), ready),
     )
 
+    startup_leader = _startup_leader()
+
     def fake_run(pair_args, before_start):
-        before_start({"state_a": {"timing": {}}, "state_b": {"timing": {}}})
+        before_start({
+            "state_a": {
+                "timing": {}},
+            "state_b": {
+                "timing": {}},
+            "startup_leader": startup_leader,
+        })
 
     monkeypatch.setattr(sync_check, "_run_pair_with_callback", fake_run)
 
@@ -627,11 +680,14 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
     assert artifact_call["triggers"] == [{"timestamp": 100, "edge": "rising"}]
     assert artifact_call["resolution"] == (320, 240)
     assert artifact_call["window_us"] == 600
+    assert artifact_call["startup_leader_trigger_count"] == 8
     assert artifact_call["event_noise_filter"].enabled is True
     assert artifact_call["event_noise_filter"].delta_t_us == 50000
     assert artifact_call["event_noise_filter"].window_px == 3
     assert artifact_call["event_noise_filter"].threshold == 2
     assert artifact_call["event_noise_filter"].polarity == "same"
+    metadata = json.loads((tmp_path / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["startup_leader"] == startup_leader
 
 
 def test_sync_check_live_capture_flushes_stale_batches_immediately_before_recording(

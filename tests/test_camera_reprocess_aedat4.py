@@ -39,6 +39,9 @@ def test_reprocess_main_writes_derived_artifacts_from_reader(monkeypatch, tmp_pa
                 "polarity_mode": "positive",
                 "expected_trigger_count": 2,
                 "accumulation_cycles": 1,
+                "startup_leader": {
+                    "trigger_count": 1,
+                },
             }),
         encoding="utf-8",
     )
@@ -71,6 +74,8 @@ def test_reprocess_main_writes_derived_artifacts_from_reader(monkeypatch, tmp_pa
         return Aedat4RecordingData(
             events=[events],
             triggers=[
+                TriggerRecord(timestamp=90,
+                              edge="rising"),
                 TriggerRecord(timestamp=100,
                               edge="rising"),
                 TriggerRecord(timestamp=120,
@@ -102,6 +107,7 @@ def test_reprocess_main_writes_derived_artifacts_from_reader(monkeypatch, tmp_pa
     assert accumulated.shape == (2, 3, 4)
     assert accumulated[0, 1, 1] == 1
     assert accumulated[1, 1, 2] == 1
+    assert summary["startup_leader_skip"]["skipped_trigger_count"] == 1
     assert summary["window_start_offset_us"] == 5
     assert metadata["mode"] == "aedat4-reprocess"
     assert metadata["source_aedat4"] == str(raw_path)

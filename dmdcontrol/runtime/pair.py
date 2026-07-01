@@ -7,6 +7,8 @@ import threading
 import time
 from dataclasses import dataclass
 
+import numpy as np
+
 from dmdcontrol.hardware.mapping import DmdMapping, resolve_dmd_mapping
 from dmdcontrol.patterns.calibration_square import (
     build_calibration_square_frame,
@@ -48,6 +50,7 @@ from dmdcontrol.runtime.lifecycle import (
     load_pattern_sequence,
     prepare_dlpc900_for_video_pattern,
     start_loaded_pattern_sequences,
+    warn_dark_time_video_pattern_mode as _warn_dark_time_video_pattern_mode,
 )
 from dmdcontrol.runtime.count_slots import (
     resolve_count_slots_per_frame,
@@ -70,6 +73,9 @@ from dmdcontrol.support.argparse_types import (
 from dmdcontrol.support.logging import logger, setup_logger
 
 
+PAIRED_STARTUP_LEADER_VSYNCS = 2
+
+
 @dataclass(frozen=True)
 class PairConfig:
     dmd_a: DmdMapping
@@ -79,6 +85,30 @@ class PairConfig:
     offset_b: tuple[int, int] = OFFSET_B
     offset_a: tuple[int, int] = OFFSET_A
     target_hz: int = DEFAULT_HZ
+
+
+def _blank_dmd_frame():
+    return np.zeros((DMD_HEIGHT, DMD_WIDTH, 3), dtype=np.uint8)
+
+
+def _blank_pair_frames():
+    return _blank_dmd_frame(), _blank_dmd_frame()
+
+
+def _startup_leader_metadata(timing):
+    timing = timing or {}
+    entries_count = int(timing.get("entries_count") or BITPLANES)
+    trig2_mode = timing.get("trig2_mode") or "per_bitplane"
+    trigger_count = (
+        PAIRED_STARTUP_LEADER_VSYNCS
+        if trig2_mode == "frame_zero" else PAIRED_STARTUP_LEADER_VSYNCS * entries_count)
+    return {
+        "vsyncs": PAIRED_STARTUP_LEADER_VSYNCS,
+        "trigger_count": int(trigger_count),
+        "entries_count": entries_count,
+        "trig2_mode": trig2_mode,
+        "frame_role": "blank_startup_leader",
+    }
 
 
 class _DryRunDLPC:
@@ -715,10 +745,28 @@ def _run_pair_render_loop(
     args,
     preview_poster=None,
     preview_metadata=None,
+    startup_leader_vsyncs=0,
+    startup_leader_pair=None,
 ):
     end_t = None if args.runtime_seconds <= 0 else time.time() + args.runtime_seconds
-    while (end_t is None or time.time() < end_t) and not engine.should_close():
-        frame_a, frame_b = provider.next_pair()
+    first_semantic_frame = True
+
+    def should_continue():
+        return (end_t is None or time.time() < end_t) and not engine.should_close()
+
+    if startup_leader_vsyncs:
+        frame_a, frame_b = startup_leader_pair or _blank_pair_frames()
+        for _ in range(int(startup_leader_vsyncs)):
+            if not should_continue():
+                return
+            engine.display_pair(frame_a, frame_b)
+
+    while should_continue():
+        if first_semantic_frame:
+            frame_a, frame_b = provider.initial_pair()
+            first_semantic_frame = False
+        else:
+            frame_a, frame_b = provider.next_pair()
         engine.display_pair(frame_a, frame_b)
         if preview_poster is not None:
             preview_poster.maybe_post_pair(
@@ -729,10 +777,9 @@ def _run_pair_render_loop(
             )
 
 
-def _start_pair_pump(engine, provider):
+def _start_pair_pump(engine, frame_a, frame_b):
     pump_event = threading.Event()
     pump_ready = threading.Event()
-    frame_a, frame_b = provider.initial_pair()
 
     def _continuous_pump():
         engine.make_context_current()
@@ -798,8 +845,9 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
                 dlpc.wake_displayport_receiver()
             time.sleep(1.0)
 
+        startup_leader_pair = _blank_pair_frames()
         logger.info("[+] Starting paired continuous GL pump before DLPC preparation...")
-        pump_event, pump_thread = _start_pair_pump(engine, provider)
+        pump_event, pump_thread = _start_pair_pump(engine, *startup_leader_pair)
 
         logger.info("[+] Preparing DMD A controller without starting sequencer...")
         state_a = prepare_dlpc900_for_video_pattern(
@@ -830,6 +878,8 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
         load_pattern_sequence(dlpc_a, state_a["entries"])
         load_pattern_sequence(dlpc_b, state_b["entries"])
         live_preview_metadata = _build_live_preview_metadata(args, pair_config, state_a, state_b)
+        startup_leader = _startup_leader_metadata(state_a.get("timing"))
+        live_preview_metadata["startup_leader"] = startup_leader
 
         if before_sequencer_start is not None:
             before_sequencer_start(
@@ -839,6 +889,7 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
                     "state_a": state_a,
                     "state_b": state_b,
                     "preview_metadata": live_preview_metadata,
+                    "startup_leader": startup_leader,
                 })
 
         logger.info("[+] Starting both DLPC900 sequencers from paired software barrier...")
@@ -849,16 +900,6 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
         pump_event = None
         pump_thread = None
 
-        first_a, first_b = provider.initial_pair()
-        engine.display_pair(first_a, first_b)
-        if preview_poster is not None:
-            preview_poster.maybe_post_pair(
-                first_a,
-                first_b,
-                metadata=_live_preview_metadata_for_frame(live_preview_metadata,
-                                                          provider),
-                force=True,
-            )
         _run_pair_render_loop(
             dlpc_a,
             dlpc_b,
@@ -867,6 +908,8 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
             args,
             preview_poster=preview_poster,
             preview_metadata=live_preview_metadata,
+            startup_leader_vsyncs=startup_leader["vsyncs"],
+            startup_leader_pair=startup_leader_pair,
         )
         return 0
     finally:
@@ -899,6 +942,7 @@ def _run(argv, before_start=None):
     setup_logger(verbosity=args.verbose)
     pair_config = resolve_pair_config(args.dmd_config)
     _validate_pair_args(args, target_hz=pair_config.target_hz)
+    _warn_dark_time_video_pattern_mode(args)
     if args.dry_run_timing:
         _dry_run_timing(args, pair_config)
         return 0

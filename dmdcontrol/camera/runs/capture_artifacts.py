@@ -35,11 +35,13 @@ def write_capture_artifacts(
     trigger_cycle_length=None,
     accumulation_cycles=None,
     contact_sheet_columns=None,
+    startup_leader_trigger_count=0,
 ):
     _validate_capture_artifact_options(
         max_accumulation_triggers=max_accumulation_triggers,
         trigger_cycle_length=trigger_cycle_length,
         accumulation_cycles=accumulation_cycles,
+        startup_leader_trigger_count=startup_leader_trigger_count,
     )
     filter_config = event_noise_filter or LocalSupportFilterConfig(enabled=False)
     filter_config.validate()
@@ -65,6 +67,7 @@ def write_capture_artifacts(
         max_accumulation_triggers=max_accumulation_triggers,
         trigger_cycle_length=trigger_cycle_length,
         accumulation_cycles=accumulation_cycles,
+        startup_leader_trigger_count=startup_leader_trigger_count,
     )
     rising_triggers = trigger_stages.final
     _write_triggers_csv(run_directory.triggers_path, rising_triggers)
@@ -118,6 +121,7 @@ def _validate_capture_artifact_options(
     max_accumulation_triggers,
     trigger_cycle_length,
     accumulation_cycles,
+    startup_leader_trigger_count,
 ):
     if max_accumulation_triggers is not None and max_accumulation_triggers <= 0:
         raise ValueError("max_accumulation_triggers must be positive")
@@ -125,6 +129,8 @@ def _validate_capture_artifact_options(
         raise ValueError("trigger_cycle_length must be positive")
     if accumulation_cycles is not None and accumulation_cycles <= 0:
         raise ValueError("accumulation_cycles must be positive")
+    if startup_leader_trigger_count is not None and startup_leader_trigger_count < 0:
+        raise ValueError("startup_leader_trigger_count must be non-negative")
 
 def _event_sequence(events):
     if events is None:
@@ -261,6 +267,8 @@ def _capture_summary(
         len(rising_triggers) < len(trigger_stages.raw),
         "trigger_alignment":
         trigger_stages.alignment_metadata,
+        "startup_leader_skip":
+        trigger_stages.leader_skip_metadata,
         "trigger_cycle_limit":
         trigger_stages.cycle_limit_metadata,
         "event_count":

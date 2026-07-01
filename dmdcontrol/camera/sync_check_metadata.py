@@ -71,7 +71,6 @@ def sync_check_metadata(
         "efps": args.efps,
         "polarity_mode": args.polarity_mode,
         "dark_time_us": args.dark_time_us,
-        "camera_open_method": args.camera_open_method,
         "camera_flush_reads": args.camera_flush_reads,
         "camera_post_trigger_event_batches": args.camera_post_trigger_event_batches,
         "camera_stream_rearm": args.camera_stream_rearm,

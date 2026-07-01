@@ -47,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--accumulation-cycles", type=positive_int, default=None)
     parser.add_argument("--max-accumulation-triggers", type=positive_int, default=None)
     parser.add_argument("--contact-sheet-columns", type=positive_int, default=None)
+    parser.add_argument("--startup-leader-trigger-count", type=nonnegative_int, default=None)
     return parser
 
 
@@ -96,6 +97,7 @@ def main(argv: list[str] | None = None) -> int:
         trigger_cycle_length=options["trigger_cycle_length"],
         accumulation_cycles=options["accumulation_cycles"],
         contact_sheet_columns=options["contact_sheet_columns"],
+        startup_leader_trigger_count=options["startup_leader_trigger_count"],
     )
     metadata = {
         "mode": "aedat4-reprocess",
@@ -291,6 +293,13 @@ def _resolve_options(args, metadata: dict[str, object]) -> dict[str, object]:
             trigger_cycle_length,
             1,
         )),
+        "startup_leader_trigger_count":
+        int(
+            _first_not_none(
+                args.startup_leader_trigger_count,
+                (metadata.get("startup_leader") or {}).get("trigger_count"),
+                0,
+            )),
     }
 
 

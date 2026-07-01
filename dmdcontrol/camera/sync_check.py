@@ -232,13 +232,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dark-time-us", type=int, default=None)
     parser.add_argument(
-        "--camera-open-method",
-        default="modern",
-        choices=["modern",
-                 "legacy"],
-        help="Camera API used to open the device. Use legacy to mirror mentor CameraCapture code.",
-    )
-    parser.add_argument(
         "--camera-flush-reads",
         type=nonnegative_int,
         default=32,
@@ -340,6 +333,9 @@ def _update_before_start_metadata(metadata, ready, context, accumulation_window_
         timing = context.get("state_a", {}).get("timing") or {}
         accumulation_window_us["value"] = timing.get("exposure_us")
     metadata["accumulation_window_us"] = accumulation_window_us["value"]
+    startup_leader = context.get("startup_leader")
+    if startup_leader is not None:
+        metadata["startup_leader"] = startup_leader
 
 
 def _write_capture_artifacts_for_sync_check(
@@ -350,6 +346,7 @@ def _write_capture_artifacts_for_sync_check(
     trigger_records,
     event_filter,
     accumulation_window_us,
+    startup_leader_trigger_count=0,
 ):
     return write_capture_artifacts(
         run,
@@ -364,6 +361,7 @@ def _write_capture_artifacts_for_sync_check(
         accumulation_cycles=args.requested_accumulation_cycles,
         window_start_offset_us=args.accumulation_start_offset_us,
         contact_sheet_columns=expected_trigger_count(args),
+        startup_leader_trigger_count=startup_leader_trigger_count,
     )
 
 
@@ -406,6 +404,7 @@ def live_capture(
     event_records = []
     trigger_records = []
     accumulation_window_us = {"value": _requested_accumulation_window_us(args)}
+    startup_leader_trigger_count = {"value": 0}
     trigger_policy = _trigger_policy(args)
     metadata = _sync_check_metadata(
         args,
@@ -426,6 +425,9 @@ def live_capture(
         def before_start(context):
             nonlocal recording
             _update_before_start_metadata(metadata, ready, context, accumulation_window_us)
+            startup_leader = context.get("startup_leader") or {}
+            startup_leader_trigger_count["value"] = int(
+                startup_leader.get("trigger_count") or 0)
             metadata["camera_pre_capture_flush"] = flush_stale_batches(
                 capture,
                 reads=args.camera_flush_reads,
@@ -459,6 +461,7 @@ def live_capture(
                 trigger_records,
                 event_filter,
                 accumulation_window_us["value"],
+                startup_leader_trigger_count=startup_leader_trigger_count["value"],
             )
             metadata["artifact_summary"] = artifact_summary
             if "event_noise_filter" in artifact_summary:

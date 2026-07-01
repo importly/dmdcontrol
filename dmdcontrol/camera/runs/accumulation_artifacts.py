@@ -14,6 +14,7 @@ class _AccumulationTriggerStages:
     selected: list
     final: list
     alignment_metadata: dict
+    leader_skip_metadata: dict
     cycle_limit_metadata: dict
 
 def _trigger_timestamps(triggers):
@@ -38,10 +39,15 @@ def _process_accumulation_triggers(
     max_accumulation_triggers,
     trigger_cycle_length,
     accumulation_cycles,
+    startup_leader_trigger_count=0,
 ):
     raw = filter_rising_triggers(triggers)
-    aligned, alignment_metadata = _align_triggers_to_event_range(
+    semantic_input, leader_skip_metadata = _skip_startup_leader_triggers(
         raw,
+        startup_leader_trigger_count,
+    )
+    aligned, alignment_metadata = _align_triggers_to_event_range(
+        semantic_input,
         event_timestamps,
         int(window_us),
         int(window_start_offset_us),
@@ -59,8 +65,21 @@ def _process_accumulation_triggers(
         selected=selected,
         final=final,
         alignment_metadata=alignment_metadata,
+        leader_skip_metadata=leader_skip_metadata,
         cycle_limit_metadata=cycle_limit_metadata,
     )
+
+def _skip_startup_leader_triggers(triggers, startup_leader_trigger_count):
+    requested = int(startup_leader_trigger_count or 0)
+    skipped = min(max(0, requested), len(triggers))
+    remaining = list(triggers[skipped:])
+    metadata = {
+        "requested_trigger_count": requested,
+        "skipped_trigger_count": skipped,
+        "input_trigger_count": len(triggers),
+        "remaining_trigger_count": len(remaining),
+    }
+    return remaining, metadata
 
 def _align_triggers_to_event_range(triggers, event_timestamps, window_us, window_start_offset_us=0):
     trigger_timestamps = _trigger_timestamps(triggers)

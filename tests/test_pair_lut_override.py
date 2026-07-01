@@ -91,6 +91,17 @@ def test_pair_runtime_rejects_negative_dark_time():
         pair._validate_pair_args(args)
 
 
+def test_pair_runtime_warns_that_dark_time_is_unreliable_in_video_pattern_mode(caplog):
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args(["--dry-run-timing", "--dark-time-us", "100"])
+
+    pair._warn_dark_time_video_pattern_mode(args)
+
+    assert "--dark-time-us" in caplog.text
+    assert "does not work as expected with DLPC900 Video Pattern Mode" in caplog.text
+
+
 @pytest.mark.parametrize(
     "flag",
     ["--kernel-exposure-us", "--numbers-exposure-us", "--count-exposure-us"],
@@ -691,6 +702,7 @@ def test_run_prepared_pair_starts_rendering_without_post_start_sleep(monkeypatch
 
     calls = {}
     dlpcs = []
+    pump_frames = {}
 
     class FakeDLPC:
 
@@ -732,7 +744,13 @@ def test_run_prepared_pair_starts_rendering_without_post_start_sleep(monkeypatch
     monkeypatch.setattr(
         pair,
         "_make_runtime_pair_frame_provider", lambda args, engine, target_hz: FakeProvider())
-    monkeypatch.setattr(pair, "_start_pair_pump", lambda engine, provider: (object(), object()))
+
+    def fake_start_pair_pump(engine, frame_a, frame_b):
+        pump_frames["a"] = frame_a.copy()
+        pump_frames["b"] = frame_b.copy()
+        return object(), object()
+
+    monkeypatch.setattr(pair, "_start_pair_pump", fake_start_pair_pump)
     monkeypatch.setattr(pair, "_stop_pair_pump", lambda engine, pump_event, pump_thread: None)
     monkeypatch.setattr(
         pair,
@@ -774,4 +792,50 @@ def test_run_prepared_pair_starts_rendering_without_post_start_sleep(monkeypatch
 
     assert pair._run_prepared_pair(args, pair_config) == 0
     assert calls == {"post_start_delay_s": 0.0, "verify": True}
+    assert pump_frames["a"].shape == (pair.DMD_HEIGHT, pair.DMD_WIDTH, 3)
+    assert pump_frames["b"].shape == (pair.DMD_HEIGHT, pair.DMD_WIDTH, 3)
+    assert not np.any(pump_frames["a"])
+    assert not np.any(pump_frames["b"])
     assert [dlpc.closed for dlpc in dlpcs] == [True, True]
+
+
+def test_run_pair_render_loop_emits_blank_leader_before_first_semantic_frame():
+    from dmdcontrol.runtime import pair
+
+    blank_a = np.zeros((1, 1, 3), dtype=np.uint8)
+    blank_b = np.zeros((1, 1, 3), dtype=np.uint8)
+    first_a = np.full((1, 1, 3), 3, dtype=np.uint8)
+    first_b = np.full((1, 1, 3), 4, dtype=np.uint8)
+    second_a = np.full((1, 1, 3), 5, dtype=np.uint8)
+    second_b = np.full((1, 1, 3), 6, dtype=np.uint8)
+    displayed = []
+
+    class FakeEngine:
+
+        def should_close(self):
+            return len(displayed) >= 4
+
+        def display_pair(self, frame_a, frame_b):
+            displayed.append((frame_a.copy(), frame_b.copy()))
+
+    class FakeProvider:
+
+        def initial_pair(self):
+            return first_a, first_b
+
+        def next_pair(self):
+            return second_a, second_b
+
+    args = types.SimpleNamespace(runtime_seconds=0)
+
+    pair._run_pair_render_loop(
+        None,
+        None,
+        FakeEngine(),
+        FakeProvider(),
+        args,
+        startup_leader_vsyncs=2,
+        startup_leader_pair=(blank_a, blank_b),
+    )
+
+    assert [int(frame_a[0, 0, 0]) for frame_a, _ in displayed] == [0, 0, 3, 5]

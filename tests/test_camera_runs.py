@@ -584,6 +584,127 @@ def test_write_capture_artifacts_selects_first_full_trigger_cycle(tmp_path):
     assert not (run.path / "accumulated_004.png").exists()
 
 
+def test_write_capture_artifacts_skips_startup_leader_before_cycle_selection(tmp_path):
+    run = create_run_directory(
+        "sync-check",
+        output_root=tmp_path,
+        timestamp="20260603-120112",
+    )
+    triggers = [
+        TriggerRecord(timestamp=1000 + index * 100,
+                      edge="rising") for index in range(6)
+    ]
+    events = [
+        EventRecord(timestamp=1001,
+                    x=0,
+                    y=0,
+                    polarity=True),
+        EventRecord(timestamp=1101,
+                    x=0,
+                    y=1,
+                    polarity=True),
+        EventRecord(timestamp=1201,
+                    x=1,
+                    y=1,
+                    polarity=True),
+        EventRecord(timestamp=1301,
+                    x=2,
+                    y=2,
+                    polarity=True),
+        EventRecord(timestamp=1401,
+                    x=3,
+                    y=3,
+                    polarity=True),
+        EventRecord(timestamp=1501,
+                    x=4,
+                    y=4,
+                    polarity=True),
+    ]
+
+    summary = write_capture_artifacts(
+        run,
+        events=events,
+        triggers=triggers,
+        resolution=(5,
+                    5),
+        window_us=20,
+        polarity_mode="positive",
+        trigger_cycle_length=2,
+        accumulation_cycles=1,
+        startup_leader_trigger_count=2,
+    )
+
+    trigger_lines = run.triggers_path.read_text(encoding="utf-8").splitlines()
+    accumulated = np.load(run.accumulated_path)
+
+    assert trigger_lines == [
+        "index,timestamp,edge",
+        "0,1200,rising",
+        "1,1300,rising",
+    ]
+    assert accumulated.shape == (2, 5, 5)
+    assert summary["startup_leader_skip"] == {
+        "requested_trigger_count": 2,
+        "skipped_trigger_count": 2,
+        "input_trigger_count": 6,
+        "remaining_trigger_count": 4,
+    }
+    assert summary["trigger_cycle_limit"]["selected_cycle_indices"] == [0]
+
+
+def test_write_capture_artifacts_skips_startup_leader_before_event_alignment(tmp_path):
+    run = create_run_directory(
+        "sync-check",
+        output_root=tmp_path,
+        timestamp="20260603-120113",
+    )
+    triggers = [
+        TriggerRecord(timestamp=1000 + index * 100,
+                      edge="rising") for index in range(4)
+    ]
+    events = [
+        EventRecord(timestamp=1201,
+                    x=1,
+                    y=1,
+                    polarity=True),
+        EventRecord(timestamp=1301,
+                    x=2,
+                    y=2,
+                    polarity=True),
+    ]
+
+    summary = write_capture_artifacts(
+        run,
+        events=events,
+        triggers=triggers,
+        resolution=(5,
+                    5),
+        window_us=20,
+        polarity_mode="positive",
+        trigger_cycle_length=2,
+        accumulation_cycles=1,
+        startup_leader_trigger_count=2,
+    )
+
+    trigger_lines = run.triggers_path.read_text(encoding="utf-8").splitlines()
+    accumulated = np.load(run.accumulated_path)
+
+    assert trigger_lines == [
+        "index,timestamp,edge",
+        "0,1200,rising",
+        "1,1300,rising",
+    ]
+    assert accumulated.shape == (2, 5, 5)
+    assert summary["startup_leader_skip"] == {
+        "requested_trigger_count": 2,
+        "skipped_trigger_count": 2,
+        "input_trigger_count": 4,
+        "remaining_trigger_count": 2,
+    }
+    assert summary["trigger_alignment"]["input_trigger_count"] == 2
+    assert summary["trigger_alignment"]["aligned_trigger_count"] == 2
+
+
 def test_write_capture_artifacts_selects_first_cycle_block(tmp_path):
     run = create_run_directory(
         "sync-check",

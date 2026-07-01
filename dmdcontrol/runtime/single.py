@@ -29,6 +29,7 @@ from dmdcontrol.runtime.lifecycle import (
     configure_dlpc900_for_video_pattern,
     log_board_snapshot,
     verify_runtime_state,
+    warn_dark_time_video_pattern_mode as _warn_dark_time_video_pattern_mode,
 )
 from dmdcontrol.hardware.mapping import resolve_dmd_mapping
 from dmdcontrol.support.logging import logger, setup_logger
@@ -492,6 +493,8 @@ def main(argv=None):
     except ValueError as exc:
         logger.error(f"--trigger-out-2-rising-delay-us is invalid: {exc}")
         raise SystemExit("Invalid --trigger-out-2-rising-delay-us value") from exc
+
+    _warn_dark_time_video_pattern_mode(args)
 
     if args.dry_run_timing:
         _dry_run_timing(args)

@@ -38,6 +38,15 @@ def _format_hw(hw):
     return f"0x{hw:02X}[{'|'.join(bits) if bits else 'clean'}]"
 
 
+def warn_dark_time_video_pattern_mode(args):
+    if getattr(args, "dark_time_us", None) is None:
+        return
+    logger.warning(
+        "--dark-time-us does not work as expected with DLPC900 Video Pattern Mode. "
+        "Use explicit blank frames or blank bitplanes for visible off-time; this value is only "
+        "kept for LUT timing/budget accounting.")
+
+
 def log_board_snapshot(dlpc, tag):
     logger.debug("=" * 66)
     logger.debug(f"  DLPC900 Status Snapshot: {tag}")

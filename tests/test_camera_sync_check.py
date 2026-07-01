@@ -73,6 +73,11 @@ def test_sync_check_parser_rejects_removed_trigger_selection_options(flag):
         build_parser().parse_args(["--dry-run", flag, "1"])
 
 
+def test_sync_check_parser_rejects_removed_camera_open_method_flag():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--dry-run", "--camera-open-method", "modern"])
+
+
 @pytest.mark.parametrize("value", ["", ",", "0", "1,10", "-1", "x"])
 def test_sync_check_numbers_must_be_non_empty_decimal_digits(value):
     with pytest.raises(SystemExit):

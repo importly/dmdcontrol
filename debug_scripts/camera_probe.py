@@ -67,13 +67,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Do not call setContrastThresholdOn/Off directly.",
     )
     parser.add_argument(
-        "--camera-open-method",
-        default="modern",
-        choices=["modern",
-                 "legacy"],
-        help="Camera API used to open the device. Use legacy to mirror mentor CameraCapture code.",
-    )
-    parser.add_argument(
         "--bias-sensitivity",
         default="default",
         choices=["default",
@@ -267,13 +260,12 @@ def run() -> int:
             f"serial={getattr(d, 'serialNumber', None)} "
             f"devAddress={getattr(d, 'devAddress', None)}")
 
-    if not descs and args.camera_open_method == "modern":
+    if not descs:
         raise RuntimeError("No camera discovered")
 
-    print(f"[probe] opening camera with {args.camera_open_method} API")
+    print("[probe] opening camera with dv.io.camera.open()")
     capture = open_camera_capture(
         dv,
-        method=args.camera_open_method,
         descriptor=descs[0] if descs else None,
     )
 
@@ -300,7 +292,6 @@ def run() -> int:
         capture,
         bias_sensitivity=args.bias_sensitivity,
         efps=args.efps,
-        prefer_legacy=(args.camera_open_method == "legacy"),
     )
 
     # Conservative baseline. Lower this to 6 only if the trail is too weak.
@@ -433,8 +424,6 @@ def run() -> int:
         elapsed,
         "resolution": [width,
                        height],
-        "camera_open_method":
-        args.camera_open_method,
         "threshold":
         args.threshold,
         "threshold_applied":
