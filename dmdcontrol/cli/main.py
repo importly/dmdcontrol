@@ -25,10 +25,6 @@ def _build_parser() -> argparse.ArgumentParser:
     usb_actions.add_parser("discover", add_help=False)
     usb_actions.add_parser("wake", add_help=False)
 
-    flood_parser = subparsers.add_parser("flood")
-    flood_actions = flood_parser.add_subparsers(dest="command", required=True)
-    flood_actions.add_parser("run", add_help=False)
-
     config_parser = subparsers.add_parser("config")
     config_actions = config_parser.add_subparsers(dest="command", required=True)
     config_actions.add_parser("show", add_help=False)
@@ -38,7 +34,6 @@ def _build_parser() -> argparse.ArgumentParser:
     camera_actions.add_parser("discover", add_help=False)
     camera_actions.add_parser("status", add_help=False)
     camera_actions.add_parser("sync-check", add_help=False)
-    camera_actions.add_parser("sync-sweep", add_help=False)
     camera_actions.add_parser("pair-capture", add_help=False)
     camera_actions.add_parser("reprocess-aedat4", add_help=False)
 
@@ -71,10 +66,6 @@ def main(argv: list[str] | None = None) -> int | None:
         from dmdcontrol.cli import usb
 
         return usb.wake(passthrough)
-    if args.area == "flood" and args.command == "run":
-        from dmdcontrol.cli import flood
-
-        return flood.run(passthrough)
     if args.area == "config" and args.command == "show":
         from dmdcontrol.cli import config
 
@@ -86,7 +77,6 @@ def main(argv: list[str] | None = None) -> int | None:
             "discover": camera.discover,
             "status": camera.status,
             "sync-check": camera.sync_check,
-            "sync-sweep": camera.sync_sweep,
             "pair-capture": camera.pair_capture,
             "reprocess-aedat4": camera.reprocess_aedat4,
         }

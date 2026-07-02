@@ -34,6 +34,7 @@ def test_sync_check_parser_defaults_to_digits_one_through_five():
     assert args.b_dot_radius == 20
     assert args.accumulation_cycles is None
     assert args.accumulation_start_offset_us == 0
+    assert args.paired_startup_leader_vsyncs == 16
 
 
 def test_sync_check_numbers_mode_defaults_to_one_accumulation_cycle():
@@ -208,6 +209,18 @@ def test_sync_check_runtime_args_allow_explicit_bitplane_exposure_override():
 
     assert pair_args[pair_args.index("--exposure-us") + 1] == "600"
     assert pair_args[pair_args.index("--trigger-out-2-rising-delay-us") + 1] == "-20"
+
+
+def test_sync_check_runtime_args_forward_paired_startup_leader_vsyncs():
+    args = build_parser().parse_args(
+        [
+            "--paired-startup-leader-vsyncs",
+            "20",
+        ])
+
+    pair_args = _to_pair_runtime_args(args)
+
+    assert pair_args[pair_args.index("--paired-startup-leader-vsyncs") + 1] == "20"
 
 
 def test_sync_check_parser_accepts_count_mode_options():

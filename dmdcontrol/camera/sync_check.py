@@ -190,6 +190,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=0)
     parser.add_argument("--runtime-seconds", type=int, default=0)
     parser.add_argument(
+        "--paired-startup-leader-vsyncs",
+        type=nonnegative_int,
+        default=16,
+        help=(
+            "Blank paired source VSYNCs after sequencer start before the first semantic frame. "
+            "Forwarded to the paired DMD runtime and skipped in derived artifacts."),
+    )
+    parser.add_argument(
         "--seq-utilization",
         type=float,
         default=None,

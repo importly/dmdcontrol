@@ -120,6 +120,7 @@ def test_pair_capture_parser_defaults_to_bounded_accumulation_artifacts():
     args = build_parser().parse_args(["--dry-run-timing"])
 
     assert args.max_accumulation_triggers == 512
+    assert args.paired_startup_leader_vsyncs == 16
 
 
 def test_pair_capture_parser_defaults_trigger_delay_to_zero():
@@ -133,6 +134,19 @@ def test_pair_capture_parser_accepts_negative_trigger_rising_delay():
         ["--dry-run-timing", "--trigger-out-2-rising-delay-us", "-20"])
 
     assert args.trigger_out_2_rising_delay_us == -20
+
+
+def test_pair_capture_runtime_args_forward_paired_startup_leader_vsyncs():
+    args = build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--paired-startup-leader-vsyncs",
+            "20",
+        ])
+
+    pair_args = _to_pair_runtime_args(args)
+
+    assert pair_args[pair_args.index("--paired-startup-leader-vsyncs") + 1] == "20"
 
 
 @pytest.mark.parametrize("value", ["-21", "19981"])
@@ -229,6 +243,7 @@ def test_pair_capture_dry_run_creates_run_artifacts(tmp_path):
         "kernel_px": 1080,
         "exposure_us": 3000,
         "runtime_seconds": 999,
+        "paired_startup_leader_vsyncs": 16,
         "dmd_config": "dmd_devices.json",
     }
     assert metadata["requested_command_shape"] == [
@@ -248,6 +263,8 @@ def test_pair_capture_dry_run_creates_run_artifacts(tmp_path):
         "3000",
         "--runtime-seconds",
         "999",
+        "--paired-startup-leader-vsyncs",
+        "16",
     ]
     assert metadata["expected_shape"] == {
         "kernel_count": 512,

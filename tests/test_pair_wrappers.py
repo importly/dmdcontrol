@@ -90,7 +90,6 @@ class PairWrapperTests(unittest.TestCase):
                 "xinitrc_dmd_pair.sh",
                 "xinitrc_dmd_pair_capture.sh",
                 "xinitrc_camera_sync_check.sh",
-                "xinitrc_camera_sync_sweep.sh",
         ):
             script = (XINIT / name).read_text(encoding="utf-8")
             self.assertIn('TARGET_MODE="$DMD_MODE_60"', script)
@@ -187,25 +186,9 @@ class PairWrapperTests(unittest.TestCase):
         self.assertIn("dmd_x11_verify_pair_layout", script)
         self.assertIn('source "$REPO_ROOT/scripts/lib/dmd_x11_common.sh"', script)
 
-    def test_camera_sync_sweep_runner_routes_dry_run_without_xinit(self):
-        script = (ROOT / "run_camera_sync_sweep.sh").read_text(encoding="utf-8")
-
-        dry_run_idx = script.index("Camera sync-sweep dry-run")
-        wake_idx = script.index("dmd_wake_configured_dmd")
-        xinit_idx = script.index("dmd_run_xinit")
-
-        self.assertLess(dry_run_idx, wake_idx)
-        self.assertLess(dry_run_idx, xinit_idx)
-        self.assertIn("camera sync-sweep", script)
-        self.assertIn("dmd_has_flag --dry-run", script)
-        self.assertIn("xinitrc_camera_sync_sweep.sh", script)
-
-    def test_camera_sync_sweep_xinit_runs_camera_module(self):
-        script = (XINIT / "xinitrc_camera_sync_sweep.sh").read_text(encoding="utf-8")
-
-        self.assertIn("dmdcontrol camera sync-sweep", script)
-        self.assertIn("dmd_x11_verify_pair_layout", script)
-        self.assertIn('source "$REPO_ROOT/scripts/lib/dmd_x11_common.sh"', script)
+    def test_camera_sync_sweep_runner_was_removed(self):
+        self.assertFalse((ROOT / "run_camera_sync_sweep.sh").exists())
+        self.assertFalse((XINIT / "xinitrc_camera_sync_sweep.sh").exists())
 
     def test_pair_capture_runner_routes_dry_run_without_xinit(self):
         script = (ROOT / "run_dmd_pair_capture.sh").read_text(encoding="utf-8")

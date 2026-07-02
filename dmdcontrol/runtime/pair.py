@@ -26,6 +26,7 @@ from dmdcontrol.patterns.paired import (
     CALIBRATION_DOT_PAIR_TEST,
     CalibrationSquareDotPairFrameProvider,
     DynamicAStaticBPairFrameProvider,
+    FramePair,
     KERNEL_STATIC_PAIR_TEST,
     MAX_COUNT_SEQUENCE_FRAMES,
     NUMBER_PAIR_TEST,
@@ -37,6 +38,7 @@ from dmdcontrol.patterns.paired import (
     STATIC_PAIR_TESTS,
     STATIC_IMAGES_PAIR_TEST,
     SingleDmdFrameAdapter,
+    as_frame_pair,
     count_lut_entries_per_frame,
     count_sequence_frame_count,
     generate_dot_frame,
@@ -73,7 +75,7 @@ from dmdcontrol.support.argparse_types import (
 from dmdcontrol.support.logging import logger, setup_logger
 
 
-PAIRED_STARTUP_LEADER_VSYNCS = 2
+PAIRED_STARTUP_LEADER_VSYNCS = 16
 
 
 @dataclass(frozen=True)
@@ -92,18 +94,19 @@ def _blank_dmd_frame():
 
 
 def _blank_pair_frames():
-    return _blank_dmd_frame(), _blank_dmd_frame()
+    return FramePair(a=_blank_dmd_frame(), b=_blank_dmd_frame())
 
 
-def _startup_leader_metadata(timing):
+def _startup_leader_metadata(timing, *, vsyncs=PAIRED_STARTUP_LEADER_VSYNCS):
     timing = timing or {}
     entries_count = int(timing.get("entries_count") or BITPLANES)
     trig2_mode = timing.get("trig2_mode") or "per_bitplane"
+    leader_vsyncs = int(vsyncs)
     trigger_count = (
-        PAIRED_STARTUP_LEADER_VSYNCS
-        if trig2_mode == "frame_zero" else PAIRED_STARTUP_LEADER_VSYNCS * entries_count)
+        leader_vsyncs
+        if trig2_mode == "frame_zero" else leader_vsyncs * entries_count)
     return {
-        "vsyncs": PAIRED_STARTUP_LEADER_VSYNCS,
+        "vsyncs": leader_vsyncs,
         "trigger_count": int(trigger_count),
         "entries_count": entries_count,
         "trig2_mode": trig2_mode,
@@ -292,6 +295,15 @@ def _build_parser():
         "--trig2-frame-zero",
         action="store_true",
         help="Emit TRIG_OUT_2 only for bitplane/frame-zero anchor entries",
+    )
+    parser.add_argument(
+        "--paired-startup-leader-vsyncs",
+        type=nonnegative_int,
+        default=PAIRED_STARTUP_LEADER_VSYNCS,
+        help=(
+            "Blank paired source VSYNCs displayed after both sequencers start "
+            "before the first semantic frame. These trigger pulses are recorded "
+            "in startup_leader metadata and skipped by camera artifact generation."),
     )
     parser.add_argument(
         "--trigger-out-2-rising-delay-us",
@@ -691,6 +703,164 @@ def _live_preview_metadata_for_frame(base_metadata, provider):
     return metadata
 
 
+def _display_frame_pair(engine, frame_pair):
+    frames = as_frame_pair(frame_pair)
+    engine.display_pair(frames.a, frames.b)
+
+
+class PairRenderCoordinator:
+    """Own one GL render thread from blank pre-start through semantic playback.
+
+    The paired DLPC900 startup path is intentionally staged this way:
+    1. Start one GL thread and keep both framebuffer halves on a blank pair while
+       USB/DLPC setup is still happening. This keeps the DisplayPort pipeline
+       active without advancing the semantic frame provider.
+    2. Start both sequencers.
+    3. Display a fixed number of blank startup-leader VSYNCs. Those VSYNCs create
+       real TRIG_OUT_2 pulses, but they are intentionally non-semantic and are
+       recorded in metadata as `startup_leader.trigger_count`.
+    4. Only then request provider.initial_pair(), which should be the first real
+       displayed frame such as count "1" / dot.
+
+    Camera analysis must skip the startup-leader trigger count before labeling
+    trigger windows. Otherwise the first blank leader pulse is mislabeled as the
+    first displayed number, shifting the whole sequence.
+    """
+
+    def __init__(
+        self,
+        engine,
+        provider,
+        args,
+        *,
+        startup_leader_pair,
+        startup_leader_vsyncs,
+        preview_poster=None,
+        preview_metadata=None,
+    ):
+        self.engine = engine
+        self.provider = provider
+        self.args = args
+        self.startup_leader_pair = as_frame_pair(startup_leader_pair)
+        self.startup_leader_vsyncs = int(startup_leader_vsyncs)
+        self.preview_poster = preview_poster
+        self.preview_metadata = preview_metadata
+        self._ready = threading.Event()
+        self._release_semantic = threading.Event()
+        self._stop = threading.Event()
+        self._error = None
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self):
+        self.engine.release_context()
+        self._thread.start()
+        return self
+
+    def wait_until_ready(self, timeout_s=1.0):
+        ready = self._ready.wait(timeout=timeout_s)
+        self._raise_if_failed()
+        return ready
+
+    def release_semantic_frames(self):
+        self._release_semantic.set()
+
+    def join(self):
+        self._thread.join()
+        self._raise_if_failed()
+
+    def stop(self, timeout_s=1.0):
+        self._stop.set()
+        self._release_semantic.set()
+        if self._thread.is_alive():
+            self._thread.join(timeout=timeout_s)
+
+    def _raise_if_failed(self):
+        if self._error is not None:
+            raise self._error
+
+    def _engine_should_close(self):
+        should_close = getattr(self.engine, "should_close", None)
+        return bool(should_close()) if should_close is not None else False
+
+    def _run(self):
+        try:
+            self.engine.make_context_current()
+            self._ready.set()
+            # Nothing displayed before `release_semantic_frames()` is allowed to
+            # consume provider frames. The sequencers may not be running yet, and
+            # any triggers emitted during the startup leader are intentionally
+            # blank and skipped by downstream camera processing.
+            self._run_blank_until_released()
+            self._run_startup_leader()
+            self._run_semantic_frames()
+        except BaseException as exc:
+            self._error = exc
+        finally:
+            try:
+                self.engine.release_context()
+            except Exception:
+                pass
+
+    def _run_blank_until_released(self):
+        while (
+            not self._stop.is_set()
+            and not self._release_semantic.is_set()
+            and not self._engine_should_close()
+        ):
+            _display_frame_pair(self.engine, self.startup_leader_pair)
+
+    def _run_startup_leader(self):
+        for _ in range(max(0, self.startup_leader_vsyncs)):
+            if self._stop.is_set() or self._engine_should_close():
+                return
+            _display_frame_pair(self.engine, self.startup_leader_pair)
+
+    def _run_semantic_frames(self):
+        end_t = None if self.args.runtime_seconds <= 0 else time.time() + self.args.runtime_seconds
+        first_semantic_frame = True
+        while (
+            not self._stop.is_set()
+            and (end_t is None or time.time() < end_t)
+            and not self._engine_should_close()
+        ):
+            if first_semantic_frame:
+                frame_pair = as_frame_pair(self.provider.initial_pair())
+                first_semantic_frame = False
+            else:
+                frame_pair = as_frame_pair(self.provider.next_pair())
+            _display_frame_pair(self.engine, frame_pair)
+            if self.preview_poster is not None:
+                self.preview_poster.maybe_post_pair(
+                    frame_pair.a,
+                    frame_pair.b,
+                    metadata=_live_preview_metadata_for_frame(
+                        self.preview_metadata,
+                        self.provider,
+                    ),
+                )
+
+
+def _start_pair_render_coordinator(
+    engine,
+    provider,
+    args,
+    *,
+    startup_leader_pair,
+    startup_leader_vsyncs,
+    preview_poster=None,
+    preview_metadata=None,
+):
+    return PairRenderCoordinator(
+        engine,
+        provider,
+        args,
+        startup_leader_pair=startup_leader_pair,
+        startup_leader_vsyncs=startup_leader_vsyncs,
+        preview_poster=preview_poster,
+        preview_metadata=preview_metadata,
+    ).start()
+
+
 def _build_live_preview_metadata(args, pair_config, state_a, state_b):
     lut_state = state_a or state_b
     metadata = {
@@ -755,56 +925,26 @@ def _run_pair_render_loop(
         return (end_t is None or time.time() < end_t) and not engine.should_close()
 
     if startup_leader_vsyncs:
-        frame_a, frame_b = startup_leader_pair or _blank_pair_frames()
+        startup_pair = as_frame_pair(startup_leader_pair or _blank_pair_frames())
         for _ in range(int(startup_leader_vsyncs)):
             if not should_continue():
                 return
-            engine.display_pair(frame_a, frame_b)
+            _display_frame_pair(engine, startup_pair)
 
     while should_continue():
         if first_semantic_frame:
-            frame_a, frame_b = provider.initial_pair()
+            frame_pair = as_frame_pair(provider.initial_pair())
             first_semantic_frame = False
         else:
-            frame_a, frame_b = provider.next_pair()
-        engine.display_pair(frame_a, frame_b)
+            frame_pair = as_frame_pair(provider.next_pair())
+        _display_frame_pair(engine, frame_pair)
         if preview_poster is not None:
             preview_poster.maybe_post_pair(
-                frame_a,
-                frame_b,
+                frame_pair.a,
+                frame_pair.b,
                 metadata=_live_preview_metadata_for_frame(preview_metadata,
                                                           provider),
             )
-
-
-def _start_pair_pump(engine, frame_a, frame_b):
-    pump_event = threading.Event()
-    pump_ready = threading.Event()
-
-    def _continuous_pump():
-        engine.make_context_current()
-        pump_ready.set()
-        try:
-            while pump_event.is_set():
-                engine.display_pair(frame_a, frame_b)
-        finally:
-            engine.release_context()
-
-    engine.release_context()
-    pump_event.set()
-    thread = threading.Thread(target=_continuous_pump, daemon=True)
-    thread.start()
-    pump_ready.wait(timeout=1.0)
-    time.sleep(0.1)
-    return pump_event, thread
-
-
-def _stop_pair_pump(engine, pump_event, pump_thread):
-    if pump_event is not None:
-        pump_event.clear()
-    if pump_thread is not None:
-        pump_thread.join(timeout=1.0)
-    engine.make_context_current()
 
 
 def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
@@ -822,8 +962,7 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
     engine = None
     dlpc_a = None
     dlpc_b = None
-    pump_event = None
-    pump_thread = None
+    render_coordinator = None
     preview_poster = None
     try:
         engine = PairedPatternEngine(fps=pair_config.target_hz)
@@ -846,8 +985,19 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
             time.sleep(1.0)
 
         startup_leader_pair = _blank_pair_frames()
-        logger.info("[+] Starting paired continuous GL pump before DLPC preparation...")
-        pump_event, pump_thread = _start_pair_pump(engine, *startup_leader_pair)
+        startup_leader_vsyncs = int(
+            getattr(args, "paired_startup_leader_vsyncs", PAIRED_STARTUP_LEADER_VSYNCS))
+        logger.info(
+            "[+] Starting paired continuous GL render coordinator with blank pre-start frames...")
+        render_coordinator = _start_pair_render_coordinator(
+            engine,
+            provider,
+            args,
+            startup_leader_pair=startup_leader_pair,
+            startup_leader_vsyncs=startup_leader_vsyncs,
+        )
+        if not render_coordinator.wait_until_ready(timeout_s=1.0):
+            raise RuntimeError("Paired render coordinator did not become ready.")
 
         logger.info("[+] Preparing DMD A controller without starting sequencer...")
         state_a = prepare_dlpc900_for_video_pattern(
@@ -878,8 +1028,13 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
         load_pattern_sequence(dlpc_a, state_a["entries"])
         load_pattern_sequence(dlpc_b, state_b["entries"])
         live_preview_metadata = _build_live_preview_metadata(args, pair_config, state_a, state_b)
-        startup_leader = _startup_leader_metadata(state_a.get("timing"))
+        startup_leader = _startup_leader_metadata(
+            state_a.get("timing"),
+            vsyncs=startup_leader_vsyncs,
+        )
         live_preview_metadata["startup_leader"] = startup_leader
+        render_coordinator.preview_poster = preview_poster
+        render_coordinator.preview_metadata = live_preview_metadata
 
         if before_sequencer_start is not None:
             before_sequencer_start(
@@ -893,30 +1048,21 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
                 })
 
         logger.info("[+] Starting both DLPC900 sequencers from paired software barrier...")
-        start_loaded_pattern_sequences(dlpc_a, dlpc_b, post_start_delay_s=0.0, verify=True)
+        # Keep the startup-critical path short: HID readback verification can add
+        # an unpredictable delay after one controller starts. The live GL thread
+        # is already showing blanks, so we start both sequencers, release the
+        # fixed blank leader, and then advance to provider.initial_pair().
+        start_loaded_pattern_sequences(dlpc_a, dlpc_b, post_start_delay_s=0.0, verify=False)
         logger.info("[SCOPE] Compare TRIG_OUT_2_A and TRIG_OUT_2_B for start skew and drift.")
-
-        _stop_pair_pump(engine, pump_event, pump_thread)
-        pump_event = None
-        pump_thread = None
-
-        _run_pair_render_loop(
-            dlpc_a,
-            dlpc_b,
-            engine,
-            provider,
-            args,
-            preview_poster=preview_poster,
-            preview_metadata=live_preview_metadata,
-            startup_leader_vsyncs=startup_leader["vsyncs"],
-            startup_leader_pair=startup_leader_pair,
-        )
+        render_coordinator.release_semantic_frames()
+        render_coordinator.join()
+        render_coordinator = None
         return 0
     finally:
         if preview_poster is not None:
             preview_poster.close()
-        if engine is not None and pump_event is not None:
-            _stop_pair_pump(engine, pump_event, pump_thread)
+        if render_coordinator is not None:
+            render_coordinator.stop()
         for label, dlpc in (("A", dlpc_a), ("B", dlpc_b)):
             if dlpc is None:
                 continue

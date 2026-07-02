@@ -27,12 +27,6 @@ def sync_check(argv):
     return sync_check_module.main(argv)
 
 
-def sync_sweep(argv):
-    from dmdcontrol.camera import sync_sweep as sync_sweep_module
-
-    return sync_sweep_module.main(argv)
-
-
 def pair_capture(argv):
     from dmdcontrol.camera import pair_capture as pair_capture_module
 

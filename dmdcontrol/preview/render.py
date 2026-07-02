@@ -11,7 +11,12 @@ from urllib import request
 import numpy as np
 from PIL import Image
 
-from dmdcontrol.patterns.bitplanes import pack_bitplanes_rgb, unpack_rgb_bitplanes
+from dmdcontrol.patterns.bitplanes import (
+    BITPLANE_LABELS,
+    extract_bitplane,
+    pack_bitplanes_rgb,
+    unpack_rgb_bitplanes,
+)
 from dmdcontrol.patterns.calibration_square import build_calibration_square_frame
 from dmdcontrol.patterns.kernel import build_kernel_frames
 from dmdcontrol.patterns.modes import (
@@ -38,13 +43,6 @@ from dmdcontrol.patterns.paired import (
     make_pair_frame_provider,
 )
 from dmdcontrol.support.constants import BITPLANES
-
-BITPLANE_LABELS = tuple(
-    [f"G{i}" for i in range(8)] + [f"R{i}" for i in range(8)] + [f"B{i}" for i in range(8)])
-# GRB
-_BITPLANE_CHANNELS = (1, ) * 8 + (0, ) * 8 + (2, ) * 8
-_BITPLANE_BITS = tuple(range(8)) * 3
-
 
 def _json_safe_value(value):
     if isinstance(value, np.integer):
@@ -263,14 +261,6 @@ def render_offline_frame(
     if layout == "single":
         return render_single_frame(test=test, frame_index=frame_index)
     raise ValueError("layout must be 'pair' or 'single'")
-
-
-def extract_bitplane(packed_frame, plane):
-    if plane < 0 or plane >= BITPLANES:
-        raise ValueError(f"plane must be in [0, {BITPLANES - 1}]")
-    channel = _BITPLANE_CHANNELS[plane]
-    bit = _BITPLANE_BITS[plane]
-    return (((packed_frame[:, :, channel] >> bit) & 1) * 255).astype(np.uint8)
 
 
 def render_bitplane_image(packed_frame, plane):

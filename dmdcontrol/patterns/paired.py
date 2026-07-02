@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from dmdcontrol.patterns.bitplanes import pack_bitplanes_rgb
+from dmdcontrol.patterns.bitplanes import BitplaneStack, pack_bitplanes_rgb
 from dmdcontrol.patterns.modes import (
     NUMBER_SEQUENCE,
     generate_decimal_number_rgb,
@@ -47,6 +47,25 @@ RECIPE_PAIR_TESTS = (
 )
 PAIR_TESTS = STATIC_PAIR_TESTS + DYNAMIC_PAIR_TESTS + RECIPE_PAIR_TESTS
 MAX_COUNT_SEQUENCE_FRAMES = 64
+
+
+@dataclass(frozen=True)
+class FramePair:
+    """Named A/B DMD frames while preserving legacy tuple unpacking."""
+
+    a: np.ndarray
+    b: np.ndarray
+
+    def __iter__(self):
+        yield self.a
+        yield self.b
+
+
+def as_frame_pair(value):
+    if isinstance(value, FramePair):
+        return value
+    frame_a, frame_b = value
+    return FramePair(frame_a, frame_b)
 
 
 def _validate_rgb_frame(frame, label):
@@ -351,10 +370,10 @@ class StaticPairFrameProvider(PairFrameProvider):
         )
 
     def initial_pair(self):
-        return self._frame_a, self._frame_b
+        return FramePair(a=self._frame_a, b=self._frame_b)
 
     def next_pair(self):
-        return self._frame_a, self._frame_b
+        return FramePair(a=self._frame_a, b=self._frame_b)
 
 
 @dataclass
@@ -376,14 +395,14 @@ class StaticImagePairFrameProvider(PairFrameProvider):
             self.path_b,
             width=int(self.width),
             height=int(self.height),
-            size_px=int(self.size_px*0.5),
+            size_px=int(self.size_px),
         )
 
     def initial_pair(self):
-        return self._frame_a, self._frame_b
+        return FramePair(a=self._frame_a, b=self._frame_b)
 
     def next_pair(self):
-        return self._frame_a, self._frame_b
+        return FramePair(a=self._frame_a, b=self._frame_b)
 
 
 class DynamicAStaticBPairFrameProvider(PairFrameProvider):
@@ -411,11 +430,11 @@ class DynamicAStaticBPairFrameProvider(PairFrameProvider):
 
     def initial_pair(self):
         if self._initial_frame_a is not None:
-            return self._initial_frame_a, self._frame_b
-        return self._next_a(), self._frame_b
+            return FramePair(a=self._initial_frame_a, b=self._frame_b)
+        return FramePair(a=self._next_a(), b=self._frame_b)
 
     def next_pair(self):
-        return self._next_a(), self._frame_b
+        return FramePair(a=self._next_a(), b=self._frame_b)
 
 
 class CalibrationSquareDotPairFrameProvider(DynamicAStaticBPairFrameProvider):
@@ -432,17 +451,17 @@ class CalibrationSquareDotPairFrameProvider(DynamicAStaticBPairFrameProvider):
             self._black_frame_a = np.zeros_like(frame_a)
 
     def initial_pair(self):
-        frame_a, frame_b = super().initial_pair()
-        self._remember_black_frame(frame_a)
-        return frame_a, frame_b
+        frame_pair = as_frame_pair(super().initial_pair())
+        self._remember_black_frame(frame_pair.a)
+        return frame_pair
 
     def next_pair(self):
         self.frame_index += 1
         frame_a = self._next_a()
         self._remember_black_frame(frame_a)
         if self.flicker_a and self.frame_index % 2 == 1:
-            return self._black_frame_a, self._frame_b
-        return frame_a, self._frame_b
+            return FramePair(a=self._black_frame_a, b=self._frame_b)
+        return FramePair(a=frame_a, b=self._frame_b)
 
 
 class DynamicGradientPairFrameProvider(PairFrameProvider):
@@ -462,7 +481,7 @@ class DynamicGradientPairFrameProvider(PairFrameProvider):
         frame_b_gray = np.broadcast_to(vertical, (self.height, self.width))
         frame_a = np.repeat(frame_a_gray[:, :, None], 3, axis=2)
         frame_b = np.repeat(frame_b_gray[:, :, None], 3, axis=2)
-        return _route_mark(frame_a, "A"), _route_mark(frame_b, "B")
+        return FramePair(a=_route_mark(frame_a, "A"), b=_route_mark(frame_b, "B"))
 
     def initial_pair(self):
         return self._frame_for_index(self.frame_index)
@@ -498,7 +517,7 @@ class DynamicSnakePairFrameProvider(PairFrameProvider):
                 y0 = row * cell_h
                 level = max(64, 255 - segment * 32)
                 frame[y0:y0 + cell_h, x0:x0 + cell_w, :] = level
-        return _route_mark(frame_a, "A"), _route_mark(frame_b, "B")
+        return FramePair(a=_route_mark(frame_a, "A"), b=_route_mark(frame_b, "B"))
 
     def initial_pair(self):
         return self._frame_for_index(self.frame_index)
@@ -536,10 +555,10 @@ class NumberSequencePairFrameProvider(PairFrameProvider):
         )
 
     def initial_pair(self):
-        return self._frame, self._frame
+        return FramePair(a=self._frame, b=self._frame)
 
     def next_pair(self):
-        return self._frame, self._frame
+        return FramePair(a=self._frame, b=self._frame)
 
 
 class NumberSequenceAStaticBPairFrameProvider(PairFrameProvider):
@@ -584,10 +603,10 @@ class NumberSequenceAStaticBPairFrameProvider(PairFrameProvider):
         )
 
     def initial_pair(self):
-        return self._frame_a, self._frame_b
+        return FramePair(a=self._frame_a, b=self._frame_b)
 
     def next_pair(self):
-        return self._frame_a, self._frame_b
+        return FramePair(a=self._frame_a, b=self._frame_b)
 
 
 class CountSequenceAStaticBPairFrameProvider(PairFrameProvider):
@@ -641,32 +660,25 @@ class CountSequenceAStaticBPairFrameProvider(PairFrameProvider):
         )
 
     def initial_pair(self):
-        return self._frames_a[self.frame_index], self._frame_b
+        return FramePair(a=self._frames_a[self.frame_index], b=self._frame_b)
 
     def next_pair(self):
         self.frame_index = (self.frame_index + 1) % len(self._frames_a)
-        return self._frames_a[self.frame_index], self._frame_b
+        return FramePair(a=self._frames_a[self.frame_index], b=self._frame_b)
 
 
 def _pack_number_sequence_bitplanes(numbers, width, height, size_px=None, bitplane_order=None):
-    masks = _number_bitplane_masks(numbers, width=width, height=height, size_px=size_px)
+    display_masks = _number_display_masks(numbers, width=width, height=height, size_px=size_px)
     if bitplane_order is not None:
-        masks = _reorder_masks_for_bitplane_display(masks, bitplane_order)
-    return _pack_binary_masks_bitplanes(masks, width, height)
-
-
-def _reorder_masks_for_bitplane_display(masks, bitplane_order):
-    masks = list(masks)
-    order = tuple(bitplane_order)
-    if len(order) != len(masks):
-        raise ValueError("numbers_bitplane_order length must match numbers length")
-    if sorted(order) != list(range(len(masks))):
-        raise ValueError("numbers_bitplane_order must be a zero-based permutation of numbers slots")
-
-    ordered = [None] * len(masks)
-    for display_slot, bitplane_index in enumerate(order):
-        ordered[bitplane_index] = masks[display_slot]
-    return ordered
+        stack = BitplaneStack.from_display_slots(
+            display_masks,
+            bitplane_order=bitplane_order,
+            width=width,
+            height=height,
+        )
+    else:
+        stack = BitplaneStack.from_masks(display_masks, width=width, height=height)
+    return stack.to_rgb_frame().array
 
 
 def _pack_count_sequence_frames(
@@ -685,24 +697,21 @@ def _pack_count_sequence_frames(
     )
     frames = []
     counts = tuple(range(count_start, count_end + 1))
-    blank_mask = np.zeros((height, width), dtype=np.uint8)
     for offset in range(0, len(counts), count_slots_per_frame):
         chunk = counts[offset:offset + count_slots_per_frame]
-        count_masks = _decimal_number_bitplane_masks(
+        count_masks = _decimal_number_display_masks(
             chunk,
             width=width,
             height=height,
             size_px=size_px,
         )
-        masks = []
-        for mask in count_masks:
-            masks.append(mask)
-            if count_blank_between_frames:
-                masks.append(blank_mask)
-        # print(_pack_binary_masks_bitplanes(masks, width, height))
-        # print(np.shape(_pack_binary_masks_bitplanes(masks, width, height)))
-        frames.append(_pack_binary_masks_bitplanes(masks, width, height))
-    # print(len(frames))
+        stack = BitplaneStack.from_masks_with_optional_blanks(
+            count_masks,
+            width=width,
+            height=height,
+            blank_between_masks=count_blank_between_frames,
+        )
+        frames.append(stack.to_rgb_frame().array)
     return tuple(frames)
 
 
@@ -744,7 +753,7 @@ def count_sequence_frame_count(count_start, count_end, count_slots_per_frame):
     return (count_end - count_start + 1) // count_slots_per_frame
 
 
-def _number_bitplane_masks(numbers, *, width, height, size_px=None):
+def _number_display_masks(numbers, *, width, height, size_px=None):
     return [
         (generate_number_rgb(
             number,
@@ -754,35 +763,15 @@ def _number_bitplane_masks(numbers, *, width, height, size_px=None):
         )[:, :, 0] > 0).astype(np.uint8) for number in numbers]
 
 
-def _decimal_number_bitplane_masks(numbers, *, width, height, size_px=None):
+def _decimal_number_display_masks(numbers, *, width, height, size_px=None):
     return [
         (
             generate_decimal_number_rgb(
                 number,
                 width=width,
                 height=height,
-                size_px=size_px,
+            size_px=size_px,
             )[:, :, 0] > 0).astype(np.uint8) for number in numbers]
-
-
-def _pack_binary_masks_bitplanes(masks, width, height):
-    masks = list(masks)
-    if len(masks) > BITPLANES:
-        raise ValueError(f"masks can contain at most {BITPLANES} entries")
-    
-    masks.extend(np.zeros((height, width), dtype=np.uint8) for _ in range(BITPLANES - len(masks)))
-    # print(type(masks))
-    # print(len(masks))
-    # print(masks)
-
-    r = np.zeros((height, width), dtype=np.uint8)
-    g = np.zeros((height, width), dtype=np.uint8)
-    b = np.zeros((height, width), dtype=np.uint8)
-    for bit in range(8):
-        g |= masks[bit] << bit
-        r |= masks[bit + 8] << bit
-        b |= masks[bit + 16] << bit
-    return np.ascontiguousarray(np.stack([r, g, b], axis=-1))
 
 
 def make_pair_frame_provider(

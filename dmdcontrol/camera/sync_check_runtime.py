@@ -59,6 +59,8 @@ def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
         str(args.b_dot_radius),
         "--runtime-seconds",
         str(runtime_seconds),
+        "--paired-startup-leader-vsyncs",
+        str(args.paired_startup_leader_vsyncs),
         "--trigger-out-2-rising-delay-us",
         str(args.trigger_out_2_rising_delay_us),
     ]

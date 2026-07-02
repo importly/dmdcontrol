@@ -99,6 +99,7 @@ def _exec_trim_cell_tail_without_resolution_global(notebook):
         "json": json,
         "np": np,
         "recording": SimpleNamespace(triggers=[]),
+        "startup_leader_trigger_count": 0,
         "width": 640,
         "height": 480,
     }
@@ -116,13 +117,13 @@ def test_timing_sweep_notebooks_exist_and_are_parseable():
             "SWEEP_COMMAND_PATH",
             "dark_time_us_values",
             "trigger_rising_delay_us_values",
-            "run_camera_sync_sweep.sh",
+            "run_camera_sync_check.sh",
             "number_size_px",
             "b_dot_radius",
             "exposure_us_values",
             "sync_check_argv",
             "--name-override",
-            "sync-sweep consumes sync_check_argv or command",
+            "Each row runs an ordinary sync-check command",
         ],
         "02_analyze_timing_sweep_results.ipynb": [
             "summary.json",
@@ -148,7 +149,7 @@ def test_timing_sweep_notebooks_exist_and_are_parseable():
             assert term in source, f"{term!r} missing from {name}"
 
     generator_source = _joined_source(_load_notebook("01_generate_timing_sweep_commands.ipynb"))
-    assert "./run_camera_sync_check.sh" not in generator_source
+    assert "./run_camera_sync_sweep.sh" not in generator_source
     assert "run_dmd_pair_capture.sh" not in generator_source
     assert "kernel_exposure_us" not in generator_source
     assert "numbers_exposure_us" not in generator_source
@@ -382,6 +383,22 @@ def test_count_offset_notebook_writes_trimmed_display_aedat4_artifact():
     assert "addTriggerStream" in source
     assert "writeEvents" in source
     assert "writeTriggerPacket" in source
+
+
+def test_recent_accumulation_notebooks_skip_startup_leader_triggers():
+    notebook_names = [
+        "07_fast_accumulation_offset_explorer_count_20260629_160740.ipynb",
+        "07_fast_accumulation_offset_explorer_count_20260629_174138.ipynb",
+        "07_fast_accumulation_offset_explorer_count_startup_leader_20260701.ipynb",
+        "07_fast_accumulation_offset_explorer_laser3.ipynb",
+    ]
+
+    for notebook_name in notebook_names:
+        source = _joined_source(_load_notebook(notebook_name))
+
+        assert "startup_leader.trigger_count" in source, notebook_name
+        assert "startup_leader_trigger_count" in source, notebook_name
+        assert "startup_leader_trigger_count=startup_leader_trigger_count" in source, notebook_name
 
 
 def test_trim_cells_use_defined_recording_resolution_and_displayed_frame_count():

@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 import numpy as np
 from PIL import Image
 
+from dmdcontrol.patterns.bitplanes import extract_bitplane
 from dmdcontrol.patterns.paired import (
     CalibrationSquareDotPairFrameProvider,
     DynamicAStaticBPairFrameProvider,
@@ -26,16 +27,7 @@ from dmdcontrol.patterns.visual import DEFAULT_COARSE_GRID_SPACING, generate_coa
 
 
 def _extract_packed_bitplane(frame, plane):
-    if plane < 8:
-        channel = 1
-        bit = plane
-    elif plane < 16:
-        channel = 0
-        bit = plane - 8
-    else:
-        channel = 2
-        bit = plane - 16
-    return ((frame[:, :, channel] >> bit) & 1).astype(np.uint8) * 255
+    return extract_bitplane(frame, plane)
 
 
 class PairedPatternEngineTests(unittest.TestCase):

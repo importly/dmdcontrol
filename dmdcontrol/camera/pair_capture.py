@@ -57,6 +57,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--exposure-us", type=positive_int, default=None)
     parser.add_argument("--runtime-seconds", type=positive_int, default=999)
     parser.add_argument(
+        "--paired-startup-leader-vsyncs",
+        type=nonnegative_int,
+        default=16,
+        help=(
+            "Blank paired source VSYNCs after sequencer start before the first semantic frame. "
+            "Forwarded to the paired DMD runtime and skipped in derived artifacts."),
+    )
+    parser.add_argument(
         "--trigger-out-2-rising-delay-us",
         type=trigger_out_rising_delay_us,
         default=0)
@@ -146,6 +154,7 @@ def requested_command_shape(args: argparse.Namespace) -> list[str]:
     if args.exposure_us is not None:
         shape.extend(["--exposure-us", str(args.exposure_us)])
     shape.extend(["--runtime-seconds", str(args.runtime_seconds)])
+    shape.extend(["--paired-startup-leader-vsyncs", str(args.paired_startup_leader_vsyncs)])
     return shape
 
 
@@ -159,6 +168,7 @@ def dmd_config(args: argparse.Namespace) -> dict[str, int | str | None]:
         "kernel_px": args.kernel_px,
         "exposure_us": args.exposure_us,
         "runtime_seconds": args.runtime_seconds,
+        "paired_startup_leader_vsyncs": args.paired_startup_leader_vsyncs,
         "dmd_config": args.dmd_config,
     }
 
@@ -232,6 +242,8 @@ def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
         str(args.kernel_px),
         "--runtime-seconds",
         str(args.runtime_seconds),
+        "--paired-startup-leader-vsyncs",
+        str(args.paired_startup_leader_vsyncs),
         "--trigger-out-2-rising-delay-us",
         str(args.trigger_out_2_rising_delay_us),
     ]

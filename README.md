@@ -54,7 +54,6 @@ python -m dmdcontrol pair run --dry-run-timing --mode snake
 python -m dmdcontrol preview serve --host 127.0.0.1 --port 8080
 python -m dmdcontrol usb discover
 python -m dmdcontrol usb wake
-python -m dmdcontrol flood run --yes --white
 python -m dmdcontrol config show --dmd A
 ```
 
@@ -223,6 +222,7 @@ DMD launchers use the custom `1920x1080_60_RAW` modeline and fixed 60.000 Hz tim
 | `--dual-pixel`                                             | flag                                                                                                                                                                                                 | off                | Force dual-pixel P1-P2 parallel input mode. Default is single-pixel P1.                                                                  |
 | `--seq-utilization`                                        | float in `(0, 1]`                                                                                                                                                                                    | `0.90`             | Fraction of the safe per-frame budget used by the LUT. Lower = more idle headroom = more robust against forced-swap aborts.              |
 | `--trig2-frame-zero`                                       | flag                                                                                                                                                                                                 | off                | Emit `TRIG_OUT_2` only on bitplane 0 (one pulse per frame). Default emits per bitplane.                                                  |
+| `--paired-startup-leader-vsyncs`                           | int                                                                                                                                                                                                  | `16`               | Paired runtime only: blank source VSYNCs after both sequencers start before the first semantic frame. Camera artifacts skip these startup trigger pulses. |
 | `--abort-recover-cooldown`                                 | float seconds                                                                                                                                                                                        | `8.0`              | Minimum gap between automatic re-arm attempts when the watchdog sees a sequencer abort.                                                  |
 | `--no-auto-recover-abort`                                  | flag                                                                                                                                                                                                 | off                | Disable automatic re-arm. Watchdog will log the abort but not act.                                                                       |
 | `--capture`                                                | path to `.mp4`                                                                                                                                                                                       | none               | Save the packed frames being sent to the DP output (requires `opencv-python`).                                                           |
@@ -280,6 +280,12 @@ bitplanes also consume LUT trigger slots.
 that would later fail during live DLPC900 preparation, for example five numbers at `--exposure-us 4000 --dark-time-us 1000`
 on the fixed 60 Hz source.
 
+Paired camera runs use one continuous OpenGL render coordinator through startup: blank frames are displayed before DLPC
+sequencer start, remain blank for `--paired-startup-leader-vsyncs` source VSYNCs after sequencer start, and only then
+advance to the semantic pattern frames. This avoids the old blank-pump to semantic-loop handoff while the DLPC900
+sequencer is already running. The leader trigger count is recorded in `metadata.json` as `startup_leader` and is skipped
+before derived accumulation/contact-sheet artifacts are selected.
+
 `--test numbers` is a dynamic DisplayPort-frame mode, not a custom LUT sequence. `TRIG_OUT_2` remains the real
 acquisition/index signal from the Video Pattern Mode LUT and may pulse multiple times per displayed digit. `TRIG_OUT_1`
 is advisory only.
@@ -305,7 +311,6 @@ pulses can occur before this cycle map begins.
 ```bash
 python -m dmdcontrol usb wake          # send DP-receiver wakeup only
 python -m dmdcontrol usb discover      # list DLPC900 USB devices and mappings
-python -m dmdcontrol flood run --yes   # USB-only internal test-pattern flood
 python debug_scripts/usb_sanity.py     # USB connectivity smoke test
 ```
 
@@ -315,7 +320,6 @@ The normal camera entrypoints are:
 
 ```bash
 ./run_camera_sync_check.sh [flags]
-./run_camera_sync_sweep.sh --manifest runs/<sync-timing-sweep>_manifest.csv
 ./run_dmd_pair_capture.sh [flags]
 python debug_scripts/camera_probe.py [flags]
 ```
@@ -327,12 +331,9 @@ Current camera behavior uses the `dv_processing` camera API directly:
 - No post-trigger grace reads are used unless `--camera-post-trigger-event-batches N` is passed. The default is `0`.
 - No stream rearm or shutdown runs unless the corresponding flag is passed.
 
-For timing sweeps, prefer `notebooks/01_generate_timing_sweep_commands.ipynb` plus the generated
-`run_camera_sync_sweep.sh --manifest ...` launcher. That command opens the DVXplorer once, reuses the same capture
-handle for every manifest row, and closes it only after the sweep finishes. After a physical replug, run the persistent
-sweep directly; do not run `python -m dmdcontrol camera status`, `camera_probe.py`, or a one-row sync check first if the
-goal is to preserve the first good camera open for the sweep. Each manifest row must include an explicit `sync_check_argv`
-or `command` value; `sync-sweep` does not infer `sync-check` flags from separate CSV option columns.
+For timing sweeps, use `notebooks/01_generate_timing_sweep_commands.ipynb` to generate a shell file containing ordinary
+`./run_camera_sync_check.sh ...` commands. Each row is an independent sync-check run with its own camera open/close cycle;
+there is no persistent sweep command path.
 
 The extra camera flags are diagnostic switches, not normal-run requirements:
 
@@ -428,6 +429,5 @@ python -m dmdcontrol pair calibrate --help
 python -m dmdcontrol preview serve --help
 python -m dmdcontrol usb discover --help
 python -m dmdcontrol usb wake --help
-python -m dmdcontrol flood run --help
 python -m dmdcontrol config show --help
 ```

@@ -65,6 +65,7 @@ def sync_check_metadata(
         "b_dot_y": args.b_dot_y,
         "b_dot_radius": args.b_dot_radius,
         "expected_trigger_count": expected_trigger_count(args),
+        "paired_startup_leader_vsyncs": args.paired_startup_leader_vsyncs,
         "seq_utilization": args.seq_utilization,
         "trigger_policy": _trigger_policy(args),
         "bias_sensitivity": args.bias_sensitivity,

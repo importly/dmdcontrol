@@ -20,9 +20,7 @@ def run_cli(argv):
 def test_cli_main_import_does_not_load_hardware_modules():
     for name in (
             "usb.core",
-            "dmdcontrol.hardware.flood",
             "dmdcontrol.hardware.usb",
-            "dmdcontrol.hardware.wake",
             "dmdcontrol.hardware.dlpc900",
     ):
         sys.modules.pop(name, None)
@@ -30,15 +28,13 @@ def test_cli_main_import_does_not_load_hardware_modules():
         sys.modules.pop(name, None)
     hardware_package = sys.modules.get("dmdcontrol.hardware")
     if hardware_package is not None:
-        for attribute in ("dlpc900", "flood", "usb", "wake"):
+        for attribute in ("dlpc900", "usb"):
             vars(hardware_package).pop(attribute, None)
 
     importlib.import_module("dmdcontrol.cli.main")
 
     assert "usb.core" not in sys.modules
-    assert "dmdcontrol.hardware.flood" not in sys.modules
     assert "dmdcontrol.hardware.usb" not in sys.modules
-    assert "dmdcontrol.hardware.wake" not in sys.modules
     assert "dmdcontrol.hardware.dlpc900" not in sys.modules
 
 
@@ -188,24 +184,77 @@ def test_preview_serve_help_exits_zero(capsys):
     assert "Serve DMD bitplane preview UI" in capsys.readouterr().out
 
 
-def test_usb_and_flood_commands_delegate_passthrough(monkeypatch):
+def test_usb_discover_delegates_passthrough(monkeypatch):
     usb = Mock(return_value=3)
-    wake = Mock(return_value=4)
-    flood = Mock(return_value=5)
     monkeypatch.setattr("dmdcontrol.cli.usb._usb_module", lambda: SimpleNamespace(main=usb))
-    monkeypatch.setattr("dmdcontrol.cli.usb._wake_module", lambda: SimpleNamespace(main=wake))
-    monkeypatch.setattr(
-        "dmdcontrol.cli.flood._flood_module",
-        lambda: SimpleNamespace(main=flood),
-    )
 
     assert run_cli(["usb", "discover", "--verbose"]) == 3
-    assert run_cli(["usb", "wake", "--dmd", "A"]) == 4
-    assert run_cli(["flood", "run", "--yes"]) == 5
 
     usb.assert_called_once_with(["--verbose"])
-    wake.assert_called_once_with(["--dmd", "A"])
-    flood.assert_called_once_with(["--yes"])
+
+
+def test_usb_wake_uses_inline_lazy_dependencies(monkeypatch):
+    from dmdcontrol.cli import usb as usb_cli
+
+    calls = []
+
+    class FakeDLPC900:
+
+        def __init__(self, usb_id_path=None, usb_devpath_contains=None):
+            calls.append(("init", usb_id_path, usb_devpath_contains))
+
+        def wake_displayport_receiver(self):
+            calls.append(("wake",))
+
+        def set_input_source(self, source, bit_depth_sel):
+            calls.append(("input_source", source, bit_depth_sel))
+
+        def set_display_mode(self, mode):
+            calls.append(("display_mode", mode))
+
+        def apply_block_lock_workaround(self):
+            calls.append(("block_lock",))
+
+    resolver = Mock(return_value=Mapping(name="A", usb_id_path="pci-0000:00", usb_devpath_contains="/usb1/1-1/"))
+    setup_logger = Mock()
+    logger = SimpleNamespace(info=Mock())
+    monkeypatch.setattr(
+        usb_cli,
+        "_wake_dependencies",
+        lambda: SimpleNamespace(
+            DLPC900=FakeDLPC900,
+            resolve_dmd_mapping=resolver,
+            setup_logger=setup_logger,
+            logger=logger,
+        ),
+    )
+    monkeypatch.setattr(usb_cli.time, "sleep", Mock())
+
+    assert run_cli(["usb", "wake", "--dmd", "A", "--dmd-config", "devices.json"]) == 0
+
+    resolver.assert_called_once_with("A", "devices.json")
+    setup_logger.assert_called_once_with(verbose=False)
+    assert calls == [
+        ("init", "pci-0000:00", "/usb1/1-1/"),
+        ("wake",),
+        ("input_source", 0, 1),
+        ("display_mode", 0),
+        ("block_lock",),
+    ]
+
+
+def test_flood_command_is_removed():
+    with pytest.raises(SystemExit) as excinfo:
+        run_cli(["flood", "run", "--yes"])
+
+    assert excinfo.value.code == 2
+
+
+def test_camera_sync_sweep_command_is_removed():
+    with pytest.raises(SystemExit) as excinfo:
+        run_cli(["camera", "sync-sweep", "--manifest", "runs/sweep.csv"])
+
+    assert excinfo.value.code == 2
 
 
 @dataclass(frozen=True)

@@ -217,6 +217,45 @@ def test_pair_runtime_parser_accepts_count_mode_options():
     assert args.exposure_us == 7000
 
 
+def test_pair_runtime_parser_accepts_paired_startup_leader_vsyncs():
+    from dmdcontrol.runtime import pair
+
+    default_args = pair._build_parser().parse_args(["--dry-run-timing"])
+    explicit_args = pair._build_parser().parse_args(
+        ["--dry-run-timing", "--paired-startup-leader-vsyncs", "12"])
+
+    assert default_args.paired_startup_leader_vsyncs == 16
+    assert explicit_args.paired_startup_leader_vsyncs == 12
+
+
+def test_pair_runtime_parser_rejects_negative_paired_startup_leader_vsyncs():
+    from dmdcontrol.runtime import pair
+
+    with pytest.raises(SystemExit):
+        pair._build_parser().parse_args(
+            ["--dry-run-timing", "--paired-startup-leader-vsyncs", "-1"])
+
+
+def test_startup_leader_metadata_uses_requested_vsync_count():
+    from dmdcontrol.runtime import pair
+
+    metadata = pair._startup_leader_metadata(
+        {
+            "entries_count": 2,
+            "trig2_mode": "per_bitplane",
+        },
+        vsyncs=12,
+    )
+
+    assert metadata == {
+        "vsyncs": 12,
+        "trigger_count": 24,
+        "entries_count": 2,
+        "trig2_mode": "per_bitplane",
+        "frame_role": "blank_startup_leader",
+    }
+
+
 def test_pair_runtime_auto_count_slots_uses_fastest_valid_timing():
     from dmdcontrol.runtime import pair
 
@@ -695,14 +734,14 @@ def test_pair_dry_run_timing_rejects_numbers_sequence_when_dark_time_exceeds_bud
             ])
 
 
-def test_run_prepared_pair_starts_rendering_without_post_start_sleep(monkeypatch):
+def test_run_prepared_pair_starts_render_coordinator_without_post_start_sleep(monkeypatch):
     from dmdcontrol.runtime import pair
     import dmdcontrol.hardware.dlpc900 as dlpc_module
     import dmdcontrol.patterns.paired as paired_module
 
     calls = {}
     dlpcs = []
-    pump_frames = {}
+    coordinator_frames = {}
 
     class FakeDLPC:
 
@@ -727,9 +766,6 @@ def test_run_prepared_pair_starts_rendering_without_post_start_sleep(monkeypatch
         def __init__(self, fps):
             pass
 
-        def display_pair(self, frame_a, frame_b):
-            pass
-
         def cleanup(self):
             pass
 
@@ -738,6 +774,20 @@ def test_run_prepared_pair_starts_rendering_without_post_start_sleep(monkeypatch
         def initial_pair(self):
             return object(), object()
 
+    class FakeCoordinator:
+
+        def wait_until_ready(self, timeout_s=1.0):
+            return True
+
+        def release_semantic_frames(self):
+            calls["released"] = True
+
+        def join(self):
+            calls["joined"] = True
+
+        def stop(self):
+            calls["stopped"] = True
+
     monkeypatch.setattr(dlpc_module, "DLPC900", FakeDLPC)
     monkeypatch.setattr(paired_module, "PairedPatternEngine", FakeEngine)
     monkeypatch.setattr(pair, "_lut_override", lambda args, target_hz: (None, None))
@@ -745,13 +795,14 @@ def test_run_prepared_pair_starts_rendering_without_post_start_sleep(monkeypatch
         pair,
         "_make_runtime_pair_frame_provider", lambda args, engine, target_hz: FakeProvider())
 
-    def fake_start_pair_pump(engine, frame_a, frame_b):
-        pump_frames["a"] = frame_a.copy()
-        pump_frames["b"] = frame_b.copy()
-        return object(), object()
+    def fake_start_pair_render_coordinator(*args, **kwargs):
+        startup_leader_pair = kwargs["startup_leader_pair"]
+        coordinator_frames["a"] = startup_leader_pair.a.copy()
+        coordinator_frames["b"] = startup_leader_pair.b.copy()
+        calls["startup_leader_vsyncs"] = kwargs["startup_leader_vsyncs"]
+        return FakeCoordinator()
 
-    monkeypatch.setattr(pair, "_start_pair_pump", fake_start_pair_pump)
-    monkeypatch.setattr(pair, "_stop_pair_pump", lambda engine, pump_event, pump_thread: None)
+    monkeypatch.setattr(pair, "_start_pair_render_coordinator", fake_start_pair_render_coordinator)
     monkeypatch.setattr(
         pair,
         "prepare_dlpc900_for_video_pattern",
@@ -760,7 +811,6 @@ def test_run_prepared_pair_starts_rendering_without_post_start_sleep(monkeypatch
     )
     monkeypatch.setattr(pair, "load_pattern_sequence", lambda dlpc, entries: None)
     monkeypatch.setattr(pair, "_build_live_preview_metadata", lambda *args, **kwargs: {})
-    monkeypatch.setattr(pair, "_run_pair_render_loop", lambda *args, **kwargs: None)
 
     def fake_start_loaded_pattern_sequences(dlpc_a, dlpc_b, post_start_delay_s=0.2, verify=False):
         calls["post_start_delay_s"] = post_start_delay_s
@@ -788,15 +838,165 @@ def test_run_prepared_pair_starts_rendering_without_post_start_sleep(monkeypatch
         trig2_frame_zero=False,
         trigger_out_2_rising_delay_us=-20,
         dark_time_us=None,
+        paired_startup_leader_vsyncs=16,
+        runtime_seconds=1,
     )
 
     assert pair._run_prepared_pair(args, pair_config) == 0
-    assert calls == {"post_start_delay_s": 0.0, "verify": True}
-    assert pump_frames["a"].shape == (pair.DMD_HEIGHT, pair.DMD_WIDTH, 3)
-    assert pump_frames["b"].shape == (pair.DMD_HEIGHT, pair.DMD_WIDTH, 3)
-    assert not np.any(pump_frames["a"])
-    assert not np.any(pump_frames["b"])
+    assert calls["post_start_delay_s"] == 0.0
+    assert calls["verify"] is False
+    assert calls["startup_leader_vsyncs"] == 16
+    assert calls["released"] is True
+    assert calls["joined"] is True
+    assert coordinator_frames["a"].shape == (pair.DMD_HEIGHT, pair.DMD_WIDTH, 3)
+    assert coordinator_frames["b"].shape == (pair.DMD_HEIGHT, pair.DMD_WIDTH, 3)
+    assert not np.any(coordinator_frames["a"])
+    assert not np.any(coordinator_frames["b"])
     assert [dlpc.closed for dlpc in dlpcs] == [True, True]
+
+
+def test_run_prepared_pair_uses_single_render_coordinator_without_pump_handoff(monkeypatch):
+    from dmdcontrol.runtime import pair
+    import dmdcontrol.hardware.dlpc900 as dlpc_module
+    import dmdcontrol.patterns.paired as paired_module
+
+    calls = []
+    before_start_context = {}
+
+    class FakeDLPC:
+
+        def __init__(self, **kwargs):
+            pass
+
+        def start_pattern_display(self, value):
+            calls.append(("start_pattern_display", value))
+
+        def set_display_mode(self, value):
+            pass
+
+        def apply_block_lock_workaround(self):
+            pass
+
+        def close(self):
+            calls.append("close")
+
+    class FakeEngine:
+
+        def __init__(self, fps):
+            self.fps = fps
+
+        def display_pair(self, frame_a, frame_b):
+            raise AssertionError("test should use coordinator, not direct render calls")
+
+        def cleanup(self):
+            calls.append("cleanup")
+
+    class FakeProvider:
+
+        def initial_pair(self):
+            return object(), object()
+
+        def next_pair(self):
+            return object(), object()
+
+    class FakeCoordinator:
+
+        def wait_until_ready(self, timeout_s=1.0):
+            calls.append("render_ready")
+            return True
+
+        def release_semantic_frames(self):
+            calls.append("release_semantic")
+
+        def join(self):
+            calls.append("render_join")
+
+        def stop(self):
+            calls.append("render_stop")
+
+    def fake_start_pair_render_coordinator(*args, **kwargs):
+        calls.append(("start_render_coordinator", kwargs["startup_leader_vsyncs"]))
+        return FakeCoordinator()
+
+    def fake_before_start(context):
+        calls.append("before_start")
+        before_start_context.update(context)
+
+    monkeypatch.setattr(dlpc_module, "DLPC900", FakeDLPC)
+    monkeypatch.setattr(paired_module, "PairedPatternEngine", FakeEngine)
+    monkeypatch.setattr(pair, "_lut_override", lambda args, target_hz: (2, 8000))
+    monkeypatch.setattr(
+        pair,
+        "_make_runtime_pair_frame_provider", lambda args, engine, target_hz: FakeProvider())
+    assert not hasattr(pair, "_start_pair_pump")
+    assert not hasattr(pair, "_stop_pair_pump")
+    monkeypatch.setattr(
+        pair,
+        "_start_pair_render_coordinator",
+        fake_start_pair_render_coordinator,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        pair,
+        "prepare_dlpc900_for_video_pattern",
+        lambda *args, **kwargs: {
+            "entries": [],
+            "timing": {
+                "entries_count": 2,
+                "trig2_mode": "per_bitplane",
+            },
+        },
+    )
+    monkeypatch.setattr(pair, "load_pattern_sequence", lambda dlpc, entries: None)
+    monkeypatch.setattr(pair, "_build_live_preview_metadata", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        pair,
+        "start_loaded_pattern_sequences",
+        lambda *args, **kwargs: calls.append("sequencers_started"),
+    )
+
+    mapping_a = types.SimpleNamespace(
+        xrandr_output="DP-2",
+        usb_id_path="usb-a",
+        usb_devpath_contains=None,
+    )
+    mapping_b = types.SimpleNamespace(
+        xrandr_output="DP-0",
+        usb_id_path="usb-b",
+        usb_devpath_contains=None,
+    )
+    pair_config = pair.PairConfig(dmd_a=mapping_a, dmd_b=mapping_b)
+    args = types.SimpleNamespace(
+        wake_dp=False,
+        preview_url=None,
+        preview_fps=1.0,
+        dual_pixel=False,
+        seq_utilization=1.0,
+        trig2_frame_zero=False,
+        trigger_out_2_rising_delay_us=0,
+        dark_time_us=None,
+        paired_startup_leader_vsyncs=12,
+        runtime_seconds=1,
+    )
+
+    assert pair._run_prepared_pair(
+        args,
+        pair_config,
+        before_sequencer_start=fake_before_start,
+    ) == 0
+
+    assert ("start_render_coordinator", 12) in calls
+    assert calls.index("render_ready") < calls.index("before_start")
+    assert calls.index("before_start") < calls.index("sequencers_started")
+    assert calls.index("sequencers_started") < calls.index("release_semantic")
+    assert calls.index("release_semantic") < calls.index("render_join")
+    assert before_start_context["startup_leader"] == {
+        "vsyncs": 12,
+        "trigger_count": 24,
+        "entries_count": 2,
+        "trig2_mode": "per_bitplane",
+        "frame_role": "blank_startup_leader",
+    }
 
 
 def test_run_pair_render_loop_emits_blank_leader_before_first_semantic_frame():
