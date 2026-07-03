@@ -71,7 +71,7 @@ def build_lut_preview_metadata(entries, timing=None):
         led_select = int(entry[4]) if len(entry) > 4 else None
         dark_us = int(entry[5]) if len(entry) > 5 else 0
         trig2_disabled = bool(entry[6]) if len(entry) > 6 else False
-        image_index = int(entry[7]) if len(entry) > 7 else plane_index
+        image_index = int(entry[8]) if len(entry) > 8 else 0
         label = BITPLANE_LABELS[plane_index] if 0 <= plane_index < len(
             BITPLANE_LABELS) else f"P{plane_index}"
         preview_entries.append(

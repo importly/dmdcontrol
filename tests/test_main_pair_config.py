@@ -195,6 +195,8 @@ class MainPairConfigTests(unittest.TestCase):
         self.assertFalse({"glfw", "OpenGL.GL", "dlpc900_hid"} & set(sys.modules))
 
     def test_calibration_dot_recipe_flickers_a_square_only(self):
+        from dmdcontrol.runtime import display_sequence
+
         args = main_pair._build_parser().parse_args(
             [
                 "--test",
@@ -208,20 +210,24 @@ class MainPairConfigTests(unittest.TestCase):
             ])
         engine = SimpleNamespace(window=object())
         visible_a = np.full((main_pair.DMD_HEIGHT, main_pair.DMD_WIDTH, 3), 77, dtype=np.uint8)
-        original_build = main_pair.build_calibration_square_frame
-        original_provider = main_pair.make_calibration_square_frame_provider
+        original_build = display_sequence.build_calibration_square_frame
+        original_provider = display_sequence.make_calibration_square_frame_provider
         try:
-            main_pair.build_calibration_square_frame = lambda _engine, _state: visible_a
-            main_pair.make_calibration_square_frame_provider = (
+            display_sequence.build_calibration_square_frame = lambda _engine, _state: visible_a
+            display_sequence.make_calibration_square_frame_provider = (
                 lambda _engine, _initial_frame, **_kwargs: lambda: visible_a)
 
-            provider = main_pair._make_runtime_pair_frame_provider(args, engine, 60)
+            provider = display_sequence.build_paired_display_sequence(
+                args,
+                engine=engine,
+                target_hz=60,
+            ).provider
             first_a, first_b = provider.initial_pair()
             off_a, off_b = provider.next_pair()
             on_a, on_b = provider.next_pair()
         finally:
-            main_pair.build_calibration_square_frame = original_build
-            main_pair.make_calibration_square_frame_provider = original_provider
+            display_sequence.build_calibration_square_frame = original_build
+            display_sequence.make_calibration_square_frame_provider = original_provider
 
         np.testing.assert_array_equal(first_a, visible_a)
         np.testing.assert_array_equal(off_a, np.zeros_like(visible_a))

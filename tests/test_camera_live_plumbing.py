@@ -31,6 +31,7 @@ def _startup_leader(trigger_count=8, entries_count=4):
 
 def test_pair_capture_live_records_while_dmd_runtime_is_active(monkeypatch, tmp_path):
     from dmdcontrol.camera import pair_capture
+    from dmdcontrol.camera.sync_check_runtime import PairRuntimeRequest
 
     events = []
     record_started = Event()
@@ -69,7 +70,8 @@ def test_pair_capture_live_records_while_dmd_runtime_is_active(monkeypatch, tmp_
 
     monkeypatch.setattr(pair_capture, "record_until_trigger_count", fake_record)
 
-    def fake_run(pair_args, before_start):
+    def fake_run(pair_request, before_start):
+        assert isinstance(pair_request, PairRuntimeRequest)
         events.append("dmd_prepare")
         before_start({"state_a": {"timing": {}}, "state_b": {"timing": {}}})
         events.append("dmd_active")
@@ -190,6 +192,10 @@ def test_pair_capture_live_writes_capture_artifacts_with_event_filter(monkeypatc
     monkeypatch.setattr(pair_capture, "record_until_trigger_count", fake_record)
 
     startup_leader = _startup_leader()
+    display_sequence = {
+        "startup_policy": "blank_leader",
+        "lut_slots_per_source_frame": 4,
+    }
 
     def fake_run(pair_args, before_start):
         before_start({
@@ -198,6 +204,7 @@ def test_pair_capture_live_writes_capture_artifacts_with_event_filter(monkeypatc
             "state_b": {
                 "timing": {}},
             "startup_leader": startup_leader,
+            "display_sequence": display_sequence,
         })
         assert record_started.wait(timeout=1.0)
         runtime_can_finish.set()
@@ -246,6 +253,7 @@ def test_pair_capture_live_writes_capture_artifacts_with_event_filter(monkeypatc
     assert artifact_call["event_noise_filter"].polarity == "same"
     metadata = json.loads((tmp_path / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["startup_leader"] == startup_leader
+    assert metadata["display_sequence"] == display_sequence
 
 
 def test_pair_capture_live_limits_in_memory_artifact_batches(monkeypatch, tmp_path):
@@ -620,6 +628,10 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
     )
 
     startup_leader = _startup_leader()
+    display_sequence = {
+        "startup_policy": "blank_leader",
+        "lut_slots_per_source_frame": 4,
+    }
 
     def fake_run(pair_args, before_start):
         before_start({
@@ -628,6 +640,7 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
             "state_b": {
                 "timing": {}},
             "startup_leader": startup_leader,
+            "display_sequence": display_sequence,
         })
 
     monkeypatch.setattr(sync_check, "_run_pair_with_callback", fake_run)
@@ -688,6 +701,7 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
     assert artifact_call["event_noise_filter"].polarity == "same"
     metadata = json.loads((tmp_path / "metadata.json").read_text(encoding="utf-8"))
     assert metadata["startup_leader"] == startup_leader
+    assert metadata["display_sequence"] == display_sequence
 
 
 def test_sync_check_live_capture_flushes_stale_batches_immediately_before_recording(

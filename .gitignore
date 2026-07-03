@@ -7,7 +7,11 @@ __pycache__
 server_backup/
 documentation/
 .ruff_cache
+.pytest_cache/
 runs
 !dmdcontrol/camera/runs/
 !dmdcontrol/camera/runs/*.py
 .test_tmp
+.tmp_*/
+.tmp_pytest_*/
+.tmp_sync_check_dry_run*/

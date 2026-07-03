@@ -1,4 +1,5 @@
 import types
+import time
 
 import numpy as np
 import pytest
@@ -6,9 +7,76 @@ import pytest
 from dmdcontrol.patterns.paired import (
     A_COUNT_B_STATIC_PAIR_TEST,
     A_NUMBERS_B_STATIC_PAIR_TEST,
+    FramePair,
     STATIC_IMAGES_PAIR_TEST,
 )
-from dmdcontrol.runtime.pair import _lut_override, main
+from dmdcontrol.runtime.pair import main
+
+
+class _FakeSequenceProvider:
+
+    def __init__(self):
+        self._blank = np.zeros((1, 1, 3), dtype=np.uint8)
+
+    def initial_pair(self):
+        return FramePair(self._blank, self._blank)
+
+    def next_pair(self):
+        return FramePair(self._blank, self._blank)
+
+
+class _FakeDisplaySequence:
+
+    def __init__(
+        self,
+        *,
+        entries=None,
+        exposure_us=8000,
+        startup_mode="blank_leader",
+        leader_vsyncs=16,
+    ):
+        self.provider = _FakeSequenceProvider()
+        self._entries = entries or [
+            (0, exposure_us, False, 1, 7, 0, False, 0),
+            (1, exposure_us, True, 1, 7, 0, False, 1),
+        ]
+        self.startup_policy = types.SimpleNamespace(
+            mode=startup_mode,
+            leader_vsyncs=leader_vsyncs,
+        )
+        self.timing = {
+            "entries_count": len(self._entries),
+            "exposure_us": exposure_us,
+            "trig2_mode": "per_bitplane",
+        }
+
+    def lut_entries(self):
+        return list(self._entries)
+
+    def startup_leader_metadata(self):
+        trigger_count = (
+            self.startup_policy.leader_vsyncs * len(self._entries)
+            if self.startup_policy.mode == "blank_leader" else 0
+        )
+        return {
+            "vsyncs": self.startup_policy.leader_vsyncs,
+            "trigger_count": trigger_count,
+            "entries_count": len(self._entries),
+            "trig2_mode": "per_bitplane",
+            "frame_role": "blank_startup_leader",
+            "startup_policy": self.startup_policy.mode,
+        }
+
+    def metadata(self):
+        return {
+            "startup_policy": self.startup_policy.mode,
+            "lut_slots_per_source_frame": len(self._entries),
+        }
+
+    def preview_metadata(self):
+        return {
+            "display_sequence": self.metadata(),
+        }
 
 
 def test_pair_runtime_parser_defaults_trigger_delay_to_zero():
@@ -113,82 +181,6 @@ def test_pair_runtime_parser_rejects_removed_exposure_flags(flag):
         pair._build_parser().parse_args(["--dry-run-timing", flag, "4000"])
 
 
-def test_lut_override_a_numbers_b_static_returns_digit_count():
-    # Test with explicitly provided exposure
-    args_1 = types.SimpleNamespace(
-        test=A_NUMBERS_B_STATIC_PAIR_TEST,
-        numbers=[1,
-                 2,
-                 3,
-                 4,
-                 5],
-        exposure_us=3000,
-    )
-    entries_count_1, exposure_1 = _lut_override(args_1, target_hz=60)
-    assert entries_count_1 == 5
-    assert exposure_1 == 3000
-
-    # Test with 3 numbers and auto-computed exposure (None)
-    args_2 = types.SimpleNamespace(
-        test=A_NUMBERS_B_STATIC_PAIR_TEST,
-        numbers=[1,
-                 2,
-                 3],
-        exposure_us=None,
-    )
-    entries_count_2, exposure_2 = _lut_override(args_2, target_hz=60)
-    assert entries_count_2 == 3
-    assert exposure_2 is None
-
-
-def test_lut_override_a_count_b_static_returns_count_slots():
-    args = types.SimpleNamespace(
-        test=A_COUNT_B_STATIC_PAIR_TEST,
-        count_slots_per_frame=2,
-        count_blank_between_frames=False,
-        exposure_us=7000,
-    )
-
-    entries_count, exposure = _lut_override(args, target_hz=60)
-
-    assert entries_count == 2
-    assert exposure == 7000
-
-
-def test_lut_override_a_count_b_static_doubles_slots_for_blank_bitplanes():
-    args = types.SimpleNamespace(
-        test=A_COUNT_B_STATIC_PAIR_TEST,
-        count_slots_per_frame=2,
-        count_blank_between_frames=True,
-        exposure_us=4000,
-    )
-
-    entries_count, exposure = _lut_override(args, target_hz=60)
-
-    assert entries_count == 4
-    assert exposure == 4000
-
-
-def test_lut_override_non_numbers_test_delegates_to_kernel():
-    args = types.SimpleNamespace(
-        test="some-other-test",
-        numbers=[1,
-                 2,
-                 3,
-                 4,
-                 5],
-        exposure_us=3000,
-        b_exposure_us=None,
-        kernel_pairs=5,
-        seq_utilization=0.90,
-        dark_time_us=None,
-    )
-    entries_count, exposure = _lut_override(args, target_hz=60)
-    # The kernel override should return (None, None) when not enabled, which the runtime treats as default BITPLANES (24)
-    assert entries_count is None
-    assert exposure == 3000
-
-
 def test_pair_runtime_parser_accepts_count_mode_options():
     from dmdcontrol.runtime import pair
 
@@ -215,6 +207,30 @@ def test_pair_runtime_parser_accepts_count_mode_options():
     assert args.count_slots_per_frame == 2
     assert args.count_blank_between_frames is True
     assert args.exposure_us == 7000
+
+
+def test_pair_runtime_parser_accepts_count_blank_after_each_count_alias():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--test",
+            A_COUNT_B_STATIC_PAIR_TEST,
+            "--test-b",
+            "dot",
+            "--count-start",
+            "1",
+            "--count-end",
+            "4",
+            "--count-slots-per-frame",
+            "1",
+            "--count-blank-after-each-count",
+            "--exposure-us",
+            "7000",
+        ])
+
+    assert args.count_blank_between_frames is True
 
 
 def test_pair_runtime_parser_accepts_paired_startup_leader_vsyncs():
@@ -282,6 +298,7 @@ def test_pair_runtime_auto_count_slots_uses_fastest_valid_timing():
 
 def test_pair_runtime_auto_count_slots_accounts_for_blank_bitplanes():
     from dmdcontrol.runtime import pair
+    from dmdcontrol.runtime.count_slots import CountSequenceConfig
 
     args = pair._build_parser().parse_args(
         [
@@ -303,7 +320,7 @@ def test_pair_runtime_auto_count_slots_accounts_for_blank_bitplanes():
 
     assert args.count_slots_per_frame == 2
     assert args.count_slots_per_frame_mode == "auto"
-    assert _lut_override(args, target_hz=60) == (4, 4000)
+    assert CountSequenceConfig.from_args(args).lut_entries_per_frame == 4
 
 
 def test_pair_runtime_count_slots_accepts_auto_literal():
@@ -440,6 +457,7 @@ def test_pair_runtime_parser_accepts_static_dot_radius():
 
 def test_static_dot_dry_run_uses_generic_exposure_for_dynamic_entry_count(monkeypatch):
     from dmdcontrol.runtime import pair
+    from dmdcontrol.runtime import display_sequence
 
     captured = {}
 
@@ -447,7 +465,11 @@ def test_static_dot_dry_run_uses_generic_exposure_for_dynamic_entry_count(monkey
         captured["entries_count"] = kwargs["entries_count"]
         captured["per_entry_exposure_us"] = kwargs["per_entry_exposure_us"]
         captured["dark_time_us"] = kwargs["dark_time_us"]
-        return [object(), object(), object()], {
+        return [
+            (0, 4000, False, 1, 7, 250, False, 0),
+            (1, 4000, False, 1, 7, 250, False, 1),
+            (2, 4000, True, 1, 7, 250, False, 2),
+        ], {
             "entries_count": 3,
             "trig2_mode": "per_bitplane",
             "effective_frame_hz": 60.0,
@@ -458,7 +480,7 @@ def test_static_dot_dry_run_uses_generic_exposure_for_dynamic_entry_count(monkey
             "usable_frame_period_us": 14750.0,
         }
 
-    monkeypatch.setattr(pair, "build_lut_entries", fake_build_lut_entries)
+    monkeypatch.setattr(display_sequence, "build_lut_entries", fake_build_lut_entries)
 
     args = pair._build_parser().parse_args(
         [
@@ -558,17 +580,17 @@ def test_pair_runtime_parser_rejects_nonpositive_count_slots():
 
 
 def test_a_numbers_b_static_runtime_forwards_b_static_geometry(monkeypatch):
-    from dmdcontrol.runtime import pair
+    from dmdcontrol.runtime import display_sequence
 
     captured = {}
-    provider = object()
+    provider = _FakeSequenceProvider()
 
     def fake_make_pair_frame_provider(*args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
         return provider
 
-    monkeypatch.setattr(pair, "make_pair_frame_provider", fake_make_pair_frame_provider)
+    monkeypatch.setattr(display_sequence, "make_pair_frame_provider", fake_make_pair_frame_provider)
 
     args = types.SimpleNamespace(
         test=A_NUMBERS_B_STATIC_PAIR_TEST,
@@ -583,14 +605,18 @@ def test_a_numbers_b_static_runtime_forwards_b_static_geometry(monkeypatch):
         b_dot_radius=12,
         b_dot_shape="circle",
         b_dot_invert=False,
+        seq_utilization=1.0,
+        trig2_frame_zero=False,
+        dark_time_us=None,
+        paired_startup_leader_vsyncs=16,
     )
 
-    result = pair._make_runtime_pair_frame_provider(
+    sequence = display_sequence.build_paired_display_sequence(
         args,
         engine=types.SimpleNamespace(window=None),
         target_hz=60)
 
-    assert result is provider
+    assert sequence.provider is provider
     assert captured["args"] == (A_NUMBERS_B_STATIC_PAIR_TEST, )
     assert captured["kwargs"]["test_b"] == "dot"
     assert captured["kwargs"]["numbers"] == [1, 2, 3]
@@ -603,17 +629,17 @@ def test_a_numbers_b_static_runtime_forwards_b_static_geometry(monkeypatch):
 
 
 def test_a_count_b_static_runtime_forwards_count_geometry(monkeypatch):
-    from dmdcontrol.runtime import pair
+    from dmdcontrol.runtime import display_sequence
 
     captured = {}
-    provider = object()
+    provider = _FakeSequenceProvider()
 
     def fake_make_pair_frame_provider(*args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
         return provider
 
-    monkeypatch.setattr(pair, "make_pair_frame_provider", fake_make_pair_frame_provider)
+    monkeypatch.setattr(display_sequence, "make_pair_frame_provider", fake_make_pair_frame_provider)
 
     args = types.SimpleNamespace(
         test=A_COUNT_B_STATIC_PAIR_TEST,
@@ -628,14 +654,20 @@ def test_a_count_b_static_runtime_forwards_count_geometry(monkeypatch):
         b_dot_radius=12,
         b_dot_shape="circle",
         b_dot_invert=False,
+        count_slots_per_frame_mode="explicit",
+        exposure_us=4000,
+        seq_utilization=1.0,
+        trig2_frame_zero=False,
+        dark_time_us=None,
+        paired_startup_leader_vsyncs=16,
     )
 
-    result = pair._make_runtime_pair_frame_provider(
+    sequence = display_sequence.build_paired_display_sequence(
         args,
         engine=types.SimpleNamespace(window=None),
         target_hz=60)
 
-    assert result is provider
+    assert sequence.provider is provider
     assert captured["args"] == (A_COUNT_B_STATIC_PAIR_TEST, )
     assert captured["kwargs"]["test_b"] == "dot"
     assert captured["kwargs"]["count_start"] == 1
@@ -651,31 +683,36 @@ def test_a_count_b_static_runtime_forwards_count_geometry(monkeypatch):
 
 
 def test_static_images_runtime_forwards_paths_and_size(monkeypatch):
-    from dmdcontrol.runtime import pair
+    from dmdcontrol.runtime import display_sequence
 
     captured = {}
-    provider = object()
+    provider = _FakeSequenceProvider()
 
     def fake_make_pair_frame_provider(*args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
         return provider
 
-    monkeypatch.setattr(pair, "make_pair_frame_provider", fake_make_pair_frame_provider)
+    monkeypatch.setattr(display_sequence, "make_pair_frame_provider", fake_make_pair_frame_provider)
 
     args = types.SimpleNamespace(
         test=STATIC_IMAGES_PAIR_TEST,
         static_image_a="images/T.png",
         static_image_b="images/O.png",
         static_image_size_px=777,
+        exposure_us=4000,
+        seq_utilization=1.0,
+        trig2_frame_zero=False,
+        dark_time_us=None,
+        paired_startup_leader_vsyncs=16,
     )
 
-    result = pair._make_runtime_pair_frame_provider(
+    sequence = display_sequence.build_paired_display_sequence(
         args,
         engine=types.SimpleNamespace(window=None),
         target_hz=60)
 
-    assert result is provider
+    assert sequence.provider is provider
     assert captured["args"] == (STATIC_IMAGES_PAIR_TEST, )
     assert captured["kwargs"]["static_image_a"] == "images/T.png"
     assert captured["kwargs"]["static_image_b"] == "images/O.png"
@@ -713,6 +750,7 @@ def test_pair_live_preview_metadata_includes_count_mode():
         "slots_per_frame": 2,
         "slots_per_frame_mode": "explicit",
         "blank_between_frames": True,
+        "blank_after_each_count": True,
         "lut_entries_per_frame": 4,
         "exposure_us": 7000,
     }
@@ -790,10 +828,11 @@ def test_run_prepared_pair_starts_render_coordinator_without_post_start_sleep(mo
 
     monkeypatch.setattr(dlpc_module, "DLPC900", FakeDLPC)
     monkeypatch.setattr(paired_module, "PairedPatternEngine", FakeEngine)
-    monkeypatch.setattr(pair, "_lut_override", lambda args, target_hz: (None, None))
     monkeypatch.setattr(
         pair,
-        "_make_runtime_pair_frame_provider", lambda args, engine, target_hz: FakeProvider())
+        "build_paired_display_sequence",
+        lambda *args, **kwargs: _FakeDisplaySequence(leader_vsyncs=16),
+    )
 
     def fake_start_pair_render_coordinator(*args, **kwargs):
         startup_leader_pair = kwargs["startup_leader_pair"]
@@ -924,10 +963,11 @@ def test_run_prepared_pair_uses_single_render_coordinator_without_pump_handoff(m
 
     monkeypatch.setattr(dlpc_module, "DLPC900", FakeDLPC)
     monkeypatch.setattr(paired_module, "PairedPatternEngine", FakeEngine)
-    monkeypatch.setattr(pair, "_lut_override", lambda args, target_hz: (2, 8000))
     monkeypatch.setattr(
         pair,
-        "_make_runtime_pair_frame_provider", lambda args, engine, target_hz: FakeProvider())
+        "build_paired_display_sequence",
+        lambda *args, **kwargs: _FakeDisplaySequence(leader_vsyncs=12),
+    )
     assert not hasattr(pair, "_start_pair_pump")
     assert not hasattr(pair, "_stop_pair_pump")
     monkeypatch.setattr(
@@ -996,7 +1036,281 @@ def test_run_prepared_pair_uses_single_render_coordinator_without_pump_handoff(m
         "entries_count": 2,
         "trig2_mode": "per_bitplane",
         "frame_role": "blank_startup_leader",
+        "startup_policy": "blank_leader",
     }
+
+
+def test_run_prepared_pair_primes_count_blank_frame_before_sequencer_start(monkeypatch):
+    from dmdcontrol.patterns.paired import A_COUNT_B_STATIC_PAIR_TEST
+    from dmdcontrol.runtime import pair
+    import dmdcontrol.hardware.dlpc900 as dlpc_module
+    import dmdcontrol.patterns.paired as paired_module
+
+    calls = []
+    before_start_context = {}
+
+    class FakeDLPC:
+
+        def __init__(self, **kwargs):
+            pass
+
+        def start_pattern_display(self, value):
+            calls.append(("start_pattern_display", value))
+
+        def set_display_mode(self, value):
+            pass
+
+        def apply_block_lock_workaround(self):
+            pass
+
+        def close(self):
+            calls.append("close")
+
+    class FakeEngine:
+
+        def __init__(self, fps):
+            self.fps = fps
+
+        def cleanup(self):
+            calls.append("cleanup")
+
+    class FakeProvider:
+
+        def initial_pair(self):
+            return object(), object()
+
+    class FakeCoordinator:
+
+        def wait_until_ready(self, timeout_s=1.0):
+            calls.append("render_ready")
+            return True
+
+        def prime_first_semantic_frame(self, timeout_s=1.0):
+            calls.append("prime_first_semantic")
+            return True
+
+        def release_semantic_frames(self):
+            calls.append("release_semantic")
+
+        def join(self):
+            calls.append("render_join")
+
+        def stop(self):
+            calls.append("render_stop")
+
+    def fake_start_pair_render_coordinator(*args, **kwargs):
+        calls.append(("start_render_coordinator", kwargs["startup_leader_vsyncs"]))
+        return FakeCoordinator()
+
+    def fake_before_start(context):
+        calls.append("before_start")
+        before_start_context.update(context)
+
+    monkeypatch.setattr(dlpc_module, "DLPC900", FakeDLPC)
+    monkeypatch.setattr(paired_module, "PairedPatternEngine", FakeEngine)
+    monkeypatch.setattr(
+        pair,
+        "build_paired_display_sequence",
+        lambda *args, **kwargs: _FakeDisplaySequence(
+            startup_mode="prime_first_frame",
+            leader_vsyncs=0,
+        ),
+    )
+    monkeypatch.setattr(pair, "_start_pair_render_coordinator", fake_start_pair_render_coordinator)
+    monkeypatch.setattr(
+        pair,
+        "prepare_dlpc900_for_video_pattern",
+        lambda *args, **kwargs: {
+            "entries": [],
+            "timing": {
+                "entries_count": 2,
+                "trig2_mode": "per_bitplane",
+            },
+        },
+    )
+    monkeypatch.setattr(pair, "load_pattern_sequence", lambda dlpc, entries: None)
+    monkeypatch.setattr(pair, "_build_live_preview_metadata", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        pair,
+        "start_loaded_pattern_sequences",
+        lambda *args, **kwargs: calls.append("sequencers_started"),
+    )
+
+    mapping_a = types.SimpleNamespace(
+        xrandr_output="DP-2",
+        usb_id_path="usb-a",
+        usb_devpath_contains=None,
+    )
+    mapping_b = types.SimpleNamespace(
+        xrandr_output="DP-0",
+        usb_id_path="usb-b",
+        usb_devpath_contains=None,
+    )
+    pair_config = pair.PairConfig(dmd_a=mapping_a, dmd_b=mapping_b)
+    args = types.SimpleNamespace(
+        test=A_COUNT_B_STATIC_PAIR_TEST,
+        wake_dp=False,
+        preview_url=None,
+        preview_fps=1.0,
+        dual_pixel=False,
+        seq_utilization=1.0,
+        trig2_frame_zero=False,
+        trigger_out_2_rising_delay_us=0,
+        dark_time_us=None,
+        paired_startup_leader_vsyncs=16,
+        runtime_seconds=1,
+        count_blank_between_frames=True,
+    )
+
+    assert pair._run_prepared_pair(
+        args,
+        pair_config,
+        before_sequencer_start=fake_before_start,
+    ) == 0
+
+    assert ("start_render_coordinator", 0) in calls
+    assert calls.index("before_start") < calls.index("prime_first_semantic")
+    assert calls.index("prime_first_semantic") < calls.index("sequencers_started")
+    assert calls.index("sequencers_started") < calls.index("release_semantic")
+    assert before_start_context["startup_leader"] == {
+        "vsyncs": 0,
+        "trigger_count": 0,
+        "entries_count": 2,
+        "trig2_mode": "per_bitplane",
+        "frame_role": "blank_startup_leader",
+        "startup_policy": "prime_first_frame",
+    }
+
+
+def test_run_prepared_pair_uses_display_sequence_instead_of_lut_override(monkeypatch):
+    from dmdcontrol.patterns.paired import FramePair
+    from dmdcontrol.runtime import pair
+    import dmdcontrol.hardware.dlpc900 as dlpc_module
+    import dmdcontrol.patterns.paired as paired_module
+
+    calls = []
+    blank = np.zeros((1, 1, 3), dtype=np.uint8)
+
+    class FakeDLPC:
+
+        def __init__(self, **kwargs):
+            pass
+
+        def start_pattern_display(self, value):
+            calls.append(("start_pattern_display", value))
+
+        def set_display_mode(self, value):
+            pass
+
+        def apply_block_lock_workaround(self):
+            pass
+
+        def close(self):
+            pass
+
+    class FakeEngine:
+
+        def __init__(self, fps):
+            self.window = None
+
+        def cleanup(self):
+            calls.append("cleanup")
+
+    class FakeProvider:
+
+        def initial_pair(self):
+            return FramePair(blank, blank)
+
+        def next_pair(self):
+            return FramePair(blank, blank)
+
+    class FakeSequence:
+        provider = FakeProvider()
+        startup_policy = types.SimpleNamespace(mode="blank_leader", leader_vsyncs=0)
+        timing = {
+            "entries_count": 1,
+            "exposure_us": 8000,
+            "trig2_mode": "per_bitplane",
+        }
+
+        def lut_entries(self):
+            return [(0, 8000, True, 1, 7, 0, False, 0)]
+
+        def startup_leader_metadata(self):
+            return {
+                "vsyncs": 0,
+                "trigger_count": 0,
+                "entries_count": 1,
+                "trig2_mode": "per_bitplane",
+                "frame_role": "blank_startup_leader",
+                "startup_policy": "blank_leader",
+            }
+
+        def preview_metadata(self):
+            return {
+                "display_sequence": {
+                    "startup_policy": "blank_leader",
+                }
+            }
+
+        def metadata(self):
+            return {
+                "startup_policy": "blank_leader",
+            }
+
+    monkeypatch.setattr(dlpc_module, "DLPC900", FakeDLPC)
+    monkeypatch.setattr(paired_module, "PairedPatternEngine", FakeEngine)
+    monkeypatch.setattr(pair, "build_paired_display_sequence", lambda *args, **kwargs: FakeSequence())
+    monkeypatch.setattr(
+        pair,
+        "prepare_dlpc900_for_video_pattern",
+        lambda *args, **kwargs: {
+            "entries": [],
+            "timing": {
+                "entries_count": 1,
+                "exposure_us": 8000,
+                "trig2_mode": "per_bitplane",
+            },
+        },
+    )
+    monkeypatch.setattr(pair, "load_pattern_sequence", lambda dlpc, entries: calls.append(("load", entries)))
+    monkeypatch.setattr(
+        pair,
+        "_start_pair_render_coordinator",
+        lambda *args, **kwargs: types.SimpleNamespace(
+            wait_until_ready=lambda timeout_s=1.0: True,
+            prime_first_semantic_frame=lambda timeout_s=1.0: True,
+            release_semantic_frames=lambda: calls.append("release"),
+            join=lambda: calls.append("join"),
+            stop=lambda: None,
+            preview_poster=None,
+            preview_metadata=None,
+        ),
+    )
+    monkeypatch.setattr(
+        pair,
+        "start_loaded_pattern_sequences",
+        lambda *args, **kwargs: calls.append("sequencers_started"),
+    )
+
+    pair_config = pair.PairConfig(
+        dmd_a=types.SimpleNamespace(xrandr_output="DP-2", usb_id_path="usb-a", usb_devpath_contains=None),
+        dmd_b=types.SimpleNamespace(xrandr_output="DP-0", usb_id_path="usb-b", usb_devpath_contains=None),
+    )
+    args = types.SimpleNamespace(
+        wake_dp=False,
+        preview_url=None,
+        preview_fps=1.0,
+        dual_pixel=False,
+        seq_utilization=1.0,
+        trig2_frame_zero=False,
+        trigger_out_2_rising_delay_us=0,
+        dark_time_us=None,
+        runtime_seconds=1,
+    )
+
+    assert pair._run_prepared_pair(args, pair_config) == 0
+    assert ("load", [(0, 8000, True, 1, 7, 0, False, 0)]) in calls
 
 
 def test_run_pair_render_loop_emits_blank_leader_before_first_semantic_frame():
@@ -1039,3 +1353,56 @@ def test_run_pair_render_loop_emits_blank_leader_before_first_semantic_frame():
     )
 
     assert [int(frame_a[0, 0, 0]) for frame_a, _ in displayed] == [0, 0, 3, 5]
+
+
+def test_pair_render_coordinator_can_prime_first_semantic_frame_before_release():
+    from dmdcontrol.runtime import pair
+
+    blank_a = np.zeros((1, 1, 3), dtype=np.uint8)
+    blank_b = np.zeros((1, 1, 3), dtype=np.uint8)
+    first_a = np.full((1, 1, 3), 3, dtype=np.uint8)
+    first_b = np.full((1, 1, 3), 4, dtype=np.uint8)
+    displayed = []
+
+    class FakeEngine:
+
+        def make_context_current(self):
+            pass
+
+        def release_context(self):
+            pass
+
+        def should_close(self):
+            return False
+
+        def display_pair(self, frame_a, frame_b):
+            displayed.append((frame_a.copy(), frame_b.copy()))
+            time.sleep(0.001)
+
+    class FakeProvider:
+
+        initial_calls = 0
+
+        def initial_pair(self):
+            self.initial_calls += 1
+            return first_a, first_b
+
+        def next_pair(self):
+            return first_a, first_b
+
+    provider = FakeProvider()
+    coordinator = pair.PairRenderCoordinator(
+        FakeEngine(),
+        provider,
+        types.SimpleNamespace(runtime_seconds=0),
+        startup_leader_pair=(blank_a, blank_b),
+        startup_leader_vsyncs=0,
+    ).start()
+
+    try:
+        assert coordinator.wait_until_ready(timeout_s=1.0)
+        assert coordinator.prime_first_semantic_frame(timeout_s=1.0)
+        assert provider.initial_calls == 1
+        assert any(int(frame_a[0, 0, 0]) == 3 for frame_a, _ in displayed)
+    finally:
+        coordinator.stop(timeout_s=1.0)

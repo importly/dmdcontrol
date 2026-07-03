@@ -26,6 +26,7 @@ from dmdcontrol.camera.session import (
     close_camera_resources,
     open_ready_camera as _open_ready_camera,
 )
+from dmdcontrol.camera.sync_check_runtime import PairRuntimeRequest
 from dmdcontrol.runtime.lifecycle import compute_trigger_out_2_timing
 from dmdcontrol.support.argparse_types import (
     nonnegative_int,
@@ -227,35 +228,7 @@ def dry_run(args: argparse.Namespace, command_argv: list[str] | None = None):
 
 
 def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
-    pair_args = [
-        "--test",
-        args.test,
-        "--test-b",
-        args.test_b,
-        "--b-dot-x",
-        str(args.b_dot_x),
-        "--b-dot-y",
-        str(args.b_dot_y),
-        "--b-dot-radius",
-        str(args.b_dot_radius),
-        "--kernel-px",
-        str(args.kernel_px),
-        "--runtime-seconds",
-        str(args.runtime_seconds),
-        "--paired-startup-leader-vsyncs",
-        str(args.paired_startup_leader_vsyncs),
-        "--trigger-out-2-rising-delay-us",
-        str(args.trigger_out_2_rising_delay_us),
-    ]
-    if args.exposure_us is not None:
-        pair_args.extend(["--exposure-us", str(args.exposure_us)])
-    if getattr(args, "dark_time_us", None) is not None:
-        pair_args.extend(["--dark-time-us", str(args.dark_time_us)])
-    if args.dmd_config is not None:
-        pair_args.extend(["--dmd-config", args.dmd_config])
-    for _ in range(args.verbose or 0):
-        pair_args.append("-v")
-    return pair_args
+    return PairRuntimeRequest.from_pair_capture_args(args).to_argv()
 
 
 def _accumulation_window_us(args: argparse.Namespace) -> int:
@@ -264,10 +237,10 @@ def _accumulation_window_us(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_pair_with_callback(pair_args, before_start):
+def _run_pair_with_callback(pair_request, before_start):
     from dmdcontrol.runtime import pair as pair_module
 
-    return pair_module.run_with_before_start_callback(pair_args, before_start)
+    return pair_module.run_with_before_start_namespace(pair_request.to_namespace(), before_start)
 
 
 def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int:
@@ -330,6 +303,9 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
                 })
             if startup_leader:
                 metadata["startup_leader"] = startup_leader
+            display_sequence = context.get("display_sequence")
+            if display_sequence is not None:
+                metadata["display_sequence"] = display_sequence
             if recording is None:
                 recording = AsyncCapture(
                     capture,
@@ -350,7 +326,7 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
                            "metadata.json"],
             )
 
-        _run_pair_with_callback(_to_pair_runtime_args(args), before_start)
+        _run_pair_with_callback(PairRuntimeRequest.from_pair_capture_args(args), before_start)
         if recording is not None:
             recording.stop()
             capture_result = recording.join()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass, field
 
 from dmdcontrol.camera.capture import (
     AsyncCapture,
@@ -33,12 +34,11 @@ from dmdcontrol.camera.sync_check_runtime import (
     A_COUNT_B_STATIC_TEST,
     _pair_runtime_seconds,
     _requested_accumulation_window_us,
-    _to_pair_runtime_args,
     _trigger_policy,
     expected_trigger_count,
+    pair_runtime_request_from_args,
 )
-from dmdcontrol.patterns.paired import MAX_COUNT_SEQUENCE_FRAMES, count_lut_entries_per_frame
-from dmdcontrol.runtime.count_slots import resolve_count_slots_per_frame
+from dmdcontrol.runtime.count_slots import CountSequenceConfig, resolve_count_slots_per_frame
 from dmdcontrol.support.argparse_types import (
     count_slots_per_frame,
     nonnegative_int,
@@ -46,22 +46,6 @@ from dmdcontrol.support.argparse_types import (
     positive_int,
     trigger_out_rising_delay_us,
 )
-from dmdcontrol.support.constants import BITPLANES
-
-class SyncCheckArgumentParser(argparse.ArgumentParser):
-
-    def parse_args(self, args=None, namespace=None):
-        parsed = super().parse_args(args, namespace)
-        try:
-            _validate_count_blank_between_frames_mode(parsed)
-            _validate_count_mode_args(parsed, require_resolved_slots=False)
-            _resolve_count_mode_slots(parsed)
-            _validate_count_mode_args(parsed)
-            _validate_numbers_mode_args(parsed)
-        except ValueError as exc:
-            self.error(str(exc))
-        parsed.requested_accumulation_cycles = _requested_accumulation_cycles(parsed)
-        return parsed
 
 
 def parse_numbers(value: str) -> list[int]:
@@ -91,14 +75,14 @@ def _resolve_count_mode_slots(args: argparse.Namespace) -> None:
         return
     mode = "auto" if args.count_slots_per_frame is None else "explicit"
     if mode == "auto":
-            args.count_slots_per_frame = resolve_count_slots_per_frame(
-                count_start=args.count_start,
-                count_end=args.count_end,
-                exposure_us=args.exposure_us,
-                dark_time_us=args.dark_time_us,
-                count_blank_between_frames=args.count_blank_between_frames,
-                sequence_utilization=args.seq_utilization,
-            )
+        args.count_slots_per_frame = resolve_count_slots_per_frame(
+            count_start=args.count_start,
+            count_end=args.count_end,
+            exposure_us=args.exposure_us,
+            dark_time_us=args.dark_time_us,
+            count_blank_between_frames=args.count_blank_between_frames,
+            sequence_utilization=args.seq_utilization,
+        )
     args.count_slots_per_frame_mode = mode
 
 
@@ -107,32 +91,18 @@ def _validate_count_mode_args(args: argparse.Namespace, *, require_resolved_slot
         return
     if args.count_start > args.count_end:
         raise ValueError("--count-start must be <= --count-end")
-    if args.count_slots_per_frame is None:
-        if require_resolved_slots:
-            raise ValueError("--count-slots-per-frame auto did not resolve")
-        return
-    if args.count_slots_per_frame <= 0 or args.count_slots_per_frame > BITPLANES:
-        raise ValueError(f"--count-slots-per-frame must be in the range 1..{BITPLANES}")
-    lut_entries = count_lut_entries_per_frame(
-        args.count_slots_per_frame,
-        count_blank_between_frames=args.count_blank_between_frames,
+    config = CountSequenceConfig.from_args(
+        args,
+        require_resolved_slots=require_resolved_slots,
     )
-    if lut_entries > BITPLANES:
-        raise ValueError(
-            f"--count-slots-per-frame {args.count_slots_per_frame} with "
-            f"--count-blank-between-frames needs {lut_entries} LUT entries; max is {BITPLANES}")
-    count_total = args.count_end - args.count_start + 1
-    if count_total % args.count_slots_per_frame != 0:
-        raise ValueError("count range length must be divisible by --count-slots-per-frame")
-    frame_count = count_total // args.count_slots_per_frame
-    if frame_count > MAX_COUNT_SEQUENCE_FRAMES:
-        raise ValueError(
-            f"a-count-b-static can span at most {MAX_COUNT_SEQUENCE_FRAMES} VSYNC frames")
+    if config is None:
+        return
+    config.validate_shape()
 
 
 def _validate_count_blank_between_frames_mode(args: argparse.Namespace) -> None:
     if args.test != A_COUNT_B_STATIC_TEST and args.count_blank_between_frames:
-        raise ValueError("--count-blank-between-frames is only valid for --test a-count-b-static")
+        raise ValueError("count blank insertion is only valid for --test a-count-b-static")
 
 
 def _validate_numbers_mode_args(args: argparse.Namespace) -> None:
@@ -143,6 +113,22 @@ def _validate_numbers_mode_args(args: argparse.Namespace) -> None:
     if sorted(args.numbers_bitplane_order) != list(range(len(args.numbers))):
         raise ValueError(
             "--numbers-bitplane-order must be a zero-based permutation of --numbers slots")
+
+
+class SyncCheckArgumentParser(argparse.ArgumentParser):
+
+    def parse_args(self, args=None, namespace=None):
+        parsed = super().parse_args(args, namespace)
+        try:
+            _validate_count_blank_between_frames_mode(parsed)
+            _validate_count_mode_args(parsed, require_resolved_slots=False)
+            _resolve_count_mode_slots(parsed)
+            _validate_count_mode_args(parsed)
+            _validate_numbers_mode_args(parsed)
+        except ValueError as exc:
+            self.error(str(exc))
+        parsed.requested_accumulation_cycles = _requested_accumulation_cycles(parsed)
+        return parsed
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -180,9 +166,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--count-end", type=positive_int, default=100)
     parser.add_argument("--count-slots-per-frame", type=count_slots_per_frame, default=None)
     parser.add_argument(
-        "--count-blank-between-frames",
+        "--count-blank-after-each-count",
+        dest="count_blank_between_frames",
         action="store_true",
-        help="Count mode only: insert an all-black A frame after each count frame.",
+        help="Count mode only: insert an all-black A frame after each displayed count.",
+    )
+    parser.add_argument(
+        "--count-blank-between-frames",
+        dest="count_blank_between_frames",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--trigger-out-2-rising-delay-us",
@@ -277,17 +270,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _run_pair_with_callback(pair_args, before_start):
+def _run_pair_with_callback(pair_request, before_start):
     from dmdcontrol.runtime import pair as pair_module
 
-    return pair_module.run_with_before_start_callback(pair_args, before_start)
+    return pair_module.run_with_before_start_namespace(pair_request.to_namespace(), before_start)
 
 
 def _validate_pair_dry_run_timing(args: argparse.Namespace) -> None:
     from dmdcontrol.runtime import pair as pair_module
 
     try:
-        pair_module.main(["--dry-run-timing", *_to_pair_runtime_args(args)])
+        pair_module.run_namespace(
+            pair_runtime_request_from_args(args).to_namespace(dry_run_timing=True))
     except ValueError as exc:
         raise SystemExit(f"Invalid paired DMD timing: {exc}") from exc
 
@@ -337,13 +331,17 @@ def _update_before_start_metadata(metadata, ready, context, accumulation_window_
             "timing_b": context.get("state_b",
                                     {}).get("timing"),
         })
-    if accumulation_window_us["value"] is None:
+    if accumulation_window_us is None:
         timing = context.get("state_a", {}).get("timing") or {}
-        accumulation_window_us["value"] = timing.get("exposure_us")
-    metadata["accumulation_window_us"] = accumulation_window_us["value"]
+        accumulation_window_us = timing.get("exposure_us")
+    metadata["accumulation_window_us"] = accumulation_window_us
     startup_leader = context.get("startup_leader")
     if startup_leader is not None:
         metadata["startup_leader"] = startup_leader
+    display_sequence = context.get("display_sequence")
+    if display_sequence is not None:
+        metadata["display_sequence"] = display_sequence
+    return accumulation_window_us
 
 
 def _write_capture_artifacts_for_sync_check(
@@ -371,6 +369,126 @@ def _write_capture_artifacts_for_sync_check(
         contact_sheet_columns=expected_trigger_count(args),
         startup_leader_trigger_count=startup_leader_trigger_count,
     )
+
+
+@dataclass
+class SyncCheckCaptureSession:
+    args: argparse.Namespace
+    run: object
+    capture: object
+    writer: object
+    ready: object
+    event_filter: object
+    command: list[str]
+    metadata: dict[str, object]
+    accumulation_window_us: int | None
+    event_records: list = field(default_factory=list)
+    trigger_records: list = field(default_factory=list)
+    startup_leader_trigger_count: int = 0
+    recording: object | None = None
+    capture_result: object | None = None
+    artifact_summary: dict[str, object] | None = None
+
+    @classmethod
+    def create(
+        cls,
+        args: argparse.Namespace,
+        run,
+        capture,
+        writer,
+        ready,
+        command_argv: list[str] | None,
+    ) -> "SyncCheckCaptureSession":
+        event_filter = event_noise_filter_config_from_args(args)
+        command = command_argv or camera_command_argv("sync-check", None)
+        metadata = _sync_check_metadata(
+            args,
+            event_filter,
+            dry_run=False,
+            command=command,
+        )
+        _copy_sweep_metadata(args, metadata)
+        return cls(
+            args=args,
+            run=run,
+            capture=capture,
+            writer=writer,
+            ready=ready,
+            event_filter=event_filter,
+            command=command,
+            metadata=metadata,
+            accumulation_window_us=_requested_accumulation_window_us(args),
+        )
+
+    def write_initial_files(self) -> None:
+        write_json(self.run.timing_path, _trigger_policy(self.args))
+        self.run.command_path.write_text(command_text(self.command), encoding="utf-8")
+        self.run.log_path.write_text("live\n", encoding="utf-8")
+
+    def before_pair_start(self, context) -> None:
+        self.accumulation_window_us = _update_before_start_metadata(
+            self.metadata,
+            self.ready,
+            context,
+            self.accumulation_window_us,
+        )
+        startup_leader = context.get("startup_leader") or {}
+        self.startup_leader_trigger_count = int(startup_leader.get("trigger_count") or 0)
+        self.metadata["camera_pre_capture_flush"] = flush_stale_batches(
+            self.capture,
+            reads=self.args.camera_flush_reads,
+            include_triggers=True,
+        )
+        if self.recording is None:
+            self.recording = _start_recording(
+                self.args,
+                self.capture,
+                self.writer,
+                self.event_records,
+                self.trigger_records,
+                self.accumulation_window_us,
+            )
+        write_run_metadata(
+            self.run,
+            self.metadata,
+            artifacts=["raw.aedat4",
+                       "metadata.json"],
+        )
+
+    def complete_recording_and_artifacts(self) -> None:
+        if self.recording is None:
+            return
+        self.recording.stop()
+        self.capture_result = self.recording.join()
+        self.artifact_summary = _write_capture_artifacts_for_sync_check(
+            self.args,
+            self.run,
+            self.ready,
+            self.event_records,
+            self.trigger_records,
+            self.event_filter,
+            self.accumulation_window_us,
+            startup_leader_trigger_count=self.startup_leader_trigger_count,
+        )
+        self.metadata["artifact_summary"] = self.artifact_summary
+        if "event_noise_filter" in self.artifact_summary:
+            self.metadata["event_noise_filter"] = self.artifact_summary["event_noise_filter"]
+
+    def finalize(self) -> None:
+        if self.recording is not None and self.capture_result is None:
+            self.recording.stop()
+            try:
+                self.capture_result = self.recording.join()
+            except BaseException as exc:
+                self.metadata["capture_error"] = repr(exc)
+        if self.capture_result is not None:
+            self.metadata["capture"] = metadata_dict(self.capture_result)
+            write_run_metadata(
+                self.run,
+                self.metadata,
+                artifacts=final_capture_artifacts(self.artifact_summary),
+            )
+        self.recording = None
 
 
 def dry_run(args: argparse.Namespace, command_argv: list[str] | None = None):
@@ -405,92 +523,14 @@ def live_capture(
     ready,
     command_argv: list[str] | None = None,
 ) -> int:
-    event_filter = event_noise_filter_config_from_args(args)
-    recording = None
-    capture_result = None
-    artifact_summary = None
-    event_records = []
-    trigger_records = []
-    accumulation_window_us = {"value": _requested_accumulation_window_us(args)}
-    startup_leader_trigger_count = {"value": 0}
-    trigger_policy = _trigger_policy(args)
-    metadata = _sync_check_metadata(
-        args,
-        event_filter,
-        dry_run=False,
-        command=command_argv or camera_command_argv("sync-check", None),
-    )
-    _copy_sweep_metadata(args, metadata)
-
+    session = SyncCheckCaptureSession.create(args, run, capture, writer, ready, command_argv)
     try:
-        write_json(run.timing_path, trigger_policy)
-        run.command_path.write_text(
-            command_text(command_argv or camera_command_argv("sync-check", None)),
-            encoding="utf-8",
-        )
-        run.log_path.write_text("live\n", encoding="utf-8")
-
-        def before_start(context):
-            nonlocal recording
-            _update_before_start_metadata(metadata, ready, context, accumulation_window_us)
-            startup_leader = context.get("startup_leader") or {}
-            startup_leader_trigger_count["value"] = int(
-                startup_leader.get("trigger_count") or 0)
-            metadata["camera_pre_capture_flush"] = flush_stale_batches(
-                capture,
-                reads=args.camera_flush_reads,
-                include_triggers=True,
-            )
-            if recording is None:
-                recording = _start_recording(
-                    args,
-                    capture,
-                    writer,
-                    event_records,
-                    trigger_records,
-                    accumulation_window_us["value"],
-                )
-            write_run_metadata(
-                run,
-                metadata,
-                artifacts=["raw.aedat4",
-                           "metadata.json"],
-            )
-
-        _run_pair_with_callback(_to_pair_runtime_args(args), before_start)
-        if recording is not None:
-            recording.stop()
-            capture_result = recording.join()
-            artifact_summary = _write_capture_artifacts_for_sync_check(
-                args,
-                run,
-                ready,
-                event_records,
-                trigger_records,
-                event_filter,
-                accumulation_window_us["value"],
-                startup_leader_trigger_count=startup_leader_trigger_count["value"],
-            )
-            metadata["artifact_summary"] = artifact_summary
-            if "event_noise_filter" in artifact_summary:
-                metadata["event_noise_filter"] = artifact_summary["event_noise_filter"]
+        session.write_initial_files()
+        _run_pair_with_callback(pair_runtime_request_from_args(args), session.before_pair_start)
+        session.complete_recording_and_artifacts()
         return 0
     finally:
-        if recording is not None and capture_result is None:
-            recording.stop()
-            try:
-                capture_result = recording.join()
-            except BaseException as exc:
-                metadata["capture_error"] = repr(exc)
-        if capture_result is not None:
-            metadata["capture"] = metadata_dict(capture_result)
-            write_run_metadata(
-                run,
-                metadata,
-                artifacts=final_capture_artifacts(artifact_summary),
-            )
-        if recording is not None:
-            recording = None
+        session.finalize()
 
 
 def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int:

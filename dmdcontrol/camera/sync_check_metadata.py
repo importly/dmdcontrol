@@ -9,21 +9,14 @@ from dmdcontrol.camera.sync_check_runtime import (
     _trigger_policy,
     expected_trigger_count,
 )
-from dmdcontrol.patterns.paired import count_lut_entries_per_frame
+from dmdcontrol.runtime.count_slots import CountSequenceConfig
 
 
 def _sync_check_test_metadata(args: argparse.Namespace, *, dry_run: bool) -> dict[str, object]:
     if args.test == A_COUNT_B_STATIC_TEST:
+        config = CountSequenceConfig.from_args(args)
         metadata = {
-            "count_start": args.count_start,
-            "count_end": args.count_end,
-            "count_slots_per_frame": args.count_slots_per_frame,
-            "count_slots_per_frame_mode": getattr(args, "count_slots_per_frame_mode", "explicit"),
-            "count_blank_between_frames": getattr(args, "count_blank_between_frames", False),
-            "count_lut_entries_per_frame": count_lut_entries_per_frame(
-                args.count_slots_per_frame,
-                count_blank_between_frames=getattr(args, "count_blank_between_frames", False),
-            ),
+            **config.to_metadata(),
             "exposure_us": args.exposure_us,
         }
         if dry_run:
@@ -59,6 +52,7 @@ def sync_check_metadata(
         "mode": "sync-check",
         "dry_run": dry_run,
         "test": args.test,
+        "test_b": args.test_b,
         "command": command,
         "number_size_px": args.number_size_px,
         "b_dot_x": args.b_dot_x,

@@ -266,15 +266,24 @@ fits 3 entries per VSYNC and runs at 180 Hz.
 
 `--dark-time-us` is kept for LUT timing and budget accounting, but it does not work reliably as visible off-time in
 DLPC900 Video Pattern Mode. For camera-visible off frames, use explicit blank frames or blank bitplanes instead. For
-example, count-mode camera checks should use `--count-blank-between-frames` rather than trying to make an off window
+example, count-mode camera checks should use `--count-blank-after-each-count` rather than trying to make an off window
 with `--dark-time-us`.
 
 For `a-count-b-static`, omit `--count-slots-per-frame` or pass `--count-slots-per-frame auto` to choose the fastest slot
 count that fits the LUT timing, evenly divides the count range, and stays within the 64-VSYNC count-sequence cap. Explicit
-integer overrides still work when you need a specific packing. Add `--count-blank-between-frames` when each count should
+integer overrides still work when you need a specific packing. Add `--count-blank-after-each-count` when each count should
 be followed by an all-black A LUT bitplane slot, for example `count 1`, `blank`, `count 2`, `blank` on consecutive
 `TRIG_OUT_2` pulses. B remains the configured static pattern, and the expected trigger count doubles because the blank
-bitplanes also consume LUT trigger slots.
+bitplanes also consume LUT trigger slots. The older `--count-blank-between-frames` spelling is still accepted for
+existing scripts. Count/blank mode primes the first count/blank source frame before starting the DLPC sequencers and
+disables the normal blank startup-leader triggers for that run. This keeps the first `TRIG_OUT_2` pulse on a stable
+`count 1` source frame instead of switching from blank to semantic content after the two-entry LUT is already running.
+Paired modes are sequence-backed: the runtime builds one `PairedDisplaySequence` that owns the RGB source frames, the
+LUT slots that consume their bitplanes, startup policy, preview metadata, and camera metadata. For count/blank mode, each
+source frame explicitly pairs bitplane 0 with `count:N` and bitplane 1 with `blank`, both using the requested exposure.
+Dry-run logs include the source-frame count, LUT slots per source frame, startup policy, and startup leader trigger
+count. Live camera metadata also includes `display_sequence` and `startup_leader` so notebooks can see the exact
+frame/LUT pairing used during capture.
 
 `camera sync-check --dry-run` validates the paired runtime LUT budget before writing run artifacts. This catches commands
 that would later fail during live DLPC900 preparation, for example five numbers at `--exposure-us 4000 --dark-time-us 1000`
@@ -284,7 +293,8 @@ Paired camera runs use one continuous OpenGL render coordinator through startup:
 sequencer start, remain blank for `--paired-startup-leader-vsyncs` source VSYNCs after sequencer start, and only then
 advance to the semantic pattern frames. This avoids the old blank-pump to semantic-loop handoff while the DLPC900
 sequencer is already running. The leader trigger count is recorded in `metadata.json` as `startup_leader` and is skipped
-before derived accumulation/contact-sheet artifacts are selected.
+before derived accumulation/contact-sheet artifacts are selected. The `a-count-b-static` blank-insertion recipe is the
+exception: it primes the first semantic source frame before sequencer start and records zero startup-leader triggers.
 
 `--test numbers` is a dynamic DisplayPort-frame mode, not a custom LUT sequence. `TRIG_OUT_2` remains the real
 acquisition/index signal from the Video Pattern Mode LUT and may pulse multiple times per displayed digit. `TRIG_OUT_1`
@@ -311,7 +321,6 @@ pulses can occur before this cycle map begins.
 ```bash
 python -m dmdcontrol usb wake          # send DP-receiver wakeup only
 python -m dmdcontrol usb discover      # list DLPC900 USB devices and mappings
-python debug_scripts/usb_sanity.py     # USB connectivity smoke test
 ```
 
 ## Camera sync-check notes
@@ -321,7 +330,6 @@ The normal camera entrypoints are:
 ```bash
 ./run_camera_sync_check.sh [flags]
 ./run_dmd_pair_capture.sh [flags]
-python debug_scripts/camera_probe.py [flags]
 ```
 
 Current camera behavior uses the `dv_processing` camera API directly:
@@ -414,7 +422,6 @@ scripts/debug/     Deprecated/debug USB helper scripts
 compat/legacy/     Old Python entrypoint/import shims kept out of the repository root
 sync_dmd.sh         rsync local -> lab box (bash)
 sync_dmd.ps1        rsync local -> lab box (PowerShell)
-debug_scripts/      usb_sanity, debug_numbered_regions
 context/            Notes (DP/X11 quirks, optical diffraction, sync)
 documentation/      DLPC900 / DLPT028 / DLPU018J PDFs + extracted text
 ```
