@@ -79,7 +79,7 @@ class DmdPreviewHandler(BaseHTTPRequestHandler):
 
     def _send_offline_frame(self, params):
         layout = _query_value(params, "layout", "pair")
-        test = _query_value(params, "test", "coarse-grid")
+        test = _query_value(params, "test", "grid")
         test_a = _query_value(params, "test_a", None)
         test_b = _query_value(params, "test_b", None)
         frame_index = int(_query_value(params, "frame", 0))

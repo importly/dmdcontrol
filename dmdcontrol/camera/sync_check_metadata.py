@@ -27,17 +27,7 @@ def _sync_check_test_metadata(args: argparse.Namespace, *, dry_run: bool) -> dic
                 })
         return metadata
 
-    metadata = {
-        "number_sequence":
-        list(args.numbers),
-        "numbers_bitplane_order":
-        (list(args.numbers_bitplane_order) if args.numbers_bitplane_order is not None else None),
-        "exposure_us":
-        args.exposure_us,
-    }
-    if dry_run:
-        metadata["bitplane_count"] = len(args.numbers)
-    return metadata
+    raise ValueError(f"Unsupported sync-check test mode: {args.test}")
 
 
 def sync_check_metadata(

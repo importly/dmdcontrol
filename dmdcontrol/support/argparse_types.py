@@ -53,15 +53,3 @@ def trigger_out_rising_delay_us(value: str) -> int:
             "trigger rising delay must be between "
             f"{TRIGGER_OUT_RISING_DELAY_MIN_US} and {TRIGGER_OUT_RISING_DELAY_MAX_US} us")
     return number
-
-
-def numbers_bitplane_order(value: str) -> list[int]:
-    try:
-        order = [int(part.strip()) for part in value.split(",") if part.strip()]
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("numbers bitplane order must be decimal indexes") from exc
-    if not order:
-        raise argparse.ArgumentTypeError("numbers bitplane order must not be empty")
-    if any(index < 0 for index in order):
-        raise argparse.ArgumentTypeError("numbers bitplane order indexes must be non-negative")
-    return order

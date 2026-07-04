@@ -15,7 +15,6 @@ from dmdcontrol.support.constants import (
     DMD_HEIGHT,
     DMD_WIDTH,
     MIN_CALIBRATION_SQUARE_PX,
-    NUMBER_SEQUENCE,
 )
 
 _DIGIT_SEGMENTS = {
@@ -237,21 +236,6 @@ def generate_calibration_square_mask(
     return mask
 
 
-def _solid_color(color_idx, width=DMD_WIDTH, height=DMD_HEIGHT):
-    img = np.zeros((height, width, 3), dtype=np.uint8)
-    img[:, :, color_idx] = 255
-    return img
-
-
-def number_index_for_elapsed(elapsed_s, exposure_s, count=len(NUMBER_SEQUENCE)):
-    if exposure_s <= 0:
-        raise ValueError("exposure_s must be positive")
-    if count <= 0:
-        raise ValueError("count must be positive")
-    elapsed_s = max(0.0, elapsed_s)
-    return int(elapsed_s / exposure_s) % count
-
-
 def _fill_rect(img, x0, y0, x1, y1):
     height, width = img.shape[:2]
     x0 = max(0, min(width, x0))
@@ -303,34 +287,6 @@ def _draw_digit_segments(img, segments, x0, y0, digit_w, digit_h, min_stroke_px=
         _fill_rect(img, *boxes[segment])
 
 
-def generate_number_rgb(number, width=DMD_WIDTH, height=DMD_HEIGHT, size_px=None):
-    """Generate a binary RGB seven-segment digit frame for number mode."""
-    if number not in _DIGIT_SEGMENTS:
-        raise ValueError("number must be in the range 1..9")
-
-    img = np.zeros((height, width, 3), dtype=np.uint8)
-    if size_px is not None:
-        if size_px <= 0:
-            raise ValueError("size_px must be positive")
-        digit_h = min(int(size_px), height)
-        digit_w = min(max(16, int(digit_h * 0.62)), width)
-    else:
-        digit_h = max(24, int(height * 0.78))
-        digit_w = min(max(16, int(width * 0.46)), max(16, int(digit_h * 0.62)))
-    x0 = (width - digit_w) // 2
-    y0 = (height - digit_h) // 2
-    _draw_digit_segments(
-        img,
-        _DIGIT_SEGMENTS[number],
-        x0,
-        y0,
-        digit_w,
-        digit_h,
-        min_stroke_px=4,
-    )
-    return img
-
-
 def generate_decimal_number_rgb(number, width=DMD_WIDTH, height=DMD_HEIGHT, size_px=None):
     """Generate a binary RGB seven-segment decimal label frame."""
     if number < 0:
@@ -370,12 +326,12 @@ def generate_decimal_number_rgb(number, width=DMD_WIDTH, height=DMD_HEIGHT, size
     return img
 
 
-def _coarse_grid(engine):
+def _grid(engine):
     rgb = generate_coarse_grid_rgb(width=engine.width, height=engine.height)
     return engine.rgb_to_binary_patterns(rgb), None
 
 
-def _coarse_lines(engine):
+def _bands(engine):
     rgb = generate_coarse_lines_rgb(width=engine.width, height=engine.height)
     return engine.rgb_to_binary_patterns(rgb), None
 
@@ -383,27 +339,11 @@ def _coarse_lines(engine):
 PATTERN_MODES = {
     #                 label                                   pattern generator          dynamic or not
     "checkerboard": ("Static Checkerboard", lambda e: (e.generate_checkerboard(), None)),
-    "ordering": (
-        "Bit Ordering Sweep", lambda e:
-        (e.generate_ordering_diagnostic_patterns(DMD_WIDTH, DMD_HEIGHT), None)),
-    "single-pixel": ("1x1 Single Pixel", lambda e: (e.generate_checkerboard(block_size=1), None)),
-    "2x2": ("2x2 Checkerboard", lambda e: (e.generate_checkerboard(block_size=2), None)),
-    "lines": ("1-pixel Lines", lambda e: (e.generate_lines(), None)),
-    "colors":
-    ("Color Channels (R/G/B)", lambda e: (e.rgb_to_binary_patterns(_solid_color(0)), "colors")),
-    "coarse-grid": ("Human-Visible Coarse Grid",
-                    _coarse_grid),
-    "grid": ("Human-Visible Coarse Grid",
-             _coarse_grid),
-    "coarse-lines": ("Human-Visible Coarse Lines",
-                     _coarse_lines),
-    "bands": ("Human-Visible Coarse Lines",
-              _coarse_lines),
-    "numbers": ("Sequential Numbers (1-9)", lambda e: (None, "numbers")),
+    "grid": ("Grid", _grid),
+    "bands": ("Bands", _bands),
     "calibr-square": ("Interactive Calibration Square", lambda e: (None, "calibr-square")),
     "snake": ("60FPS Snake", lambda e: (None, "snake")),
     "clock": ("Microsecond Clock", lambda e: (None, "clock")),
-    "gradient": ("Temporal Gradient", lambda e: (e.generate_gradient(), None)),
     "kernel": ("3x3 Kernel Variations (512 patterns)", lambda e: (None, "kernel")),
 }
 

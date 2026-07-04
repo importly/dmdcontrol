@@ -14,7 +14,7 @@ def expected_trigger_count(args: argparse.Namespace) -> int:
     if args.test == A_COUNT_B_STATIC_TEST:
         config = CountSequenceConfig.from_args(args)
         return config.expected_trigger_count
-    return len(args.numbers)
+    raise ValueError(f"Unsupported sync-check test mode: {args.test}")
 
 
 def _pair_runtime_seconds(args: argparse.Namespace) -> int:
@@ -63,8 +63,6 @@ class PairRuntimeRequest:
     trigger_out_2_rising_delay_us: int
     number_size_px: int | None = None
     kernel_px: int | None = None
-    numbers: tuple[int, ...] = ()
-    numbers_bitplane_order: tuple[int, ...] | None = None
     count_start: int | None = None
     count_end: int | None = None
     count_slots_per_frame: int | None = None
@@ -88,11 +86,6 @@ class PairRuntimeRequest:
             paired_startup_leader_vsyncs=args.paired_startup_leader_vsyncs,
             trigger_out_2_rising_delay_us=args.trigger_out_2_rising_delay_us,
             number_size_px=args.number_size_px,
-            numbers=tuple(getattr(args, "numbers", ())),
-            numbers_bitplane_order=(
-                tuple(args.numbers_bitplane_order)
-                if args.numbers_bitplane_order is not None else None
-            ),
             count_start=getattr(args, "count_start", None),
             count_end=getattr(args, "count_end", None),
             count_slots_per_frame=getattr(args, "count_slots_per_frame", None),
@@ -157,14 +150,6 @@ class PairRuntimeRequest:
                 "count_slots_per_frame_mode": self.count_slots_per_frame_mode,
                 "count_blank_between_frames": self.count_blank_between_frames,
             })
-        elif self.numbers:
-            overrides.update({
-                "numbers": list(self.numbers),
-                "numbers_bitplane_order": (
-                    list(self.numbers_bitplane_order)
-                    if self.numbers_bitplane_order is not None else None
-                ),
-            })
         vars(namespace).update(overrides)
         return namespace
 
@@ -191,16 +176,6 @@ class PairRuntimeRequest:
             ), skip_none=True))
             if self.count_blank_between_frames:
                 pair_args.append("--count-blank-after-each-count")
-        elif self.numbers:
-            pair_args.extend(_argv_options((
-                ("--numbers", ",".join(str(number) for number in self.numbers)),
-                ("--numbers-size-px", self.number_size_px),
-            )))
-            if self.numbers_bitplane_order is not None:
-                pair_args.extend(_argv_options(((
-                    "--numbers-bitplane-order",
-                    ",".join(str(index) for index in self.numbers_bitplane_order),
-                ),)))
         pair_args.extend(_argv_options((
             ("--exposure-us", self.exposure_us),
             ("--seq-utilization", self.seq_utilization),

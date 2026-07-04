@@ -135,11 +135,10 @@ Paired mode is intentionally separate from the single-DMD flow:
 
 ```bash
 python -m dmdcontrol pair run --dry-run-timing --mode snake
-./run_dmd_pair.sh --test coarse-grid --runtime-seconds 300
-./run_dmd_pair.sh --test coarse-lines --runtime-seconds 300
-./run_dmd_pair.sh --test checkerboard --test-a checkerboard --test-b lines
-./run_dmd_pair.sh --test gradient --runtime-seconds 300
-./run_dmd_pair.sh --test a-kernel-b-static --test-b lines --kernel-px 900 --exposure-us 14000 --runtime-seconds 999
+./run_dmd_pair.sh --test grid --runtime-seconds 300
+./run_dmd_pair.sh --test bands --runtime-seconds 300
+./run_dmd_pair.sh --test checkerboard --test-a checkerboard --test-b grid
+./run_dmd_pair.sh --test a-kernel-b-static --test-b grid --kernel-px 900 --exposure-us 14000 --runtime-seconds 999
 ./run_dmd_pair.sh --test a-kernel-b-static --test-b dot --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --kernel-px 201 --runtime-seconds 999
 ./run_dmd_pair.sh --test static-images --static-image-b images/O.png --static-image-a images/T.png --static-image-size-px 1080 --runtime-seconds 999
 ./run_dmd_pair_calibr_square.sh --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
@@ -154,10 +153,8 @@ B into `x=0..1919`, renders A into `x=1920..3839`, and performs one buffer swap 
 `--static-image-size-px`, alpha-composites onto black, centers the result on each 1920x1080 DMD canvas, and repeats those
 static frames for the full run. The B image is shown on the left output and the A image is shown on the right output.
 
-For visual inspection through the tiny optical images, use `coarse-grid` or `coarse-lines`. They draw thick geometry and
-large A/B block markers without adding an artificial outer border to the 1920x1080 DMD image. `lines` and `colors`
-remain technical bitplane diagnostics; `lines` is one-pixel/fine-textured and `colors` maps RGB channels to DLPC900
-bitplanes, so either can look blank through the optics.
+For visual inspection through the tiny optical images, use `grid` or `bands`. They draw thick geometry and large A/B
+block markers without adding an artificial outer border to the 1920x1080 DMD image.
 
 `run_dmd_pair_calibr_square.sh` runs the paired calibration recipe with DMD A on the right showing the interactive
 calibration square and DMD B on the left showing the static dot. The A square flickers every other displayed frame; the
@@ -168,7 +165,7 @@ Preview packed frames and individual DLPC900 bitplanes in a browser:
 ```bash
 ./run_dmd_preview_server.sh
 # open http://127.0.0.1:8080/
-./run_dmd_pair.sh --test coarse-grid --runtime-seconds 300 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
+./run_dmd_pair.sh --test grid --runtime-seconds 300 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
 ```
 
 The preview server is offline by default and does not open GLFW, OpenGL, USB, or DMD hardware. `--preview-url` is opt-in
@@ -194,8 +191,8 @@ laser path.
 ./run_dmd.sh -v --seq-utilization 0.70 --test checkerboard --runtime-seconds 1200
 ./run_dmd.sh -v --seq-utilization 0.7 --test snake --runtime-seconds 1200 --trig2-frame-zero
 ./run_dmd.sh --test clock
-./run_dmd.sh --trigger --test 2x2          # spacebar fires the pattern
-./run_dmd.sh --capture out.mp4 --test gradient
+./run_dmd.sh --trigger --test checkerboard # spacebar fires the pattern
+./run_dmd.sh --capture out.mp4 --test snake
 
 # 3x3 convolution kernel rotation (512 patterns, eye-visible at 14000 us)
 ./run_dmd.sh --test kernel --kernel-px 900 --exposure-us 14000 --runtime-seconds 999
@@ -216,7 +213,7 @@ DMD launchers use the custom `1920x1080_60_RAW` modeline and fixed 60.000 Hz tim
 | `--monitor`                                                | int                                                                                                                                                                                                  | `0`                | GLFW monitor index for the fullscreen window.                                                                                            |
 | `--dmd`                                                    | configured name                                                                                                                                                                                      | none               | Select a DMD from `dmd_devices.json` and require its USB physical-path mapping before opening the controller.                            |
 | `--dmd-config`                                             | path                                                                                                                                                                                                 | `dmd_devices.json` | Alternate mapping file for `--dmd`.                                                                                                      |
-| `--test`                                                   | `checkerboard`, `ordering`, `single-pixel`, `2x2`, `lines`, `colors`, `coarse-grid`, `grid`, `coarse-lines`, `bands`, `numbers`, `calibr-square`, `snake`, `clock`, `gradient`, `kernel` | `checkerboard`     | Diagnostic pattern. See table below.                                                                                                     |
+| `--test`                                                   | `checkerboard`, `grid`, `bands`, `calibr-square`, `snake`, `clock`, `kernel` | `checkerboard`     | Diagnostic pattern. See table below.                                                                                                     |
 | `--trigger`                                                | flag                                                                                                                                                                                                 | off                | Software trigger mode. Renders black until you press space; one press shows the pattern frame. ESC exits.                                |
 | `--runtime-seconds`                                        | int                                                                                                                                                                                                  | `60`               | Total wall-clock runtime for the render loop.                                                                                            |
 | `--wake-dp`                                                | flag                                                                                                                                                                                                 | off                | Send the DP-receiver wakeup packet from inside the runtime, in addition to the shell launcher wake step.                                 |
@@ -242,22 +239,15 @@ DMD launchers use the custom `1920x1080_60_RAW` modeline and fixed 60.000 Hz tim
 | `--test`                 | Description                                                                                                                                                                                    |
 |--------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `checkerboard`           | Static checkerboard. Default.                                                                                                                                                                  |
-| `ordering`               | Bit-ordering sweep — verifies bitplane index -> output mapping.                                                                                                                                |
-| `single-pixel`           | 1x1 checkerboard (creates optical diffraction with lasers).                                                                                                                                    |
-| `2x2`                    | 2x2 checkerboard. Use this to disambiguate 1:1 mapping from diffraction.                                                                                                                       |
-| `lines`                  | Alternating 1-pixel lines. Technical/fine-texture diagnostic; often not useful by eye on tiny optical images.                                                                                  |
-| `colors`                 | Cycles pure R / G / B every 0.5 s. Technical RGB/bitplane diagnostic; may look blank by eye.                                                                                                   |
-| `coarse-grid` / `grid`   | Human-visible grid with about 75 px spacing and thick strokes. Recommended for paired optical alignment checks.                                                                                |
-| `coarse-lines` / `bands` | Human-visible thick vertical/horizontal bands. Recommended when one-pixel `lines` appears blank.                                                                                               |
-| `numbers`                | Full-frame digits 1 through 9 in sequence.                                                                                                                                                     |
+| `grid`                   | Human-visible grid with about 75 px spacing and thick strokes. Recommended for paired optical alignment checks.                                                                                |
+| `bands`                  | Human-visible thick vertical/horizontal bands.                                                                                                                                                 |
 | `calibr-square`          | Interactive calibration square. Use `./run_calibr_square.sh` for terminal controls: W/A/S/D move, Q/E rotate, R/F resize.                                                                      |
 | `snake`                  | High-speed randomly moving snake. Tests dynamic refresh + trigger stability.                                                                                                                   |
 | `clock`                  | Massive microsecond clock. Visual stutter / latency check.                                                                                                                                     |
-| `gradient`               | Temporal duty-cycle gradient.                                                                                                                                                                  |
 | `kernel`                 | 3x3 convolution kernel rotation — cycles through 512 kernel masks. Configurable via `--kernel-px`, `--exposure-us`, `--kernel-single-shot`, `--kernel-blank-end-frame`, `--invert-dmd`.        |
 
-`--trigger` only supports patterns with a static frame (anything except `numbers` / `calibr-square` / `snake` /
-`clock` / `kernel`). Dynamic modes fall back to `checkerboard` when used with `--trigger`. Basically never used
+`--trigger` only supports patterns with a static frame (anything except `calibr-square` / `snake` / `clock` /
+`kernel`). Dynamic modes fall back to `checkerboard` when used with `--trigger`.
 
 `--exposure-us` is the uniform exposure for each active DLPC900 LUT entry. If no mode-defined entry count is required,
 the runtime uses `floor(usable_frame_us / (exposure_us + dark_time_us))`, capped at 24 entries. At the fixed 60 Hz DMD

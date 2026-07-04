@@ -9,7 +9,6 @@ from dmdcontrol.camera.sync_check import (
     build_parser,
     dry_run,
     expected_trigger_count,
-    parse_numbers,
 )
 from dmdcontrol.camera.sync_check_runtime import PairRuntimeRequest, pair_runtime_request_from_args
 
@@ -83,12 +82,15 @@ def _exact_count_sync_check_argv(output_root, *, timestamp="20260629-120100"):
     ]
 
 
-def test_sync_check_parser_defaults_to_digits_one_through_five():
+def test_sync_check_parser_defaults_to_count_recipe():
     args = build_parser().parse_args(["--dry-run"])
 
-    assert args.numbers == [1, 2, 3, 4, 5]
-    assert args.test == "a-numbers-b-static"
+    assert args.test == "a-count-b-static"
     assert args.test_b == "dot"
+    assert args.count_start == 1
+    assert args.count_end == 5
+    assert args.count_slots_per_frame == 5
+    assert args.count_slots_per_frame_mode == "auto"
     assert args.number_size_px == 100
     assert args.b_dot_radius == 20
     assert args.accumulation_cycles is None
@@ -96,18 +98,8 @@ def test_sync_check_parser_defaults_to_digits_one_through_five():
     assert args.paired_startup_leader_vsyncs == 16
 
 
-def test_sync_check_numbers_mode_defaults_to_one_accumulation_cycle():
-    args = build_parser().parse_args(["--dry-run"])
-
-    assert args.requested_accumulation_cycles == 1
-
-
 def test_sync_check_count_mode_does_not_limit_accumulation_cycles_by_default():
-    args = build_parser().parse_args([
-        "--dry-run",
-        "--test",
-        "a-count-b-static",
-    ])
+    args = build_parser().parse_args(["--dry-run"])
 
     assert args.requested_accumulation_cycles is None
 
@@ -138,10 +130,10 @@ def test_sync_check_parser_rejects_removed_camera_open_method_flag():
         build_parser().parse_args(["--dry-run", "--camera-open-method", "modern"])
 
 
-@pytest.mark.parametrize("value", ["", ",", "0", "1,10", "-1", "x"])
-def test_sync_check_numbers_must_be_non_empty_decimal_digits(value):
+@pytest.mark.parametrize("flag", ["--numbers", "--numbers-bitplane-order"])
+def test_sync_check_parser_rejects_removed_numbers_flags(flag):
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["--dry-run", "--numbers", value])
+        build_parser().parse_args(["--dry-run", flag, "1,2,3"])
 
 
 @pytest.mark.parametrize("flag", ["--number-size-px", "--exposure-us"])
@@ -182,15 +174,9 @@ def test_sync_check_parser_rejects_removed_trigger_delay_fraction_flag():
             ["--dry-run", "--trigger-out-2-delay-fraction", "0.05"])
 
 
-def test_parse_numbers_accepts_comma_separated_digits():
-    assert parse_numbers("1, 2,3") == [1, 2, 3]
-
-
-def test_sync_check_runtime_args_use_requested_number_sequence():
+def test_sync_check_runtime_args_use_default_count_recipe():
     args = build_parser().parse_args(
         [
-            "--numbers",
-            "2,4,6",
             "--number-size-px",
             "123",
             "--runtime-seconds",
@@ -199,46 +185,23 @@ def test_sync_check_runtime_args_use_requested_number_sequence():
 
     pair_args = _pair_runtime_argv(args)
 
-    assert pair_args[:4] == ["--test", "a-numbers-b-static", "--test-b", "dot"]
-    assert "--checkerboard" not in pair_args
+    assert pair_args[:4] == ["--test", "a-count-b-static", "--test-b", "dot"]
     assert "--trig2-frame-zero" not in pair_args
-    assert pair_args[pair_args.index("--numbers") + 1] == "2,4,6"
+    assert "--numbers" not in pair_args
+    assert "--numbers-bitplane-order" not in pair_args
+    assert pair_args[pair_args.index("--count-start") + 1] == "1"
+    assert pair_args[pair_args.index("--count-end") + 1] == "5"
+    assert pair_args[pair_args.index("--count-slots-per-frame") + 1] == "5"
     assert pair_args[pair_args.index("--numbers-size-px") + 1] == "123"
     assert pair_args[pair_args.index("--b-dot-radius") + 1] == "20"
     assert "--exposure-us" not in pair_args
-
-
-def test_sync_check_runtime_args_forward_numbers_bitplane_order():
-    args = build_parser().parse_args(
-        [
-            "--numbers",
-            "1,2,3,4,5",
-            "--numbers-bitplane-order",
-            "1,2,3,4,0",
-        ])
-
-    pair_args = _pair_runtime_argv(args)
-
-    assert args.numbers_bitplane_order == [1, 2, 3, 4, 0]
-    assert pair_args[pair_args.index("--numbers-bitplane-order") + 1] == "1,2,3,4,0"
-
-
-@pytest.mark.parametrize("value", ["4,2,3,1", "4,2,2,1,0", "5,2,3,1,0"])
-def test_sync_check_numbers_bitplane_order_must_match_numbers_slots(value):
-    with pytest.raises(SystemExit):
-        build_parser().parse_args([
-            "--numbers",
-            "1,2,3,4,5",
-            "--numbers-bitplane-order",
-            value,
-        ])
 
 
 def test_sync_check_runtime_args_pass_b_dot_geometry():
     args = build_parser().parse_args(
         [
             "--test",
-            "a-numbers-b-static",
+            "a-count-b-static",
             "--test-b",
             "dot",
             "--b-dot-x",
@@ -259,14 +222,14 @@ def test_sync_check_runtime_args_pass_b_dot_geometry():
 def test_sync_check_runtime_args_allow_explicit_bitplane_exposure_override():
     args = build_parser().parse_args([
         "--exposure-us",
-        "600",
+        "2900",
         "--trigger-out-2-rising-delay-us",
         "-20",
     ])
 
     pair_args = _pair_runtime_argv(args)
 
-    assert pair_args[pair_args.index("--exposure-us") + 1] == "600"
+    assert pair_args[pair_args.index("--exposure-us") + 1] == "2900"
     assert pair_args[pair_args.index("--trigger-out-2-rising-delay-us") + 1] == "-20"
 
 
@@ -525,8 +488,6 @@ def test_sync_check_dry_run_creates_run_artifacts(tmp_path):
         "20260527-120102",
         "--number-size-px",
         "420",
-        "--numbers",
-        "1,2,3,4,5",
         "--trigger-out-2-rising-delay-us",
         "-20",
         "--accumulation-start-offset-us",
@@ -545,7 +506,10 @@ def test_sync_check_dry_run_creates_run_artifacts(tmp_path):
 
     assert metadata["mode"] == "sync-check"
     assert metadata["dry_run"] is True
-    assert metadata["number_sequence"] == [1, 2, 3, 4, 5]
+    assert metadata["test"] == "a-count-b-static"
+    assert metadata["count_start"] == 1
+    assert metadata["count_end"] == 5
+    assert metadata["count_slots_per_frame"] == 5
     assert metadata["number_size_px"] == 420
     assert metadata["b_dot_radius"] == 20
     assert metadata["exposure_us"] is None
@@ -567,19 +531,19 @@ def test_sync_check_dry_run_creates_run_artifacts(tmp_path):
 @pytest.mark.parametrize(
     ("name_override", "accumulation_cycles"),
     [
-        ("5nums_one_cycle_pretrigger250_onwindow", 1),
-        ("5nums_30frames_pretrigger250_onwindow", 6),
+        ("count5_one_cycle_pretrigger250_onwindow", 1),
+        ("count5_six_cycles_pretrigger250_onwindow", 6),
     ],
 )
-def test_sync_check_dry_run_accepts_selected_five_number_commands(
+def test_sync_check_dry_run_accepts_selected_five_count_commands(
     tmp_path,
     name_override,
     accumulation_cycles,
 ):
     argv = shlex.split(
         f"--dry-run --output-root {tmp_path.as_posix()} "
-        f"--name-override {name_override} --test a-numbers-b-static --test-b dot "
-        "--numbers 1,2,3,4,5 --number-size-px 100 "
+        f"--name-override {name_override} --test a-count-b-static --test-b dot "
+        "--count-start 1 --count-end 5 --count-slots-per-frame 5 --number-size-px 100 "
         "--b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 "
         "--exposure-us 1900 --dark-time-us 1000 "
         "--trigger-out-2-rising-delay-us 0 --accumulation-start-offset-us -250 "
@@ -598,8 +562,10 @@ def test_sync_check_dry_run_accepts_selected_five_number_commands(
 
     expected_metadata = {
         "dry_run": True,
-        "test": "a-numbers-b-static",
-        "number_sequence": [1, 2, 3, 4, 5],
+        "test": "a-count-b-static",
+        "count_start": 1,
+        "count_end": 5,
+        "count_slots_per_frame": 5,
         "number_size_px": 100,
         "b_dot_x": 960,
         "b_dot_y": 540,
@@ -632,12 +598,12 @@ def test_sync_check_dry_run_accepts_selected_five_number_commands(
 def test_sync_check_dry_run_rejects_invalid_paired_lut_timing(tmp_path):
     argv = shlex.split(
         f"--dry-run --output-root {tmp_path.as_posix()} "
-        "--test a-numbers-b-static --test-b dot "
-        "--numbers 1,2,3,4,5 "
+        "--test a-count-b-static --test-b dot "
+        "--count-start 1 --count-end 5 --count-slots-per-frame 5 "
         "--exposure-us 4000 --dark-time-us 1000 "
         "--runtime-seconds 1")
 
-    with pytest.raises(SystemExit, match="Invalid paired DMD timing: .*need .* usable"):
+    with pytest.raises(SystemExit, match="need .* usable"):
         dry_run(build_parser().parse_args(argv))
 
     assert list(tmp_path.iterdir()) == []
@@ -759,7 +725,9 @@ def test_camera_sync_check_cli_dry_run_creates_artifacts(tmp_path):
 
     metadata = json.loads(
         (tmp_path / "20260527-120103-sync-check" / "metadata.json").read_text(encoding="utf-8"))
-    assert metadata["number_sequence"] == [1, 2, 3, 4, 5]
+    assert metadata["test"] == "a-count-b-static"
+    assert metadata["count_start"] == 1
+    assert metadata["count_end"] == 5
 
 
 def test_live_capture_flushes_queued_triggers_before_recording(monkeypatch, tmp_path):

@@ -42,24 +42,9 @@ from dmdcontrol.runtime.count_slots import CountSequenceConfig, resolve_count_sl
 from dmdcontrol.support.argparse_types import (
     count_slots_per_frame,
     nonnegative_int,
-    numbers_bitplane_order,
     positive_int,
     trigger_out_rising_delay_us,
 )
-
-
-def parse_numbers(value: str) -> list[int]:
-    try:
-        numbers = [int(part.strip()) for part in value.split(",") if part.strip()]
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("numbers must be decimal digits") from exc
-    if not numbers:
-        raise argparse.ArgumentTypeError("numbers must not be empty")
-    if any(number < 1 or number > 9 for number in numbers):
-        raise argparse.ArgumentTypeError("numbers must be in the range 1..9")
-    if len(numbers) > 24:
-        raise argparse.ArgumentTypeError("numbers can contain at most 24 entries")
-    return numbers
 
 
 def _requested_accumulation_cycles(args: argparse.Namespace) -> int | None:
@@ -105,16 +90,6 @@ def _validate_count_blank_between_frames_mode(args: argparse.Namespace) -> None:
         raise ValueError("count blank insertion is only valid for --test a-count-b-static")
 
 
-def _validate_numbers_mode_args(args: argparse.Namespace) -> None:
-    if args.test == A_COUNT_B_STATIC_TEST or args.numbers_bitplane_order is None:
-        return
-    if len(args.numbers_bitplane_order) != len(args.numbers):
-        raise ValueError("--numbers-bitplane-order length must match --numbers length")
-    if sorted(args.numbers_bitplane_order) != list(range(len(args.numbers))):
-        raise ValueError(
-            "--numbers-bitplane-order must be a zero-based permutation of --numbers slots")
-
-
 class SyncCheckArgumentParser(argparse.ArgumentParser):
 
     def parse_args(self, args=None, namespace=None):
@@ -124,7 +99,6 @@ class SyncCheckArgumentParser(argparse.ArgumentParser):
             _validate_count_mode_args(parsed, require_resolved_slots=False)
             _resolve_count_mode_slots(parsed)
             _validate_count_mode_args(parsed)
-            _validate_numbers_mode_args(parsed)
         except ValueError as exc:
             self.error(str(exc))
         parsed.requested_accumulation_cycles = _requested_accumulation_cycles(parsed)
@@ -146,15 +120,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--timestamp", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--number-size-px", type=positive_int, default=100)
-    parser.add_argument("--numbers", type=parse_numbers, default=parse_numbers("1,2,3,4,5"))
-    parser.add_argument(
-        "--numbers-bitplane-order",
-        type=numbers_bitplane_order,
-        default=None,
-        help=(
-            "Zero-based bitplane indexes in chronological display order for numbers mode. "
-            "Use 1,2,3,4,0 if --numbers 1,2,3,4,5 captures visually as 2,3,4,5,1."),
-    )
     parser.add_argument(
         "--exposure-us",
         type=positive_int,
@@ -163,7 +128,7 @@ def build_parser() -> argparse.ArgumentParser:
         "Omit for the maximum safe exposure at the configured VSYNC.",
     )
     parser.add_argument("--count-start", type=positive_int, default=1)
-    parser.add_argument("--count-end", type=positive_int, default=100)
+    parser.add_argument("--count-end", type=positive_int, default=5)
     parser.add_argument("--count-slots-per-frame", type=count_slots_per_frame, default=None)
     parser.add_argument(
         "--count-blank-after-each-count",
@@ -198,7 +163,7 @@ def build_parser() -> argparse.ArgumentParser:
         "Use 1.0 only when intentionally using nearly the full VSYNC budget.",
     )
     parser.add_argument("--dmd-config", default=None)
-    parser.add_argument("--test", default="a-numbers-b-static")
+    parser.add_argument("--test", default=A_COUNT_B_STATIC_TEST)
     parser.add_argument("--test-b", default="dot")
     parser.add_argument("--b-dot-x", type=int, default=960)
     parser.add_argument("--b-dot-y", type=int, default=540)
@@ -250,7 +215,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Number of complete trigger cycles to use for derived accumulation artifacts. "
-            "Numbers mode defaults to 1; count mode defaults to unlimited."),
+            "Count mode defaults to unlimited."),
     )
     add_event_noise_filter_arguments(parser)
     parser.add_argument("-v", "--verbose", action="count", default=0)

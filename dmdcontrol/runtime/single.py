@@ -10,11 +10,9 @@ except ImportError:
 from dmdcontrol.support.constants import (
     BITPLANES,
     DEFAULT_HZ,
-    DEFAULT_NUMBERS_EXPOSURE_US,
     DEFAULT_SEQUENCE_UTILIZATION,
     DMD_HEIGHT,
     DMD_WIDTH,
-    NUMBER_SEQUENCE,
     SAFE_MARGIN_US,
 )
 from dmdcontrol.patterns.calibration_square import (
@@ -37,8 +35,6 @@ from dmdcontrol.patterns.modes import (
     PATTERN_NAMES,
     build_patterns,
     default_calibration_square_state,
-    generate_number_rgb,
-    number_index_for_elapsed,
 )
 from dmdcontrol.runtime.loop import run_render_loop, run_trigger_loop
 from dmdcontrol.support.argparse_types import trigger_out_rising_delay_us
@@ -145,12 +141,6 @@ def _build_parser():
         "Dynamic wall-clock display modes ignore this value.")
     parser.add_argument("--dark-time-us", type=int, default=None)
     parser.add_argument(
-        "--numbers-size-px",
-        type=int,
-        default=None,
-        help="Seven-segment digit height in pixels for --test numbers. "
-        "Default: preserve existing height-scaled rendering.")
-    parser.add_argument(
         "--calibr-square-control-file",
         default=None,
         help="Calibration-square only: read single-character controls from this file. "
@@ -175,7 +165,7 @@ class _DryRunDLPC:
         return None
 
 
-_EXPOSURE_IGNORED_DYNAMIC_KINDS = {"numbers", "calibr-square", "snake", "clock", "colors"}
+_EXPOSURE_IGNORED_DYNAMIC_KINDS = {"calibr-square", "snake", "clock"}
 
 
 def _ignores_lut_exposure(args, dynamic_kind=None):
@@ -200,10 +190,6 @@ def _lut_timing_override(args, target_hz, dynamic_kind=None):
     if args.test == "kernel":
         return _compute_kernel_lut_override(args, target_hz)
     return None, args.exposure_us
-
-
-def _number_dwell_us(args):
-    return DEFAULT_NUMBERS_EXPOSURE_US
 
 
 def _format_range(start, count):
@@ -271,28 +257,6 @@ def _log_kernel_timing_summary(args, timing, prefix="[TIMING]"):
             logger.info(f"{prefix} Trigger map: pulses {end_range} -> end-marker {marker_level}.")
 
 
-def _log_numbers_timing_summary(args, timing, prefix="[TIMING]"):
-    exposure_us = _number_dwell_us(args)
-    exposure_s = exposure_us / 1_000_000.0
-    cycle_s = exposure_s * len(NUMBER_SEQUENCE)
-    pulse_rate_hz = (
-        timing["effective_frame_hz"]
-        if args.trig2_frame_zero else timing["effective_binary_rate_hz"])
-    pulses_per_number = exposure_s * pulse_rate_hz
-    trig2_mode = (
-        "one pulse per VSYNC frame" if args.trig2_frame_zero else "one pulse per LUT bitplane")
-    logger.info(
-        f"{prefix} Numbers mode: digits 1..9, exposure={exposure_us}us "
-        f"({exposure_us / 1000.0:.3f}ms) per number, full cycle ~{cycle_s:.3f}s.")
-    logger.info(
-        f"{prefix} Numbers mode uses dynamic DisplayPort frames, not a custom packed LUT; "
-        "existing Video Pattern Mode LUT timing remains unchanged.")
-    logger.info(
-        f"{prefix} TRIG_OUT_2 is the acquisition/index signal for numbers mode "
-        f"({trig2_mode}); expect ~{pulses_per_number:.1f} pulses per displayed number. "
-        "TRIG_OUT_1 is advisory only.")
-
-
 def _log_calibration_square_summary(args, timing, prefix="[TIMING]"):
     pulse_rate_hz = (
         timing["effective_frame_hz"]
@@ -343,14 +307,10 @@ def _dry_run_timing(args):
         f"(pulse width {trigger_timing['pulse_width_us']}us).")
     if args.test == "kernel":
         _log_kernel_timing_summary(args, timing, prefix="[DRY RUN]")
-    elif args.test == "numbers":
-        _log_numbers_timing_summary(args, timing, prefix="[DRY RUN]")
     elif args.test == "calibr-square":
         _log_calibration_square_summary(args, timing, prefix="[DRY RUN]")
     if _ignores_lut_exposure(args):
         logger.info("[DRY RUN] --exposure-us ignored for dynamic wall-clock display mode.")
-    if args.test != "numbers" and args.numbers_size_px is not None:
-        logger.warning("[DRY RUN] --numbers-size-px is only used with --test numbers.")
 
 
 def _open_video_writer(path, target_hz):
@@ -382,7 +342,6 @@ def _make_frame_provider(
     dynamic_kind,
     args=None,
     kernel_frames=None,
-    numbers_frames=None,
     calibration_square_state=None,
     invert_dmd=False,
 ):
@@ -401,36 +360,6 @@ def _make_frame_provider(
         return _wrap(engine.generate_snake_frame)
     if dynamic_kind == "clock":
         return _wrap(engine.generate_clock_frame)
-    if dynamic_kind == "colors":
-        from dmdcontrol.patterns.modes import _solid_color
-        solid_r = engine.pack_patterns(engine.rgb_to_binary_patterns(_solid_color(0)))
-        solid_g = engine.pack_patterns(engine.rgb_to_binary_patterns(_solid_color(1)))
-        solid_b = engine.pack_patterns(engine.rgb_to_binary_patterns(_solid_color(2)))
-        frames = (solid_r, solid_g, solid_b)
-
-        def _provider():
-            return frames[int(time.time() * 2) % 3]
-
-        return _wrap(_provider)
-    if dynamic_kind == "numbers":
-        frames = numbers_frames
-        if frames is None or len(frames) == 0:
-            raise RuntimeError("No number frames generated for numbers mode.")
-        exposure_s = _number_dwell_us(args) / 1_000_000.0
-        state = {"start": None}
-
-        # Numbers is a dynamic display-frame mode: each digit is a full packed
-        # DisplayPort frame held by wall-clock time. The Video Pattern Mode LUT
-        # remains the standard runtime LUT, so TRIG_OUT_2 continues to mark LUT
-        # bitplanes/VSYNCs rather than digit boundaries.
-        def _provider_numbers():
-            now = time.monotonic()
-            if state["start"] is None:
-                state["start"] = now
-            index = number_index_for_elapsed(now - state["start"], exposure_s, len(frames))
-            return frames[index]
-
-        return _wrap(_provider_numbers)
     if dynamic_kind == "calibr-square":
         # Calibration square is an interactive dynamic display-frame mode. The
         # square is re-packed only after keyboard edits; the DLPC900 LUT and
@@ -482,9 +411,6 @@ def main(argv=None):
     if args.dark_time_us is not None and args.dark_time_us < 0:
         logger.error("--dark-time-us must be non-negative.")
         raise SystemExit("Invalid --dark-time-us value")
-    if args.numbers_size_px is not None and args.numbers_size_px <= 0:
-        logger.error("--numbers-size-px must be positive.")
-        raise SystemExit("Invalid --numbers-size-px value")
     if args.kernel_leader_frames < 0:
         logger.error("--kernel-leader-frames must be >= 0.")
         raise SystemExit("Invalid --kernel-leader-frames value")
@@ -559,11 +485,7 @@ def main(argv=None):
             )
         elif _ignores_lut_exposure(args, dynamic_kind):
             logger.info("--exposure-us ignored for dynamic wall-clock display mode.")
-        if dynamic_kind != "numbers" and args.numbers_size_px is not None:
-            logger.warning("--numbers-size-px is only used with --test numbers; ignoring it.")
-
         kernel_frames = None
-        numbers_frames = None
         calibration_square_state = None
         kernel_cycle_vsyncs = None
         kernel_blank_slot_count = 0
@@ -594,22 +516,6 @@ def main(argv=None):
                 f"[+] Kernel frames ready: {kernel_cycle_vsyncs} VSYNC frames per cycle "
                 f"({args.kernel_leader_frames} leader + {kernel_payload_vsyncs} payload/end-marker) "
                 f"covering {kernel_leader_fires + kernel_cycle_kernels} bitplane fires.")
-        if dynamic_kind == "numbers":
-            number_exposure_us = _number_dwell_us(args)
-            logger.info(
-                f"[+] Prebuilding {len(NUMBER_SEQUENCE)} number frames "
-                f"(digits 1..9, exposure={number_exposure_us} us per number, "
-                f"size_px={args.numbers_size_px or 'default'})...")
-            numbers_frames = tuple(
-                engine.pack_patterns(
-                    engine.rgb_to_binary_patterns(
-                        generate_number_rgb(
-                            number,
-                            width=engine.width,
-                            height=engine.height,
-                            size_px=args.numbers_size_px,
-                        ))) for number in NUMBER_SEQUENCE)
-            logger.info("[+] Number frames ready as full packed DisplayPort frames.")
         if dynamic_kind == "calibr-square":
             calibration_square_state = default_calibration_square_state(engine.width, engine.height)
             logger.info(
@@ -629,8 +535,6 @@ def main(argv=None):
             frame = engine.generate_clock_frame()
         elif dynamic_kind == "kernel" and kernel_frames is not None:
             frame = kernel_frames[0]
-        elif dynamic_kind == "numbers" and numbers_frames is not None:
-            frame = numbers_frames[0]
         elif dynamic_kind == "calibr-square" and calibration_square_state is not None:
             frame = build_calibration_square_frame(engine, calibration_square_state)
         else:
@@ -642,14 +546,13 @@ def main(argv=None):
             dynamic_kind,
             args=args,
             kernel_frames=kernel_frames,
-            numbers_frames=numbers_frames,
             calibration_square_state=calibration_square_state,
             invert_dmd=args.invert_dmd,
         )
 
-        if args.trigger or dynamic_kind in ("kernel", "numbers", "calibr-square"):
+        if args.trigger or dynamic_kind in ("kernel", "calibr-square"):
             # Keep indexed dynamic playback deterministic: do not consume the
-            # kernel/numbers/calibration provider during DLPC arm. The real
+            # kernel/calibration provider during DLPC arm. The real
             # loop starts at frame 0 after configuration completes.
             prearm_frame_provider = lambda: _maybe_invert_frame(
                 black_frame if args.trigger else frame, args.invert_dmd)
@@ -730,7 +633,7 @@ def main(argv=None):
             prime_label = (
                 "first kernel payload frame"
                 if dynamic_kind == "kernel" and post_arm_prime_frame is not frame else
-                "number 1 frame" if dynamic_kind == "numbers" else "calibration square frame"
+                "calibration square frame"
                 if dynamic_kind == "calibr-square" else "initial pattern frame")
         logger.info(f"[+] Priming DP output after sequencer arm with {prime_label}...")
         engine.display_frame(_maybe_invert_frame(post_arm_prime_frame, args.invert_dmd))
@@ -759,8 +662,6 @@ def main(argv=None):
                 f"uniform exposure ~{sequence_state['timing']['exposure_us']} us per kernel; "
                 f"DMD output polarity={'inverted' if args.invert_dmd else 'normal'}.")
             _log_kernel_timing_summary(args, sequence_state["timing"])
-        elif dynamic_kind == "numbers":
-            _log_numbers_timing_summary(args, sequence_state["timing"])
         elif dynamic_kind == "calibr-square":
             _log_calibration_square_summary(args, sequence_state["timing"])
 

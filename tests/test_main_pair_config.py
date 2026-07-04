@@ -100,7 +100,7 @@ class MainPairConfigTests(unittest.TestCase):
                     "--test",
                     "a-calibr-square-b-dot",
                     "--test-a",
-                    "lines",
+                    "grid",
                     "--b-dot-x",
                     "960",
                     "--b-dot-y",
@@ -119,7 +119,7 @@ class MainPairConfigTests(unittest.TestCase):
                 "--test",
                 "a-kernel-b-static",
                 "--test-b",
-                "lines",
+                "grid",
                 "--kernel-px",
                 "30",
                 "--exposure-us",
@@ -162,14 +162,14 @@ class MainPairConfigTests(unittest.TestCase):
                     "--test",
                     "a-kernel-b-static",
                     "--test-a",
-                    "lines",
+                    "grid",
                 ])
 
     def test_dry_run_accepts_human_visible_pair_modes_without_hardware_imports(self):
         for module_name in ("glfw", "OpenGL.GL", "dlpc900_hid"):
             sys.modules.pop(module_name, None)
 
-        for mode in ("coarse-grid", "coarse-lines"):
+        for mode in ("grid", "bands"):
             with self.subTest(mode=mode):
                 rc = main_pair.main(["--dry-run-timing", "--test", mode])
 
@@ -184,7 +184,7 @@ class MainPairConfigTests(unittest.TestCase):
             [
                 "--dry-run-timing",
                 "--test",
-                "coarse-grid",
+                "grid",
                 "--preview-url",
                 "http://127.0.0.1:8080/api/live-frame",
                 "--preview-fps",

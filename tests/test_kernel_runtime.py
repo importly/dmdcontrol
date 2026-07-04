@@ -191,18 +191,16 @@ def test_single_runtime_warns_that_dark_time_is_unreliable_in_video_pattern_mode
     assert "does not work as expected with DLPC900 Video Pattern Mode" in caplog.text
 
 
-def test_single_runtime_numbers_mode_ignores_generic_exposure_for_wall_clock_dwell():
-    args = single_runtime._build_parser().parse_args(
-        [
-            "--test",
-            "numbers",
-            "--exposure-us",
-            "3000",
-            "--dry-run-timing",
-        ])
-
-    assert single_runtime._number_dwell_us(args) == single_runtime.DEFAULT_NUMBERS_EXPOSURE_US
-    assert single_runtime._lut_timing_override(args, target_hz=60) == (None, None)
+def test_single_runtime_rejects_removed_numbers_mode():
+    with pytest.raises(SystemExit):
+        single_runtime._build_parser().parse_args(
+            [
+                "--test",
+                "numbers",
+                "--exposure-us",
+                "3000",
+                "--dry-run-timing",
+            ])
 
 
 if __name__ == "__main__":

@@ -20,21 +20,17 @@ from dmdcontrol.patterns.bitplanes import (
 from dmdcontrol.patterns.calibration_square import build_calibration_square_frame
 from dmdcontrol.patterns.kernel import build_kernel_frames
 from dmdcontrol.patterns.modes import (
-    NUMBER_SEQUENCE,
     PATTERN_NAMES,
     build_patterns,
     default_calibration_square_state,
-    generate_number_rgb,
 )
 from dmdcontrol.patterns.paired import (
-    A_NUMBERS_B_STATIC_PAIR_TEST,
+    A_COUNT_B_STATIC_PAIR_TEST,
     CALIBRATION_DOT_PAIR_TEST,
     DMD_HEIGHT,
     DMD_WIDTH,
-    DynamicGradientPairFrameProvider,
     DynamicSnakePairFrameProvider,
     KERNEL_STATIC_PAIR_TEST,
-    NUMBER_PAIR_TEST,
     PAIR_TESTS,
     STATIC_PAIR_TESTS,
     compose_pair_frame,
@@ -120,38 +116,9 @@ class PreviewEngine:
         checker = checker.astype(np.uint8)
         return [checker for _ in range(BITPLANES)]
 
-    def generate_lines(self):
-        x = np.indices((self.height, self.width))[1]
-        lines = (x % 2).astype(np.uint8)
-        return [lines for _ in range(BITPLANES)]
-
     def generate_solid(self, val):
         solid = np.full((self.height, self.width), val, dtype=np.uint8)
         return [solid for _ in range(BITPLANES)]
-
-    def generate_gradient(self):
-        patterns = []
-        x = np.indices((self.height, self.width))[1]
-        for i in range(BITPLANES):
-            bit_index = i % 8
-            threshold = (self.width / 8) * bit_index
-            patterns.append((x >= threshold).astype(np.uint8))
-        return patterns
-
-    def generate_ordering_diagnostic_patterns(self, sub_width=512, sub_height=512):
-        patterns = []
-        sub_width = min(sub_width, self.width)
-        sub_height = min(sub_height, self.height)
-        y_start = max(0, (self.height - sub_height) // 2)
-        x_start = max(0, (self.width - sub_width) // 2)
-        block_w = max(1, sub_width // BITPLANES)
-        for i in range(BITPLANES):
-            img = np.zeros((self.height, self.width), dtype=np.uint8)
-            bx_start = x_start + (i * block_w)
-            bx_end = min(x_start + sub_width, bx_start + block_w)
-            img[y_start:y_start + sub_height, bx_start:bx_end] = 1
-            patterns.append(img)
-        return patterns
 
     def generate_snake_frame(self, frame_index=0, grid_w=24, grid_h=13):
         grid = np.zeros((grid_h, grid_w), dtype=np.uint8)
@@ -183,18 +150,11 @@ def _kernel_preview_frame(engine, frame_index):
     return frames[frame_index % len(frames)]
 
 
-def render_single_frame(test="coarse-grid", frame_index=0, width=DMD_WIDTH, height=DMD_HEIGHT):
+def render_single_frame(test="grid", frame_index=0, width=DMD_WIDTH, height=DMD_HEIGHT):
     if test not in PATTERN_NAMES:
         raise ValueError(f"unsupported single-DMD test: {test}")
     engine = PreviewEngine(width=width, height=height)
 
-    if test == "colors":
-        frame = np.zeros((height, width, 3), dtype=np.uint8)
-        frame[:, :, frame_index % 3] = 255
-        return np.ascontiguousarray(frame)
-    if test == "numbers":
-        number = NUMBER_SEQUENCE[frame_index % len(NUMBER_SEQUENCE)]
-        return generate_number_rgb(number, width=width, height=height)
     if test == "calibr-square":
         state = default_calibration_square_state(width, height)
         return build_calibration_square_frame(engine, state)
@@ -215,7 +175,7 @@ def render_single_frame(test="coarse-grid", frame_index=0, width=DMD_WIDTH, heig
     return engine.pack_patterns(patterns)
 
 
-def render_pair_frame(test="coarse-grid", test_a=None, test_b=None, frame_index=0):
+def render_pair_frame(test="grid", test_a=None, test_b=None, frame_index=0):
     if test not in PAIR_TESTS:
         raise ValueError(f"unsupported paired test: {test}")
 
@@ -224,14 +184,18 @@ def render_pair_frame(test="coarse-grid", test_a=None, test_b=None, frame_index=
         frame_b = generate_static_frame(test_b or test, route_label="B")
         return compose_pair_frame(frame_a, frame_b)
 
-    if test == "gradient":
-        frame_a, frame_b = DynamicGradientPairFrameProvider()._frame_for_index(frame_index)
-        return compose_pair_frame(frame_a, frame_b)
     if test == "snake":
         frame_a, frame_b = DynamicSnakePairFrameProvider()._frame_for_index(frame_index)
         return compose_pair_frame(frame_a, frame_b)
-    if test in (NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST):
-        frame_provider = make_pair_frame_provider(test, test_b=test_b)
+    if test == A_COUNT_B_STATIC_PAIR_TEST:
+        frame_provider = make_pair_frame_provider(
+            test,
+            test_b=test_b,
+            count_start=1,
+            count_end=2,
+            count_slots_per_frame=2,
+            numbers_size_px=360,
+        )
         frame_a, frame_b = frame_provider.initial_pair()
         return compose_pair_frame(frame_a, frame_b)
     if test == CALIBRATION_DOT_PAIR_TEST:
@@ -251,7 +215,7 @@ def render_pair_frame(test="coarse-grid", test_a=None, test_b=None, frame_index=
 
 def render_offline_frame(
     layout="pair",
-    test="coarse-grid",
+    test="grid",
     test_a=None,
     test_b=None,
     frame_index=0,
@@ -283,7 +247,7 @@ def render_png_bytes(image_array):
 
 def render_preview_png(
     layout="pair",
-    test="coarse-grid",
+    test="grid",
     test_a=None,
     test_b=None,
     frame_index=0,

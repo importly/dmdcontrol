@@ -6,7 +6,6 @@ from dmdcontrol.patterns.bitplanes import extract_bitplane
 from dmdcontrol.patterns.modes import generate_decimal_number_rgb
 from dmdcontrol.patterns.paired import (
     A_COUNT_B_STATIC_PAIR_TEST,
-    A_NUMBERS_B_STATIC_PAIR_TEST,
     CALIBRATION_DOT_PAIR_TEST,
     KERNEL_STATIC_PAIR_TEST,
 )
@@ -23,9 +22,7 @@ def _count_args(**overrides):
         "count_slots_per_frame": 1,
         "count_slots_per_frame_mode": "explicit",
         "count_blank_between_frames": True,
-        "numbers": [1, 2, 3, 4, 5],
         "numbers_size_px": 80,
-        "numbers_bitplane_order": None,
         "b_dot_x": 60,
         "b_dot_y": 80,
         "b_dot_radius": 3,
@@ -92,24 +89,19 @@ def test_count_without_blank_sequence_uses_blank_leader_policy():
     assert sequence.lut_entries() == [(0, 16000, True, 1, 7, 0, False, 0)]
 
 
-def test_numbers_sequence_uses_one_lut_slot_per_number():
-    sequence = display_sequence.build_paired_display_sequence(
-        _count_args(
-            test=A_NUMBERS_B_STATIC_PAIR_TEST,
-            count_blank_between_frames=False,
-            exposure_us=3000,
-            numbers=[1, 2, 3],
-        ),
-        target_hz=60,
-        engine=types.SimpleNamespace(window=None),
-        width=120,
-        height=160,
-    )
-
-    assert sequence.startup_policy.mode == "blank_leader"
-    assert [slot.bitplane_index for slot in sequence.lut_slots] == [0, 1, 2]
-    assert sequence.expected_trigger_count() == 3
-    assert sequence.mode_metadata["numbers"]["sequence"] == [1, 2, 3]
+def test_removed_numbers_sequence_mode_is_rejected():
+    with np.testing.assert_raises(ValueError):
+        display_sequence.build_paired_display_sequence(
+            _count_args(
+                test="a-numbers-b-static",
+                count_blank_between_frames=False,
+                exposure_us=3000,
+            ),
+            target_hz=60,
+            engine=types.SimpleNamespace(window=None),
+            width=120,
+            height=160,
+        )
 
 
 def test_static_sequence_has_one_repeating_frame_and_timing_from_exposure():

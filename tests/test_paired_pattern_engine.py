@@ -9,9 +9,7 @@ from dmdcontrol.patterns.bitplanes import extract_bitplane
 from dmdcontrol.patterns.paired import (
     CalibrationSquareDotPairFrameProvider,
     DynamicAStaticBPairFrameProvider,
-    DynamicGradientPairFrameProvider,
     DynamicSnakePairFrameProvider,
-    NumberSequencePairFrameProvider,
     PAIR_TESTS,
     STATIC_PAIR_TESTS,
     STATIC_IMAGES_PAIR_TEST,
@@ -22,7 +20,6 @@ from dmdcontrol.patterns.paired import (
     generate_static_frame,
     make_pair_frame_provider,
 )
-from dmdcontrol.patterns.modes import generate_number_rgb
 from dmdcontrol.patterns.visual import DEFAULT_COARSE_GRID_SPACING, generate_coarse_grid_rgb
 
 
@@ -50,13 +47,13 @@ class PairedPatternEngineTests(unittest.TestCase):
             compose_pair_frame(frame_a, frame_b)
 
     def test_static_pair_provider_routes_asymmetric_content(self):
-        provider = StaticPairFrameProvider("checkerboard", "lines", width=16, height=8)
+        provider = StaticPairFrameProvider("checkerboard", "grid", width=64, height=64)
 
         first_a, first_b = provider.initial_pair()
         next_a, next_b = provider.next_pair()
 
-        self.assertEqual(first_a.shape, (8, 16, 3))
-        self.assertEqual(first_b.shape, (8, 16, 3))
+        self.assertEqual(first_a.shape, (64, 64, 3))
+        self.assertEqual(first_b.shape, (64, 64, 3))
         np.testing.assert_array_equal(first_a, next_a)
         np.testing.assert_array_equal(first_b, next_b)
         self.assertFalse(np.array_equal(first_a, first_b))
@@ -122,21 +119,6 @@ class PairedPatternEngineTests(unittest.TestCase):
 
         self.assertIsInstance(provider, StaticImagePairFrameProvider)
 
-    def test_dynamic_gradient_provider_uses_shared_frame_index(self):
-        provider = DynamicGradientPairFrameProvider(width=8, height=4)
-
-        initial_a, initial_b = provider.initial_pair()
-        next_a, next_b = provider.next_pair()
-
-        self.assertEqual(provider.frame_index, 1)
-        self.assertFalse(np.array_equal(initial_a, next_a))
-        self.assertFalse(np.array_equal(initial_b, next_b))
-        self.assertFalse(np.array_equal(next_a, next_b))
-        np.testing.assert_array_equal(next_a[:, :, 0], next_a[:, :, 1])
-        np.testing.assert_array_equal(next_a[:, :, 1], next_a[:, :, 2])
-        np.testing.assert_array_equal(next_b[:, :, 0], next_b[:, :, 1])
-        np.testing.assert_array_equal(next_b[:, :, 1], next_b[:, :, 2])
-
     def test_dynamic_snake_provider_uses_grayscale_on_both_routes(self):
         provider = DynamicSnakePairFrameProvider(width=320, height=240)
 
@@ -148,67 +130,6 @@ class PairedPatternEngineTests(unittest.TestCase):
             self.assertGreater(np.count_nonzero(frame[:, :, 2]), 0)
             np.testing.assert_array_equal(frame[:, :, 0], frame[:, :, 1])
             np.testing.assert_array_equal(frame[:, :, 1], frame[:, :, 2])
-
-    def test_number_sequence_provider_packs_requested_digits_into_bitplanes(self):
-        provider = NumberSequencePairFrameProvider(
-            numbers=(1,
-                     2,
-                     3),
-            width=120,
-            height=160,
-            size_px=80,
-        )
-
-        frame_a, frame_b = provider.initial_pair()
-
-        np.testing.assert_array_equal(frame_a, frame_b)
-        np.testing.assert_array_equal(
-            _extract_packed_bitplane(frame_a, 0),
-            generate_number_rgb(1, width=120, height=160, size_px=80)[:, :, 0],
-        )
-        np.testing.assert_array_equal(
-            _extract_packed_bitplane(frame_a, 1),
-            generate_number_rgb(2, width=120, height=160, size_px=80)[:, :, 0],
-        )
-        np.testing.assert_array_equal(
-            _extract_packed_bitplane(frame_a, 2),
-            generate_number_rgb(3, width=120, height=160, size_px=80)[:, :, 0],
-        )
-        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame_a, 3))), 0)
-
-    def test_number_sequence_provider_can_pack_digits_for_observed_bitplane_order(self):
-        provider = NumberSequencePairFrameProvider(
-            numbers=(1,
-                     2,
-                     3,
-                     4,
-                     5),
-            numbers_bitplane_order=(1,
-                                    2,
-                                    3,
-                                    4,
-                                    0),
-            width=120,
-            height=160,
-            size_px=80,
-        )
-
-        frame_a, frame_b = provider.initial_pair()
-
-        np.testing.assert_array_equal(frame_a, frame_b)
-        expected_by_bitplane = {
-            0: 5,
-            1: 1,
-            2: 2,
-            3: 3,
-            4: 4,
-        }
-        for bitplane, number in expected_by_bitplane.items():
-            np.testing.assert_array_equal(
-                _extract_packed_bitplane(frame_a, bitplane),
-                generate_number_rgb(number, width=120, height=160, size_px=80)[:, :, 0],
-            )
-        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame_a, 5))), 0)
 
     def test_decimal_number_renderer_supports_multi_digit_labels(self):
         from dmdcontrol.patterns.modes import generate_decimal_number_rgb
@@ -224,13 +145,7 @@ class PairedPatternEngineTests(unittest.TestCase):
                 np.testing.assert_array_equal(frame[:, :, 1], frame[:, :, 2])
 
         with self.assertRaises(ValueError):
-            generate_number_rgb(10, width=160, height=160, size_px=90)
-
-    def test_generate_number_rgb_keeps_legacy_minimum_stroke_width(self):
-        frame = generate_number_rgb(1, width=20, height=20, size_px=10)
-
-        self.assertEqual(int(frame[9, 13, 0]), 0)
-        np.testing.assert_array_equal(frame[9, 14:18, 0], np.full(4, 255, dtype=np.uint8))
+            generate_decimal_number_rgb(-1, width=160, height=160, size_px=90)
 
     def test_count_a_static_b_provider_packs_counts_across_vsync_frames(self):
         from dmdcontrol.patterns.modes import generate_decimal_number_rgb
@@ -350,48 +265,20 @@ class PairedPatternEngineTests(unittest.TestCase):
                 height=160,
             )
 
-    def test_a_numbers_b_static_provider_applies_requested_b_dot_geometry(self):
-        from dmdcontrol.patterns.paired import A_NUMBERS_B_STATIC_PAIR_TEST, make_pair_frame_provider
-
-        provider = make_pair_frame_provider(
-            A_NUMBERS_B_STATIC_PAIR_TEST,
-            test_b="dot",
-            numbers=(1,
-                     ),
-            width=9,
-            height=9,
-            numbers_size_px=5,
-            b_dot_x=2,
-            b_dot_y=6,
-            b_dot_radius=1,
-        )
-
-        _frame_a, frame_b = provider.initial_pair()
-
-        self.assertEqual(frame_b[6, 2, 0], 255)
-        self.assertEqual(frame_b[4, 4, 0], 0)
-
-    def test_only_colors_pair_mode_uses_route_specific_rgb_channels(self):
+    def test_kept_static_and_dynamic_pair_modes_are_grayscale(self):
         for mode in STATIC_PAIR_TESTS:
-            if mode == "colors":
-                continue
             with self.subTest(mode=mode):
                 for route in ("A", "B"):
                     frame = generate_static_frame(mode, width=320, height=240, route_label=route)
                     np.testing.assert_array_equal(frame[:, :, 0], frame[:, :, 1])
                     np.testing.assert_array_equal(frame[:, :, 1], frame[:, :, 2])
 
-        for provider_cls in (DynamicGradientPairFrameProvider, DynamicSnakePairFrameProvider):
+        for provider_cls in (DynamicSnakePairFrameProvider,):
             with self.subTest(provider=provider_cls.__name__):
                 frame_a, frame_b = provider_cls(width=320, height=240)._frame_for_index(47)
                 for frame in (frame_a, frame_b):
                     np.testing.assert_array_equal(frame[:, :, 0], frame[:, :, 1])
                     np.testing.assert_array_equal(frame[:, :, 1], frame[:, :, 2])
-
-        color_a = generate_static_frame("colors", width=320, height=240, route_label="A")
-        color_b = generate_static_frame("colors", width=320, height=240, route_label="B")
-        self.assertFalse(np.array_equal(color_a[:, :, 0], color_a[:, :, 1]))
-        self.assertFalse(np.array_equal(color_b[:, :, 0], color_b[:, :, 1]))
 
     def test_generate_dot_frame_draws_circle_mask(self):
         frame = generate_dot_frame(width=7, height=7, x=3, y=3, radius=1)
@@ -537,11 +424,11 @@ class PairedPatternEngineTests(unittest.TestCase):
         self.assertIs(next_frame_b, frame_b)
 
     def test_generate_static_frame_exposes_b_route_frame(self):
-        frame = generate_static_frame("lines", width=8, height=4, route_label="B")
+        frame = generate_static_frame("bands", width=320, height=240, route_label="B")
 
-        self.assertEqual(frame.shape, (4, 8, 3))
+        self.assertEqual(frame.shape, (240, 320, 3))
         self.assertEqual(frame.dtype, np.uint8)
-        self.assertGreater(frame[:, :, 1].sum(), 0)
+        self.assertGreater(frame[:, :, 0].sum(), 0)
 
     def test_generate_static_frame_exposes_dot_frame(self):
         frame = generate_static_frame(
@@ -567,14 +454,25 @@ class PairedPatternEngineTests(unittest.TestCase):
                                radius=1),
         )
 
-    def test_coarse_visual_modes_are_static_pair_choices(self):
-        self.assertIn("coarse-grid", STATIC_PAIR_TESTS)
-        self.assertIn("coarse-lines", STATIC_PAIR_TESTS)
-        self.assertIn("coarse-grid", PAIR_TESTS)
-        self.assertIn("coarse-lines", PAIR_TESTS)
+    def test_pair_mode_registries_only_expose_kept_public_names(self):
+        self.assertEqual(STATIC_PAIR_TESTS, ("checkerboard", "grid", "bands", "dot"))
+        self.assertEqual(
+            PAIR_TESTS,
+            (
+                "checkerboard",
+                "grid",
+                "bands",
+                "dot",
+                "snake",
+                "a-calibr-square-b-dot",
+                "a-kernel-b-static",
+                "a-count-b-static",
+                "static-images",
+            ),
+        )
 
-    def test_coarse_grid_pair_frames_differ_visibly_without_color(self):
-        provider = StaticPairFrameProvider("coarse-grid", "coarse-grid", width=320, height=240)
+    def test_grid_pair_frames_differ_visibly_without_color(self):
+        provider = StaticPairFrameProvider("grid", "grid", width=320, height=240)
 
         frame_a, frame_b = provider.initial_pair()
 
@@ -585,15 +483,15 @@ class PairedPatternEngineTests(unittest.TestCase):
         np.testing.assert_array_equal(frame_b[:, :, 0], frame_b[:, :, 1])
         np.testing.assert_array_equal(frame_b[:, :, 1], frame_b[:, :, 2])
 
-    def test_coarse_lines_pair_frames_use_different_large_orientations(self):
-        frame_a = generate_static_frame("coarse-lines", width=320, height=240, route_label="A")
-        frame_b = generate_static_frame("coarse-lines", width=320, height=240, route_label="B")
+    def test_bands_pair_frames_use_different_large_orientations(self):
+        frame_a = generate_static_frame("bands", width=320, height=240, route_label="A")
+        frame_b = generate_static_frame("bands", width=320, height=240, route_label="B")
 
         self.assertFalse(np.array_equal(frame_a, frame_b))
         self.assertGreater(np.count_nonzero(frame_a != frame_b), 320 * 240 * 3 * 0.12)
 
     def test_route_markers_do_not_add_artificial_outer_border(self):
-        frame = generate_static_frame("coarse-grid", width=1920, height=1080, route_label="B")
+        frame = generate_static_frame("grid", width=1920, height=1080, route_label="B")
         expected_grid = generate_coarse_grid_rgb(
             width=1920,
             height=1080,

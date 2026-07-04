@@ -165,12 +165,6 @@ class PatternEngine:
         checker = checker.astype(np.uint8)
         return [checker for _ in range(24)]
 
-    def generate_lines(self):
-        y, x = np.indices((self.height, self.width))
-        # 1-pixel wide vertical lines
-        lines = (x % 2).astype(np.uint8)
-        return [lines for _ in range(24)]
-
     def generate_solid(self, val):
         solid = np.full((self.height, self.width), val, dtype=np.uint8)
         return [solid for _ in range(24)]
@@ -270,39 +264,6 @@ class PatternEngine:
         canvas = np.flip(canvas, axis=1)
 
         return np.ascontiguousarray(np.stack([canvas, canvas, canvas], axis=-1))
-
-    def generate_gradient(self):
-        patterns = []
-        x = np.indices((self.height, self.width))[1]
-
-        # Build 24 bitplanes. To bypass YCbCr chroma subsampling on Linux,
-        # we must ensure the packed RGB buffer is purely grayscale (R=G=B).
-        # We do this by grouping the 24 bitplanes into 8 spatial bands.
-        # Bit 0 of G, R, B all turn on at band 0. Bit 1 at band 1, etc.
-        for i in range(24):
-            bit_index = i % 8  # Modulo 8 ensures patterns 0=8=16, 1=9=17, etc.
-            threshold = (self.width / 8) * bit_index
-            grad = (x >= threshold).astype(np.uint8)
-            patterns.append(grad)
-        return patterns
-
-    def generate_ordering_diagnostic_patterns(self, sub_width=512, sub_height=512):
-        patterns = []
-        # Create a sweeping bar or sequential block for each bitplane 0 to 23
-        for i in range(24):
-            img = np.zeros((self.height, self.width), dtype=np.uint8)
-            y_start = (self.height - sub_height) // 2
-            x_start = (self.width - sub_width) // 2
-
-            # Draw a block that moves to the right depending on the bit index
-            # Each block is sub_height tall, sub_width//24 wide
-            block_w = max(1, sub_width // 24)
-            bx_start = x_start + (i * block_w)
-            bx_end = min(x_start + sub_width, bx_start + block_w)
-
-            img[y_start:y_start + sub_height, bx_start:bx_end] = 1
-            patterns.append(img)
-        return patterns
 
     def should_close(self):
         return (

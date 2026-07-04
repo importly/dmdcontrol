@@ -12,11 +12,9 @@ import numpy as np
 from dmdcontrol.hardware.mapping import DmdMapping, resolve_dmd_mapping
 from dmdcontrol.patterns.paired import (
     A_COUNT_B_STATIC_PAIR_TEST,
-    A_NUMBERS_B_STATIC_PAIR_TEST,
     CALIBRATION_DOT_PAIR_TEST,
     FramePair,
     KERNEL_STATIC_PAIR_TEST,
-    NUMBER_PAIR_TEST,
     OFFSET_A,
     OFFSET_B,
     PAIR_HEIGHT,
@@ -49,7 +47,6 @@ from dmdcontrol.support.constants import (
 from dmdcontrol.support.argparse_types import (
     count_slots_per_frame,
     nonnegative_int,
-    numbers_bitplane_order,
     positive_int,
     trigger_out_rising_delay_us,
 )
@@ -102,7 +99,7 @@ def _should_prime_first_semantic_frame(args) -> bool:
     is blank, then switches to semantic frames after the LUT is already running.
     That is fine for one LUT entry per VSYNC, but it is fragile when one source
     frame contains both a count and a blank bitplane: the source-frame handoff
-    can land in the wrong half of the two-entry sequence. For this mode, prime
+    transition can land in the wrong half of the two-entry sequence. For this mode, prime
     count 1 into the DisplayPort pipeline before starting the sequencers.
     """
 
@@ -122,18 +119,6 @@ class _DryRunDLPC:
 
     def get_display_dimensions(self):
         return None
-
-
-def _parse_numbers(value):
-    try:
-        numbers = [int(part.strip()) for part in value.split(",") if part.strip()]
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("numbers must be decimal digits") from exc
-    if not numbers:
-        raise argparse.ArgumentTypeError("numbers must not be empty")
-    if any(number < 1 or number > 9 for number in numbers):
-        raise argparse.ArgumentTypeError("numbers must be in the range 1..9")
-    return numbers
 
 
 def resolve_pair_config(config_path=None):
@@ -217,25 +202,10 @@ def _build_parser():
         help="A-kernel paired recipe: all-black VSYNC frames prepended to each cycle",
     )
     parser.add_argument(
-        "--numbers",
-        type=_parse_numbers,
-        default=_parse_numbers("1,2,3,4,5"),
-        help="Numbers paired recipe: comma-separated sequence of digits 1..9",
-    )
-    parser.add_argument(
         "--numbers-size-px",
         type=positive_int,
         default=None,
-        help="Numbers paired recipe: seven-segment digit height in pixels",
-    )
-    parser.add_argument(
-        "--numbers-bitplane-order",
-        type=numbers_bitplane_order,
-        default=None,
-        help=(
-            "Numbers paired recipe: zero-based bitplane indexes in chronological "
-            "display order. Use 1,2,3,4,0 if the first five captured triggers "
-            "visually show 2,3,4,5,1 for --numbers 1,2,3,4,5."),
+        help="A-count paired recipe: seven-segment digit height in pixels",
     )
     parser.add_argument(
         "--count-start",
@@ -354,10 +324,6 @@ def _build_parser():
     return parser
 
 
-def _is_numbers_recipe(test):
-    return test in (NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST)
-
-
 def _is_count_recipe(test):
     return test == A_COUNT_B_STATIC_PAIR_TEST
 
@@ -406,19 +372,6 @@ def _validate_pair_args(args, target_hz=DEFAULT_HZ):
     if _is_count_recipe(args.test):
         _resolve_count_recipe_args(args, target_hz=target_hz)
         _validate_count_recipe_args(args, target_hz=target_hz)
-        return
-    if _is_numbers_recipe(args.test):
-        if args.test == A_NUMBERS_B_STATIC_PAIR_TEST and args.test_a:
-            raise SystemExit(
-                "--test-a is not valid for a-numbers-b-static; A is the numbers stream")
-        if len(args.numbers) > BITPLANES:
-            raise SystemExit(f"--numbers can contain at most {BITPLANES} entries")
-        if args.numbers_bitplane_order is not None:
-            if len(args.numbers_bitplane_order) != len(args.numbers):
-                raise SystemExit("--numbers-bitplane-order length must match --numbers length")
-            if sorted(args.numbers_bitplane_order) != list(range(len(args.numbers))):
-                raise SystemExit(
-                    "--numbers-bitplane-order must be a zero-based permutation of --numbers slots")
         return
     if args.test not in STATIC_PAIR_TESTS and (args.test_a or args.test_b):
         raise SystemExit("--test-a/--test-b are only valid for static paired tests")
@@ -491,12 +444,6 @@ def _dry_run_timing(args, pair_config):
             f"[DRY RUN] A-kernel cycle: {cycle_vsyncs} VSYNC frames, "
             f"{args.kernel_leader_frames * slots} leader fires, 512 kernels, {pad} pad fires"
             f"{', ' + str(slots) + ' end-marker fires' if args.kernel_blank_end_frame else ''}.")
-    elif _is_numbers_recipe(args.test):
-        logger.info(
-            f"[DRY RUN] Pair content: numbers={','.join(str(n) for n in args.numbers)}, "
-            f"bitplane_order={','.join(str(i) for i in args.numbers_bitplane_order) if args.numbers_bitplane_order is not None else 'default'}, "
-            f"per-bitplane exposure={args.exposure_us or timing['exposure_us']}us, "
-            f"size_px={args.numbers_size_px or 'default'} on both DMDs.")
     elif _is_count_recipe(args.test):
         count_config = CountSequenceConfig.from_args(args)
         startup_leader_vsyncs = sequence.startup_policy.leader_vsyncs
@@ -510,7 +457,7 @@ def _dry_run_timing(args, pair_config):
             f"B={args.test_b or 'dot'} static.")
         if sequence.startup_policy.mode == "prime_first_frame":
             logger.info(
-                "[DRY RUN] Startup handoff: first count/blank source frame is primed "
+                "[DRY RUN] Startup prime: first count/blank source frame is shown "
                 "before sequencer start; blank startup leader triggers are disabled "
                 f"(effective leader VSYNCs={startup_leader_vsyncs}).")
     elif args.test == STATIC_IMAGES_PAIR_TEST:
@@ -576,12 +523,6 @@ def _build_live_preview_metadata(args, pair_config, state_a, state_b, *, sequenc
     if sequence is not None:
         metadata.update(sequence.preview_metadata())
         return metadata
-    if _is_numbers_recipe(args.test):
-        metadata["numbers"] = {
-            "sequence": list(args.numbers),
-            "exposure_us": args.exposure_us,
-            "size_px": args.numbers_size_px,
-        }
     if _is_count_recipe(args.test):
         metadata["count"] = {
             **CountSequenceConfig.from_args(args).to_pair_preview_metadata(),

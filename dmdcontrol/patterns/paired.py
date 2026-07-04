@@ -10,11 +10,7 @@ import numpy as np
 from PIL import Image
 
 from dmdcontrol.patterns.bitplanes import BitplaneStack, pack_bitplanes_rgb
-from dmdcontrol.patterns.modes import (
-    NUMBER_SEQUENCE,
-    generate_decimal_number_rgb,
-    generate_number_rgb,
-)
+from dmdcontrol.patterns.modes import generate_decimal_number_rgb
 from dmdcontrol.patterns.visual import (
     DEFAULT_COARSE_GRID_SPACING,
     DEFAULT_COARSE_LINE_SPACING,
@@ -30,13 +26,10 @@ PAIR_HEIGHT = DMD_HEIGHT
 OFFSET_B = (0, 0)
 OFFSET_A = (DMD_WIDTH, 0)
 
-HUMAN_VISIBLE_PAIR_TESTS = ("coarse-grid", "grid", "coarse-lines", "bands")
-STATIC_PAIR_TESTS = ("checkerboard", "lines", "colors", "dot") + HUMAN_VISIBLE_PAIR_TESTS
-NUMBER_PAIR_TEST = "numbers"
-A_NUMBERS_B_STATIC_PAIR_TEST = "a-numbers-b-static"
+STATIC_PAIR_TESTS = ("checkerboard", "grid", "bands", "dot")
 A_COUNT_B_STATIC_PAIR_TEST = "a-count-b-static"
 STATIC_IMAGES_PAIR_TEST = "static-images"
-DYNAMIC_PAIR_TESTS = ("gradient", "snake", NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST)
+DYNAMIC_PAIR_TESTS = ("snake",)
 CALIBRATION_DOT_PAIR_TEST = "a-calibr-square-b-dot"
 KERNEL_STATIC_PAIR_TEST = "a-kernel-b-static"
 RECIPE_PAIR_TESTS = (
@@ -97,13 +90,6 @@ def _checkerboard(width, height, block_size=32):
     y, x = np.indices((height, width))
     mask = ((x // block_size + y // block_size) % 2).astype(np.uint8) * 255
     return np.repeat(mask[:, :, None], 3, axis=2)
-
-
-def _lines(width, height):
-    img = np.zeros((height, width, 3), dtype=np.uint8)
-    img[:, ::2, :] = 255
-    img[::16, :, :] = 255
-    return img
 
 
 def load_static_image_frame(path, width=DMD_WIDTH, height=DMD_HEIGHT, size_px=DMD_HEIGHT):
@@ -276,11 +262,6 @@ def generate_static_frame(
 ):
     if mode == "checkerboard":
         frame = _checkerboard(width, height)
-    elif mode == "lines":
-        frame = _lines(width, height)
-    elif mode == "colors":
-        frame = np.zeros((height, width, 3), dtype=np.uint8)
-        frame[:, :, 0 if route_label == "A" else 1] = 255
     elif mode == "dot":
         return generate_dot_frame(
             width=width,
@@ -291,7 +272,7 @@ def generate_static_frame(
             shape=dot_shape,
             invert=dot_invert,
         )
-    elif mode in ("coarse-grid", "grid"):
+    elif mode == "grid":
         offset = 0 if route_label == "A" else DEFAULT_COARSE_GRID_SPACING // 2
         frame = generate_coarse_grid_rgb(
             width=width,
@@ -299,7 +280,7 @@ def generate_static_frame(
             offset_x=offset,
             offset_y=offset,
         )
-    elif mode in ("coarse-lines", "bands"):
+    elif mode == "bands":
         if route_label == "A":
             frame = generate_coarse_lines_rgb(width=width, height=height, orientation="vertical")
         else:
@@ -464,33 +445,6 @@ class CalibrationSquareDotPairFrameProvider(DynamicAStaticBPairFrameProvider):
         return FramePair(a=frame_a, b=self._frame_b)
 
 
-class DynamicGradientPairFrameProvider(PairFrameProvider):
-
-    def __init__(self, width=DMD_WIDTH, height=DMD_HEIGHT):
-        self.width = width
-        self.height = height
-        self.frame_index = 0
-
-    def _frame_for_index(self, index):
-        x = np.arange(self.width, dtype=np.uint16)[None, :]
-        y = np.arange(self.height, dtype=np.uint16)[:, None]
-        base = ((x + index * 7) % 256).astype(np.uint8)
-        vertical = (((y * 255) // max(1, self.height - 1) + index * 11) % 256).astype(np.uint8)
-
-        frame_a_gray = np.broadcast_to(base, (self.height, self.width))
-        frame_b_gray = np.broadcast_to(vertical, (self.height, self.width))
-        frame_a = np.repeat(frame_a_gray[:, :, None], 3, axis=2)
-        frame_b = np.repeat(frame_b_gray[:, :, None], 3, axis=2)
-        return FramePair(a=_route_mark(frame_a, "A"), b=_route_mark(frame_b, "B"))
-
-    def initial_pair(self):
-        return self._frame_for_index(self.frame_index)
-
-    def next_pair(self):
-        self.frame_index += 1
-        return self._frame_for_index(self.frame_index)
-
-
 class DynamicSnakePairFrameProvider(PairFrameProvider):
 
     def __init__(self, width=DMD_WIDTH, height=DMD_HEIGHT, cells_x=24, cells_y=13):
@@ -527,88 +481,6 @@ class DynamicSnakePairFrameProvider(PairFrameProvider):
         return self._frame_for_index(self.frame_index)
 
 
-class NumberSequencePairFrameProvider(PairFrameProvider):
-
-    def __init__(
-        self,
-        numbers=NUMBER_SEQUENCE,
-        width=DMD_WIDTH,
-        height=DMD_HEIGHT,
-        size_px=None,
-        numbers_bitplane_order=None,
-    ):
-        if not numbers:
-            raise ValueError("numbers must not be empty")
-        if len(numbers) > BITPLANES:
-            raise ValueError(f"numbers can contain at most {BITPLANES} entries")
-        self.numbers = tuple(numbers)
-        self.width = width
-        self.height = height
-        self.size_px = size_px
-        self.frame_index = 0
-        self._frame = _pack_number_sequence_bitplanes(
-            self.numbers,
-            width=width,
-            height=height,
-            size_px=size_px,
-            bitplane_order=numbers_bitplane_order,
-        )
-
-    def initial_pair(self):
-        return FramePair(a=self._frame, b=self._frame)
-
-    def next_pair(self):
-        return FramePair(a=self._frame, b=self._frame)
-
-
-class NumberSequenceAStaticBPairFrameProvider(PairFrameProvider):
-
-    def __init__(
-        self,
-        mode_b="dot",
-        numbers=NUMBER_SEQUENCE,
-        width=DMD_WIDTH,
-        height=DMD_HEIGHT,
-        size_px=None,
-        b_dot_x=None,
-        b_dot_y=None,
-        b_dot_radius=40,
-        b_dot_shape="circle",
-        b_dot_invert=False,
-        numbers_bitplane_order=None,
-    ):
-        if not numbers:
-            raise ValueError("numbers must not be empty")
-        if len(numbers) > BITPLANES:
-            raise ValueError(f"numbers can contain at most {BITPLANES} entries")
-        self.width = width
-        self.height = height
-        self._frame_a = _pack_number_sequence_bitplanes(
-            numbers,
-            width=width,
-            height=height,
-            size_px=size_px,
-            bitplane_order=numbers_bitplane_order,
-        )
-        self._frame_b = generate_static_frame(
-            mode_b,
-            width=width,
-            height=height,
-            route_label="B",
-            dot_x=b_dot_x,
-            dot_y=b_dot_y,
-            dot_radius=b_dot_radius,
-            dot_shape=b_dot_shape,
-            dot_invert=b_dot_invert,
-        )
-
-    def initial_pair(self):
-        return FramePair(a=self._frame_a, b=self._frame_b)
-
-    def next_pair(self):
-        return FramePair(a=self._frame_a, b=self._frame_b)
-
-
 class CountSequenceAStaticBPairFrameProvider(PairFrameProvider):
 
     def __init__(
@@ -625,7 +497,6 @@ class CountSequenceAStaticBPairFrameProvider(PairFrameProvider):
         b_dot_radius=40,
         b_dot_shape="circle",
         b_dot_invert=False,
-        numbers_bitplane_order=None,
         count_blank_between_frames=False,
     ):
         _validate_count_sequence_args(
@@ -665,20 +536,6 @@ class CountSequenceAStaticBPairFrameProvider(PairFrameProvider):
     def next_pair(self):
         self.frame_index = (self.frame_index + 1) % len(self._frames_a)
         return FramePair(a=self._frames_a[self.frame_index], b=self._frame_b)
-
-
-def _pack_number_sequence_bitplanes(numbers, width, height, size_px=None, bitplane_order=None):
-    display_masks = _number_display_masks(numbers, width=width, height=height, size_px=size_px)
-    if bitplane_order is not None:
-        stack = BitplaneStack.from_display_slots(
-            display_masks,
-            bitplane_order=bitplane_order,
-            width=width,
-            height=height,
-        )
-    else:
-        stack = BitplaneStack.from_masks(display_masks, width=width, height=height)
-    return stack.to_rgb_frame().array
 
 
 def _pack_count_sequence_frames(
@@ -753,16 +610,6 @@ def count_sequence_frame_count(count_start, count_end, count_slots_per_frame):
     return (count_end - count_start + 1) // count_slots_per_frame
 
 
-def _number_display_masks(numbers, *, width, height, size_px=None):
-    return [
-        (generate_number_rgb(
-            number,
-            width=width,
-            height=height,
-            size_px=size_px,
-        )[:, :, 0] > 0).astype(np.uint8) for number in numbers]
-
-
 def _decimal_number_display_masks(numbers, *, width, height, size_px=None):
     return [
         (
@@ -780,9 +627,7 @@ def make_pair_frame_provider(
     test_b=None,
     width=DMD_WIDTH,
     height=DMD_HEIGHT,
-    numbers=None,
     numbers_size_px=None,
-    numbers_bitplane_order=None,
     count_start=1,
     count_end=100,
     count_slots_per_frame=2,
@@ -815,31 +660,8 @@ def make_pair_frame_provider(
             height=height,
             size_px=static_image_size_px,
         )
-    if test == "gradient":
-        return DynamicGradientPairFrameProvider(width=width, height=height)
     if test == "snake":
         return DynamicSnakePairFrameProvider(width=width, height=height)
-    if test == NUMBER_PAIR_TEST:
-        return NumberSequencePairFrameProvider(
-            numbers=numbers or NUMBER_SEQUENCE,
-            width=width,
-            height=height,
-            size_px=numbers_size_px,
-            numbers_bitplane_order=numbers_bitplane_order,
-        )
-    if test == A_NUMBERS_B_STATIC_PAIR_TEST:
-        return NumberSequenceAStaticBPairFrameProvider(
-            mode_b=test_b or "dot",
-            numbers=numbers or NUMBER_SEQUENCE,
-            width=width,
-            height=height,
-            size_px=numbers_size_px,
-            b_dot_x=b_dot_x,
-            b_dot_y=b_dot_y,
-            b_dot_radius=b_dot_radius,
-            b_dot_shape=b_dot_shape,
-            b_dot_invert=b_dot_invert,
-        )
     if test == A_COUNT_B_STATIC_PAIR_TEST:
         return CountSequenceAStaticBPairFrameProvider(
             mode_b=test_b or "dot",
@@ -850,7 +672,6 @@ def make_pair_frame_provider(
             width=width,
             height=height,
             size_px=numbers_size_px,
-            numbers_bitplane_order=numbers_bitplane_order,
             b_dot_x=b_dot_x,
             b_dot_y=b_dot_y,
             b_dot_radius=b_dot_radius,

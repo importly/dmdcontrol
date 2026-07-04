@@ -32,27 +32,27 @@ class DmdPreviewRenderTests(unittest.TestCase):
         self.assertEqual(extract_bitplane(packed, 16)[0, 2], 255)
         self.assertEqual(extract_bitplane(packed, 0)[0, 1], 0)
 
-    def test_offline_paired_coarse_grid_places_b_left_and_a_right(self):
+    def test_offline_paired_grid_places_b_left_and_a_right(self):
         from dmdcontrol.patterns.paired import DMD_HEIGHT, DMD_WIDTH, generate_static_frame
         from dmdcontrol.preview.render import render_offline_frame
 
-        frame = render_offline_frame(layout="pair", test="coarse-grid")
+        frame = render_offline_frame(layout="pair", test="grid")
 
         self.assertEqual(frame.shape, (DMD_HEIGHT, DMD_WIDTH * 2, 3))
         np.testing.assert_array_equal(
             frame[:, :DMD_WIDTH, :],
-            generate_static_frame("coarse-grid", route_label="B"),
+            generate_static_frame("grid", route_label="B"),
         )
         np.testing.assert_array_equal(
             frame[:, DMD_WIDTH:, :],
-            generate_static_frame("coarse-grid", route_label="A"),
+            generate_static_frame("grid", route_label="A"),
         )
 
-    def test_offline_a_numbers_b_static_preview_uses_static_b_left(self):
+    def test_offline_a_count_b_static_preview_uses_static_b_left(self):
         from dmdcontrol.patterns.paired import DMD_HEIGHT, DMD_WIDTH, generate_static_frame
         from dmdcontrol.preview.render import render_offline_frame
 
-        frame = render_offline_frame(layout="pair", test="a-numbers-b-static")
+        frame = render_offline_frame(layout="pair", test="a-count-b-static")
 
         self.assertEqual(frame.shape, (DMD_HEIGHT, DMD_WIDTH * 2, 3))
         np.testing.assert_array_equal(
@@ -64,7 +64,7 @@ class DmdPreviewRenderTests(unittest.TestCase):
     def test_bitplane_render_is_binary_grayscale(self):
         from dmdcontrol.preview.render import render_bitplane_image, render_offline_frame
 
-        frame = render_offline_frame(layout="pair", test="coarse-grid")
+        frame = render_offline_frame(layout="pair", test="grid")
         bitplane = render_bitplane_image(frame, plane=0)
 
         self.assertEqual(bitplane.shape, frame.shape[:2])

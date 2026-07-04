@@ -6,7 +6,6 @@ import pytest
 
 from dmdcontrol.patterns.paired import (
     A_COUNT_B_STATIC_PAIR_TEST,
-    A_NUMBERS_B_STATIC_PAIR_TEST,
     FramePair,
     STATIC_IMAGES_PAIR_TEST,
 )
@@ -422,22 +421,16 @@ def test_pair_runtime_auto_count_slots_rejects_ranges_without_valid_divisor():
         pair._validate_pair_args(args)
 
 
-def test_pair_runtime_parser_accepts_numbers_bitplane_order():
+def test_pair_runtime_parser_rejects_removed_numbers_recipe_and_flags():
     from dmdcontrol.runtime import pair
 
-    args = pair._build_parser().parse_args(
-        [
-            "--dry-run-timing",
-            "--test",
-            A_NUMBERS_B_STATIC_PAIR_TEST,
-            "--numbers",
-            "1,2,3,4,5",
-            "--numbers-bitplane-order",
-            "1,2,3,4,0",
-        ])
-
-    assert args.numbers == [1, 2, 3, 4, 5]
-    assert args.numbers_bitplane_order == [1, 2, 3, 4, 0]
+    for argv in (
+        ["--dry-run-timing", "--test", "a-numbers-b-static"],
+        ["--dry-run-timing", "--numbers", "1,2,3"],
+        ["--dry-run-timing", "--numbers-bitplane-order", "1,2,0"],
+    ):
+        with pytest.raises(SystemExit):
+            pair._build_parser().parse_args(argv)
 
 
 def test_pair_runtime_parser_accepts_static_dot_radius():
@@ -579,55 +572,6 @@ def test_pair_runtime_parser_rejects_nonpositive_count_slots():
             ["--test", A_COUNT_B_STATIC_PAIR_TEST, "--count-slots-per-frame", "0"])
 
 
-def test_a_numbers_b_static_runtime_forwards_b_static_geometry(monkeypatch):
-    from dmdcontrol.runtime import display_sequence
-
-    captured = {}
-    provider = _FakeSequenceProvider()
-
-    def fake_make_pair_frame_provider(*args, **kwargs):
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return provider
-
-    monkeypatch.setattr(display_sequence, "make_pair_frame_provider", fake_make_pair_frame_provider)
-
-    args = types.SimpleNamespace(
-        test=A_NUMBERS_B_STATIC_PAIR_TEST,
-        test_b="dot",
-        numbers=[1,
-                 2,
-                 3],
-        numbers_size_px=123,
-        exposure_us=600,
-        b_dot_x=955,
-        b_dot_y=535,
-        b_dot_radius=12,
-        b_dot_shape="circle",
-        b_dot_invert=False,
-        seq_utilization=1.0,
-        trig2_frame_zero=False,
-        dark_time_us=None,
-        paired_startup_leader_vsyncs=16,
-    )
-
-    sequence = display_sequence.build_paired_display_sequence(
-        args,
-        engine=types.SimpleNamespace(window=None),
-        target_hz=60)
-
-    assert sequence.provider is provider
-    assert captured["args"] == (A_NUMBERS_B_STATIC_PAIR_TEST, )
-    assert captured["kwargs"]["test_b"] == "dot"
-    assert captured["kwargs"]["numbers"] == [1, 2, 3]
-    assert captured["kwargs"]["numbers_size_px"] == 123
-    assert captured["kwargs"]["b_dot_x"] == 955
-    assert captured["kwargs"]["b_dot_y"] == 535
-    assert captured["kwargs"]["b_dot_radius"] == 12
-    assert captured["kwargs"]["b_dot_shape"] == "circle"
-    assert captured["kwargs"]["b_dot_invert"] is False
-
-
 def test_a_count_b_static_runtime_forwards_count_geometry(monkeypatch):
     from dmdcontrol.runtime import display_sequence
 
@@ -756,15 +700,19 @@ def test_pair_live_preview_metadata_includes_count_mode():
     }
 
 
-def test_pair_dry_run_timing_rejects_numbers_sequence_when_dark_time_exceeds_budget():
-    with pytest.raises(ValueError, match="need .* usable"):
+def test_pair_dry_run_timing_rejects_count_sequence_when_dark_time_exceeds_budget():
+    with pytest.raises(SystemExit, match="need .* usable"):
         main(
             [
                 "--dry-run-timing",
                 "--test",
-                A_NUMBERS_B_STATIC_PAIR_TEST,
-                "--numbers",
-                "1,2,3,4,5",
+                A_COUNT_B_STATIC_PAIR_TEST,
+                "--count-start",
+                "1",
+                "--count-end",
+                "5",
+                "--count-slots-per-frame",
+                "5",
                 "--exposure-us",
                 "2900",
                 "--dark-time-us",

@@ -32,10 +32,8 @@ from dmdcontrol.patterns.kernel import (
 from dmdcontrol.patterns.modes import default_calibration_square_state
 from dmdcontrol.patterns.paired import (
     A_COUNT_B_STATIC_PAIR_TEST,
-    A_NUMBERS_B_STATIC_PAIR_TEST,
     CALIBRATION_DOT_PAIR_TEST,
     KERNEL_STATIC_PAIR_TEST,
-    NUMBER_PAIR_TEST,
     CalibrationSquareDotPairFrameProvider,
     FramePair,
     STATIC_IMAGES_PAIR_TEST,
@@ -212,13 +210,6 @@ def build_paired_display_sequence(
             width=width,
             height=height,
         )
-    if args.test in (NUMBER_PAIR_TEST, A_NUMBERS_B_STATIC_PAIR_TEST):
-        return build_numbers_sequence(
-            args,
-            target_hz=target_hz,
-            width=width,
-            height=height,
-        )
     if args.test == KERNEL_STATIC_PAIR_TEST:
         return build_kernel_static_sequence(
             args,
@@ -235,7 +226,7 @@ def build_paired_display_sequence(
             width=width,
             height=height,
         )
-    if args.test in STATIC_PAIR_TESTS or args.test == STATIC_IMAGES_PAIR_TEST or args.test in ("gradient", "snake"):
+    if args.test in STATIC_PAIR_TESTS or args.test == STATIC_IMAGES_PAIR_TEST or args.test == "snake":
         return build_provider_backed_sequence(
             args,
             target_hz=target_hz,
@@ -309,64 +300,6 @@ def build_count_static_sequence(
             "count": {
                 **count_config.to_pair_preview_metadata(),
                 "exposure_us": args.exposure_us,
-            }
-        },
-        provider=provider,
-    )
-
-
-def build_numbers_sequence(
-    args,
-    *,
-    target_hz: float,
-    width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-) -> PairedDisplaySequence:
-    entries, timing = build_lut_entries(
-        _DryRunDLPC(),
-        target_hz,
-        sequence_utilization=args.seq_utilization,
-        trig2_frame_zero=args.trig2_frame_zero,
-        entries_count=len(args.numbers),
-        per_entry_exposure_us=args.exposure_us,
-        dark_time_us=args.dark_time_us,
-    )
-    slots = _slots_with_labels(
-        _slots_from_lut_entries(entries, semantic_role="number"),
-        [f"number:{number}" for number in args.numbers],
-    )
-    provider = make_pair_frame_provider(
-        args.test,
-        test_b=args.test_b,
-        numbers=args.numbers,
-        numbers_size_px=args.numbers_size_px,
-        numbers_bitplane_order=getattr(args, "numbers_bitplane_order", None),
-        b_dot_x=args.b_dot_x,
-        b_dot_y=args.b_dot_y,
-        b_dot_radius=args.b_dot_radius,
-        b_dot_shape=args.b_dot_shape,
-        b_dot_invert=args.b_dot_invert,
-        width=width,
-        height=height,
-    )
-    return PairedDisplaySequence(
-        frames=(
-            TimedFramePair(
-                frame_pair=as_frame_pair(provider.initial_pair()),
-                lut_slots=slots,
-                source_frame_index=0,
-                semantic_labels=tuple(slot.semantic_label or "" for slot in slots),
-            ),
-        ),
-        startup_policy=StartupPolicy("blank_leader", args.paired_startup_leader_vsyncs),
-        repeat=True,
-        target_hz=target_hz,
-        timing=timing,
-        mode_metadata={
-            "numbers": {
-                "sequence": list(args.numbers),
-                "exposure_us": args.exposure_us,
-                "size_px": args.numbers_size_px,
             }
         },
         provider=provider,

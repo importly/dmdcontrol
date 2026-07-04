@@ -462,7 +462,7 @@
         <div class="state-cache" aria-hidden="true">
           <span class="state-token source-offline" id="sourceBadge">offline</span>
           <span class="state-token" id="layoutBadge">paired</span>
-          <span class="state-token" id="testBadge">coarse-grid</span>
+          <span class="state-token" id="testBadge">grid</span>
           <span class="state-token" id="viewBadge">packed frame</span>
           <span class="state-token" id="frameBadge">frame 0</span>
           <span class="route-token route-start">B DP-0 left</span>
@@ -625,7 +625,7 @@
       const current = els.test.value;
       const tests = activeTests();
       fillSelect(els.test, tests, false);
-      els.test.value = tests.includes(current) ? current : (tests.includes("coarse-grid") ? "coarse-grid" : tests[0]);
+      els.test.value = tests.includes(current) ? current : (tests.includes("grid") ? "grid" : tests[0]);
       const paired = els.layout.value === "pair";
       els.testA.disabled = !paired;
       els.testB.disabled = !paired;

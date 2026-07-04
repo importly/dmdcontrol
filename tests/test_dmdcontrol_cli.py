@@ -80,7 +80,7 @@ def test_pair_run_translates_preferred_flags(monkeypatch):
             "pair",
             "run",
             "--mode",
-            "coarse-grid",
+            "grid",
             "--b-test=dot",
             "--mode=checkerboard",
             "--b-test",
@@ -90,7 +90,7 @@ def test_pair_run_translates_preferred_flags(monkeypatch):
     runtime.assert_called_once_with(
         [
             "--test",
-            "coarse-grid",
+            "grid",
             "--test-b=dot",
             "--test=checkerboard",
             "--test-b",
