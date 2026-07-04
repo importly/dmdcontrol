@@ -112,14 +112,6 @@ dmd_config_field() {
     dmd_python_module "$script_dir" dmdcontrol config show --dmd "$dmd_name" "$@" --field "$field"
 }
 
-dmd_exec_python_entrypoint() {
-    local script_dir="$1"
-    local entrypoint="$2"
-    shift 2
-    exec env PYTHONPATH="$(dmd_pythonpath "$script_dir")" \
-        /usr/bin/python3 "$script_dir/compat/legacy/$entrypoint" "$@"
-}
-
 dmd_pythonpath() {
     local script_dir="$1"
     local repo_root="$script_dir"

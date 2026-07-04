@@ -38,6 +38,7 @@ class PairWrapperTests(unittest.TestCase):
         helper = SHELL_HELPER.read_text(encoding="utf-8")
 
         self.assertIn("dmd_exec_python_module() {", helper)
+        self.assertNotIn("dmd_exec_python_entrypoint", helper)
         self.assertIn("dmd_run_xinit_python_module() {", helper)
         self.assertIn("__DMD_XINIT_RUN_ARGS__", helper)
         self.assertIn('"${xinit_args[@]}" -- :0 vt1', helper)
@@ -225,6 +226,9 @@ class PairWrapperTests(unittest.TestCase):
 
     def test_command_specific_xinit_wrappers_were_removed(self):
         self.assertFalse((SCRIPTS / "xinit").exists())
+
+    def test_debug_shell_wrappers_were_removed(self):
+        self.assertFalse((SCRIPTS / "debug").exists())
 
 
 if __name__ == "__main__":

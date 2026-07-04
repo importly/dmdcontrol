@@ -58,9 +58,9 @@ python -m dmdcontrol usb wake
 python -m dmdcontrol config show --dmd A
 ```
 
-Compatibility shims such as `compat/legacy/main.py`, `compat/legacy/main_pair.py`, `compat/legacy/wake_dp.py`, and the
-USB/debug helper scripts now live under `compat/legacy/` or `scripts/debug/`. Use `run_dmd_preview_server.sh` for the
-preview server default bind, or `python -m dmdcontrol` directly for custom preview-server workflows.
+Compatibility shims such as `compat/legacy/main.py`, `compat/legacy/main_pair.py`, and `compat/legacy/wake_dp.py` live
+under `compat/legacy/`. Use `run_dmd_preview_server.sh` for the preview server default bind, or `python -m dmdcontrol`
+directly for custom preview-server workflows.
 
 ## Essential Linux DMD workflows
 
@@ -216,7 +216,7 @@ DMD launchers use the custom `1920x1080_60_RAW` modeline and fixed 60.000 Hz tim
 | `--monitor`                                                | int                                                                                                                                                                                                  | `0`                | GLFW monitor index for the fullscreen window.                                                                                            |
 | `--dmd`                                                    | configured name                                                                                                                                                                                      | none               | Select a DMD from `dmd_devices.json` and require its USB physical-path mapping before opening the controller.                            |
 | `--dmd-config`                                             | path                                                                                                                                                                                                 | `dmd_devices.json` | Alternate mapping file for `--dmd`.                                                                                                      |
-| `--test`                                                   | `checkerboard`, `ordering`, `numbered`, `single-pixel`, `2x2`, `lines`, `colors`, `coarse-grid`, `grid`, `coarse-lines`, `bands`, `numbers`, `calibr-square`, `snake`, `clock`, `gradient`, `kernel` | `checkerboard`     | Diagnostic pattern. See table below.                                                                                                     |
+| `--test`                                                   | `checkerboard`, `ordering`, `single-pixel`, `2x2`, `lines`, `colors`, `coarse-grid`, `grid`, `coarse-lines`, `bands`, `numbers`, `calibr-square`, `snake`, `clock`, `gradient`, `kernel` | `checkerboard`     | Diagnostic pattern. See table below.                                                                                                     |
 | `--trigger`                                                | flag                                                                                                                                                                                                 | off                | Software trigger mode. Renders black until you press space; one press shows the pattern frame. ESC exits.                                |
 | `--runtime-seconds`                                        | int                                                                                                                                                                                                  | `60`               | Total wall-clock runtime for the render loop.                                                                                            |
 | `--wake-dp`                                                | flag                                                                                                                                                                                                 | off                | Send the DP-receiver wakeup packet from inside the runtime, in addition to the shell launcher wake step.                                 |
@@ -243,7 +243,6 @@ DMD launchers use the custom `1920x1080_60_RAW` modeline and fixed 60.000 Hz tim
 |--------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `checkerboard`           | Static checkerboard. Default.                                                                                                                                                                  |
 | `ordering`               | Bit-ordering sweep — verifies bitplane index -> output mapping.                                                                                                                                |
-| `numbered`               | 6x4 grid of numbered tiles for spatial orientation.                                                                                                                                            |
 | `single-pixel`           | 1x1 checkerboard (creates optical diffraction with lasers).                                                                                                                                    |
 | `2x2`                    | 2x2 checkerboard. Use this to disambiguate 1:1 mapping from diffraction.                                                                                                                       |
 | `lines`                  | Alternating 1-pixel lines. Technical/fine-texture diagnostic; often not useful by eye on tiny optical images.                                                                                  |
@@ -416,7 +415,6 @@ run_camera_sync_check.sh       Camera sync-check launcher
 run_dmd_pair_capture.sh        Paired DMD + camera capture launcher
 run_dmd_preview_server.sh      Preview server launcher, defaults to 0.0.0.0:8080
 scripts/lib/       Shared shell helpers, X11 layout helpers, and generic xinit client
-scripts/debug/     Deprecated/debug USB helper scripts
 compat/legacy/     Old Python entrypoint/import shims kept out of the repository root
 sync_dmd.sh         rsync local -> lab box (bash)
 sync_dmd.ps1        rsync local -> lab box (PowerShell)

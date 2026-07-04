@@ -9,7 +9,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from dmdcontrol.patterns.numbered_regions import generate_numbered_regions
 from dmdcontrol.patterns.visual import generate_coarse_grid_rgb, generate_coarse_lines_rgb
 from dmdcontrol.support.constants import (
     DEFAULT_CALIBRATION_SQUARE_FRACTION,
@@ -371,11 +370,6 @@ def generate_decimal_number_rgb(number, width=DMD_WIDTH, height=DMD_HEIGHT, size
     return img
 
 
-def _numbered(engine):
-    rgb = generate_numbered_regions(DMD_WIDTH, DMD_HEIGHT, grid_cols=6, grid_rows=4)
-    return engine.rgb_to_binary_patterns(rgb), None
-
-
 def _coarse_grid(engine):
     rgb = generate_coarse_grid_rgb(width=engine.width, height=engine.height)
     return engine.rgb_to_binary_patterns(rgb), None
@@ -392,8 +386,6 @@ PATTERN_MODES = {
     "ordering": (
         "Bit Ordering Sweep", lambda e:
         (e.generate_ordering_diagnostic_patterns(DMD_WIDTH, DMD_HEIGHT), None)),
-    "numbered": ("Numbered Regions (6x4 grid)",
-                 _numbered),
     "single-pixel": ("1x1 Single Pixel", lambda e: (e.generate_checkerboard(block_size=1), None)),
     "2x2": ("2x2 Checkerboard", lambda e: (e.generate_checkerboard(block_size=2), None)),
     "lines": ("1-pixel Lines", lambda e: (e.generate_lines(), None)),
