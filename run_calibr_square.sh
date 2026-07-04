@@ -24,7 +24,7 @@ dmd_wait_for_hotplug "Xorg and GPU to detect the DP hotplug event"
 echo "=== Launching Interactive Calibration Square ==="
 dmd_start_calibr_square_control_reader "$CONTROL_FILE" "dmdcontrol single run"
 
-dmd_run_xinit "$SCRIPT_DIR" "$SCRIPT_DIR/scripts/xinit/xinitrc_dmd.sh" \
+dmd_run_xinit_python_module "$SCRIPT_DIR" single dmdcontrol single run -- \
     --test calibr-square \
     --calibr-square-control-file "$CONTROL_FILE" \
     --runtime-seconds 0 \

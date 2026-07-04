@@ -35,8 +35,6 @@ class FakeWriter:
 
 def _args(**overrides):
     values = {
-        "camera_stream_rearm": False,
-        "camera_shutdown_streams": False,
         "bias_sensitivity": "default",
         "efps": "default",
         "camera_flush_reads": 1,
@@ -59,12 +57,6 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
     ready = SimpleNamespace(event_resolution=(320, 240))
 
     monkeypatch.setitem(sys.modules, "dv_processing", fake_dv)
-    monkeypatch.setattr(
-        session,
-        "rearm_camera_streams",
-        lambda opened_capture: calls.append(
-            ("rearm", opened_capture is capture)) or {"rearmed": True},
-    )
     monkeypatch.setattr(
         session,
         "configure_camera_performance",
@@ -91,7 +83,6 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
     opened_capture, writer, opened_ready = session.open_ready_camera(
         run,
         _args(
-            camera_stream_rearm=True,
             bias_sensitivity="low",
             efps="variable_5000",
             camera_flush_reads=2,
@@ -107,8 +98,6 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
     assert capture.trigger_reads == 1
     assert calls == [
         "open",
-        ("rearm",
-         True),
         ("performance",
          True,
          "low",
@@ -118,8 +107,7 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
         (
             "ready",
             True,
-            {
-                "rearmed": True},
+            None,
             {
                 "configured": True},
         ),
@@ -155,17 +143,12 @@ def test_open_ready_camera_cleans_up_when_flush_fails(monkeypatch, tmp_path):
         "flush_stale_batches",
         lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("bad flush")),
     )
-    monkeypatch.setattr(
-        session,
-        "shutdown_camera_streams",
-        lambda opened_capture: calls.append(("shutdown", opened_capture is capture)),
-    )
     monkeypatch.setattr(session.gc, "collect", lambda: calls.append("gc"))
 
     try:
         session.open_ready_camera(
             run,
-            _args(camera_shutdown_streams=True),
+            _args(),
         )
     except RuntimeError as exc:
         assert str(exc) == "bad flush"
@@ -175,7 +158,7 @@ def test_open_ready_camera_cleans_up_when_flush_fails(monkeypatch, tmp_path):
     assert len(writers) == 1
     assert writers[0].path == str(run.raw_recording_path)
     assert writers[0].capture is capture
-    assert calls == [("shutdown", True), "gc"]
+    assert calls == ["gc"]
 
 
 def test_close_camera_resources_empties_holder_before_gc(monkeypatch, tmp_path):
@@ -186,40 +169,13 @@ def test_close_camera_resources_empties_holder_before_gc(monkeypatch, tmp_path):
     resources = {"writer": writer, "capture": capture}
     calls = []
 
-    monkeypatch.setattr(
-        session,
-        "shutdown_camera_streams",
-        lambda opened_capture: calls.append(("shutdown", opened_capture is capture)),
-    )
-
     def collect():
         assert resources == {}
         calls.append("gc")
 
     monkeypatch.setattr(session.gc, "collect", collect)
 
-    session.close_camera_resources(resources, shutdown_streams=True)
-
-    assert resources == {}
-    assert calls == [("shutdown", True), "gc"]
-
-
-def test_close_camera_resources_skips_optional_stream_shutdown(monkeypatch, tmp_path):
-    from dmdcontrol.camera import session
-
-    capture = FakeCapture()
-    writer = FakeWriter(str(tmp_path / "raw.aedat4"), capture)
-    resources = {"writer": writer, "capture": capture}
-    calls = []
-
-    monkeypatch.setattr(
-        session,
-        "shutdown_camera_streams",
-        lambda opened_capture: calls.append(("shutdown", opened_capture is capture)),
-    )
-    monkeypatch.setattr(session.gc, "collect", lambda: calls.append("gc"))
-
-    session.close_camera_resources(resources, shutdown_streams=False)
+    session.close_camera_resources(resources)
 
     assert resources == {}
     assert calls == ["gc"]

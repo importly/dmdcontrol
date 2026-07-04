@@ -111,3 +111,96 @@ dmd_x11_verify_pair_layout() {
         exit 1
     fi
 }
+
+dmd_x11_prepare_single_layout() {
+    local repo_root="$1"
+    shift
+
+    DMD_SELECTED_MONITOR_INDEX=0
+
+    local args=("$@")
+    local dmd_name=""
+    local i
+    for ((i=0; i<${#args[@]}; i++)); do
+        case "${args[i]}" in
+            --dmd)
+                if [[ $((i+1)) -lt ${#args[@]} ]]; then
+                    dmd_name="${args[i+1]}"
+                fi
+                ;;
+            --dmd=*)
+                dmd_name="${args[i]#--dmd=}"
+                ;;
+        esac
+    done
+
+    dmd_parse_dmd_config_arg "$@"
+
+    local dp_output=""
+    if [ -n "$dmd_name" ]; then
+        dp_output="$(dmd_config_field "$repo_root" "$dmd_name" xrandr_output "${DMD_CONFIG_FIELD_ARGS[@]}")"
+        local monitor_from_config
+        monitor_from_config="$(dmd_config_field "$repo_root" "$dmd_name" glfw_monitor_index "${DMD_CONFIG_FIELD_ARGS[@]}")"
+        if [ -n "$monitor_from_config" ]; then
+            DMD_SELECTED_MONITOR_INDEX="$monitor_from_config"
+        fi
+        if [ -z "$dp_output" ]; then
+            echo "[ERROR] DMD $dmd_name has no xrandr_output configured."
+            echo "[ERROR] Set xrandr_output in dmd_devices.json before using --dmd so USB and DisplayPort mapping is explicit."
+            exit 1
+        fi
+        dmd_x11_require_connected "$dp_output" "DMD $dmd_name"
+    else
+        dp_output="$(dmd_x11_first_connected_output)"
+        if [ -z "$dp_output" ]; then
+            echo "[ERROR] No connected display output found via xrandr!"
+            exit 1
+        fi
+    fi
+
+    echo "Detected display output: $dp_output"
+
+    dmd_x11_define_raw_modes "$dp_output"
+    TARGET_MODE="$DMD_MODE_60"
+
+    echo "Applying custom modeline: $TARGET_MODE"
+    dmd_x11_apply_single_mode "$dp_output" "$TARGET_MODE"
+    dmd_x11_force_single_rgb "$dp_output" "$TARGET_MODE"
+
+    sleep 1
+
+    echo "--- xrandr verification ---"
+    xrandr --query 2>/dev/null | grep -A 1 "^$dp_output" | head -3
+}
+
+dmd_x11_prepare_pair_layout() {
+    local repo_root="$1"
+    shift
+
+    dmd_parse_dmd_config_arg "$@"
+
+    local a_output
+    local b_output
+    a_output="$(dmd_config_field "$repo_root" A xrandr_output "${DMD_CONFIG_FIELD_ARGS[@]}")"
+    b_output="$(dmd_config_field "$repo_root" B xrandr_output "${DMD_CONFIG_FIELD_ARGS[@]}")"
+
+    if [ -z "$a_output" ] || [ -z "$b_output" ]; then
+        echo "[ERROR] DMD A and B must both define xrandr_output in dmd_devices.json."
+        exit 1
+    fi
+
+    dmd_x11_require_connected "$b_output" "B"
+    dmd_x11_require_connected "$a_output" "A"
+
+    echo "Pair outputs: B=$b_output at +0+0, A=$a_output at +1920+0"
+
+    dmd_x11_define_raw_modes "$b_output" "$a_output"
+    TARGET_MODE="$DMD_MODE_60"
+
+    echo "Applying paired custom modeline: $TARGET_MODE"
+    dmd_x11_apply_pair_mode "$b_output" "$a_output" "$TARGET_MODE"
+
+    echo "--- xrandr verification ---"
+    xrandr --query
+    dmd_x11_verify_pair_layout "$b_output" "$a_output"
+}

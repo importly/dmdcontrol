@@ -72,14 +72,36 @@ dmd_wait_for_hotplug() {
     sleep 6
 }
 
-dmd_run_xinit() {
+dmd_run_xinit_python_module() {
     local script_dir="$1"
-    local xinitrc="$2"
-    shift 2
+    local layout="$2"
+    local module="$3"
+    shift 3
+    local xinitrc="$script_dir/scripts/lib/dmd_xinit_client.sh"
+    local xinit_args=()
+    local saw_separator=0
+
+    while [ "$#" -gt 0 ]; do
+        if [ "$1" = "--" ]; then
+            xinit_args+=("__DMD_XINIT_RUN_ARGS__")
+            shift
+            saw_separator=1
+            break
+        fi
+        xinit_args+=("$1")
+        shift
+    done
+
+    if [ "$saw_separator" -ne 1 ]; then
+        echo "[ERROR] dmd_run_xinit_python_module requires '--' before runner arguments."
+        exit 1
+    fi
+    xinit_args+=("$@")
+
     chmod +x "$xinitrc"
     local pass_file="$script_dir/.env_pass"
     dmd_require_pass_file "$pass_file"
-    sudo -S xinit "$xinitrc" "$@" -- :0 vt1 < "$pass_file"
+    sudo -S xinit "$xinitrc" "$layout" "$module" "${xinit_args[@]}" -- :0 vt1 < "$pass_file"
 }
 
 dmd_config_field() {

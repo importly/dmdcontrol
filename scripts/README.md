@@ -3,8 +3,7 @@
 The repository-root `run_*.sh` files are the public launch commands.
 This directory holds their implementation details:
 
-- `lib/`: shared shell helpers for wake, config lookup, xinit, and Python module execution.
-- `xinit/`: X session wrappers that configure NVIDIA/X11 before launching `dmdcontrol`.
+- `lib/`: shared shell helpers for wake, config lookup, xinit, NVIDIA/X11 layout setup, and Python module execution.
 - `debug/`: deprecated or USB-only helper scripts kept out of the top-level command set.
 
 ex. this would be a command I use

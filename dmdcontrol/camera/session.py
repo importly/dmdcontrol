@@ -8,8 +8,6 @@ from dmdcontrol.camera.discovery import (
     configure_camera_performance,
     configure_rising_edge_triggers,
     open_camera_capture,
-    rearm_camera_streams,
-    shutdown_camera_streams,
 )
 
 
@@ -29,10 +27,6 @@ def _open_configured_camera_capture(args):
     capture = open_camera_capture(dv)
     writer = None
     try:
-        rearm_info = (
-            rearm_camera_streams(capture) if getattr(args,
-                                                     "camera_stream_rearm",
-                                                     False) else None)
         configure_camera_performance(
             capture,
             bias_sensitivity=args.bias_sensitivity,
@@ -41,12 +35,10 @@ def _open_configured_camera_capture(args):
         trigger_configuration = configure_rising_edge_triggers(capture)
         ready = validate_camera_ready(
             capture,
-            stream_rearm=rearm_info,
+            stream_rearm=None,
             trigger_configuration=trigger_configuration,
         )
     except Exception:
-        if getattr(args, "camera_shutdown_streams", False):
-            shutdown_camera_streams(capture)
         del capture
         gc.collect()
         raise
@@ -61,8 +53,6 @@ def open_ready_camera_capture(args):
         ready = _ready_with_initial_flush(ready, initial_flush)
     except Exception:
         if capture is not None:
-            if getattr(args, "camera_shutdown_streams", False):
-                shutdown_camera_streams(capture)
             del capture
         gc.collect()
         raise
@@ -87,21 +77,17 @@ def open_ready_camera(run, args):
         if writer is not None:
             del writer
         if capture is not None:
-            if getattr(args, "camera_shutdown_streams", False):
-                shutdown_camera_streams(capture)
             del capture
         gc.collect()
         raise
     return capture, writer, ready
 
 
-def close_camera_resources(resources, *, shutdown_streams):
+def close_camera_resources(resources):
     writer = resources.pop("writer", None)
     capture = resources.pop("capture", None)
     if writer is not None:
         del writer
     if capture is not None:
-        if shutdown_streams:
-            shutdown_camera_streams(capture)
         del capture
     gc.collect()

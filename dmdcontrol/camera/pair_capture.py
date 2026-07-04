@@ -106,19 +106,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of extra event batches to read after the expected trigger count is reached.",
     )
     parser.add_argument(
-        "--camera-stream-rearm",
-        action="store_true",
-        default=False,
-        help="Diagnostic: cycle camera streams off/on before capture. Disabled by default.",
-    )
-    parser.add_argument(
-        "--camera-shutdown-streams",
-        action="store_true",
-        default=False,
-        help=
-        "Diagnostic: stop camera streams before releasing the capture object. Disabled by default.",
-    )
-    parser.add_argument(
         "--max-accumulation-triggers",
         type=positive_int,
         default=512,
@@ -204,8 +191,6 @@ def dry_run(args: argparse.Namespace, command_argv: list[str] | None = None):
         "dark_time_us": args.dark_time_us,
         "camera_flush_reads": args.camera_flush_reads,
         "camera_post_trigger_event_batches": args.camera_post_trigger_event_batches,
-        "camera_stream_rearm": args.camera_stream_rearm,
-        "camera_shutdown_streams": args.camera_shutdown_streams,
         "max_accumulation_triggers": args.max_accumulation_triggers,
         "event_noise_filter": event_noise_filter_metadata(event_filter),
         "save_filtered_events": args.save_filtered_events,
@@ -269,8 +254,6 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
         "dark_time_us": args.dark_time_us,
         "camera_flush_reads": args.camera_flush_reads,
         "camera_post_trigger_event_batches": args.camera_post_trigger_event_batches,
-        "camera_stream_rearm": args.camera_stream_rearm,
-        "camera_shutdown_streams": args.camera_shutdown_streams,
         "max_accumulation_triggers": args.max_accumulation_triggers,
         "event_noise_filter": event_noise_filter_metadata(event_filter),
         "save_filtered_events": args.save_filtered_events,
@@ -366,10 +349,7 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
         resources = {"writer": writer, "capture": capture}
         writer = None
         capture = None
-        close_camera_resources(
-            resources,
-            shutdown_streams=args.camera_shutdown_streams,
-        )
+        close_camera_resources(resources)
 
 
 def main(argv: list[str] | None = None) -> int:

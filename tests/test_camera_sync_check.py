@@ -493,11 +493,15 @@ def test_sync_check_parser_rejects_removed_hz_flag():
         build_parser().parse_args(["--dry-run", "--hz", "120"])
 
 
+@pytest.mark.parametrize("flag", ["--camera-stream-rearm", "--camera-shutdown-streams"])
+def test_sync_check_parser_rejects_removed_camera_lifecycle_flags(flag):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--dry-run", flag])
+
+
 def test_sync_check_parser_uses_mentor_style_camera_lifecycle_by_default():
     args = build_parser().parse_args(["--dry-run"])
 
-    assert args.camera_stream_rearm is False
-    assert args.camera_shutdown_streams is False
     assert args.camera_flush_reads == 32
     assert args.camera_post_trigger_event_batches == 0
 

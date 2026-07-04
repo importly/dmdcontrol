@@ -18,6 +18,5 @@ dmd_wake_with_args "$SCRIPT_DIR" "$@"
 
 dmd_wait_for_hotplug "Xorg and GPU to detect the DP hotplug event"
 
-echo "=== Launching Pattern Engine (via scripts/xinit/xinitrc_dmd.sh wrapper) ==="
-# The xinitrc wrapper handles: fixed 1920x1080 mode set -> python launch
-dmd_run_xinit "$SCRIPT_DIR" "$SCRIPT_DIR/scripts/xinit/xinitrc_dmd.sh" "$@"
+echo "=== Launching Pattern Engine ==="
+dmd_run_xinit_python_module "$SCRIPT_DIR" single dmdcontrol single run -- "$@"

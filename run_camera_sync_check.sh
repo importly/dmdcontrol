@@ -20,5 +20,5 @@ dmd_wake_configured_dmd "$SCRIPT_DIR" B "${DMD_CONFIG_ARGS[@]}"
 
 dmd_wait_for_hotplug "Xorg and GPU to detect both DP hotplug events"
 
-echo "=== Launching Camera Sync Check (via scripts/xinit/xinitrc_camera_sync_check.sh wrapper) ==="
-dmd_run_xinit "$SCRIPT_DIR" "$SCRIPT_DIR/scripts/xinit/xinitrc_camera_sync_check.sh" "$@"
+echo "=== Launching Camera Sync Check ==="
+dmd_run_xinit_python_module "$SCRIPT_DIR" pair dmdcontrol camera sync-check -- "$@"

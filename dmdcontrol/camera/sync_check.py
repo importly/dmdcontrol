@@ -245,19 +245,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Number of extra event batches to read after the expected trigger count is reached.",
     )
     parser.add_argument(
-        "--camera-stream-rearm",
-        action="store_true",
-        default=False,
-        help="Diagnostic: cycle camera streams off/on before capture. Disabled by default.",
-    )
-    parser.add_argument(
-        "--camera-shutdown-streams",
-        action="store_true",
-        default=False,
-        help=
-        "Diagnostic: stop camera streams before releasing the capture object. Disabled by default.",
-    )
-    parser.add_argument(
         "--accumulation-cycles",
         type=positive_int,
         default=None,
@@ -542,10 +529,7 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
         return live_capture(args, run, capture, writer, ready, command_argv=command_argv)
     finally:
         resources = {"writer": writer, "capture": capture}
-        close_camera_resources(
-            resources,
-            shutdown_streams=args.camera_shutdown_streams,
-        )
+        close_camera_resources(resources)
 
 
 def main(argv: list[str] | None = None) -> int:

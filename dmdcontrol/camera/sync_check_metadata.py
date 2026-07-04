@@ -68,8 +68,6 @@ def sync_check_metadata(
         "dark_time_us": args.dark_time_us,
         "camera_flush_reads": args.camera_flush_reads,
         "camera_post_trigger_event_batches": args.camera_post_trigger_event_batches,
-        "camera_stream_rearm": args.camera_stream_rearm,
-        "camera_shutdown_streams": args.camera_shutdown_streams,
         "accumulation_cycles": args.requested_accumulation_cycles,
         "accumulation_start_offset_us": args.accumulation_start_offset_us,
         "event_noise_filter": event_noise_filter_metadata(event_filter),

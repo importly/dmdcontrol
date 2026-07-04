@@ -173,11 +173,15 @@ def test_pair_capture_parser_rejects_removed_usb_reset_flags(flag):
         build_parser().parse_args(["--dry-run-timing", flag])
 
 
+@pytest.mark.parametrize("flag", ["--camera-stream-rearm", "--camera-shutdown-streams"])
+def test_pair_capture_parser_rejects_removed_camera_lifecycle_flags(flag):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--dry-run-timing", flag])
+
+
 def test_pair_capture_parser_uses_mentor_style_camera_lifecycle_by_default():
     args = build_parser().parse_args(["--dry-run-timing"])
 
-    assert args.camera_stream_rearm is False
-    assert args.camera_shutdown_streams is False
     assert args.camera_flush_reads == 1
     assert args.camera_post_trigger_event_batches == 0
 
