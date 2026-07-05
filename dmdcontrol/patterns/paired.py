@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
+from os import PathLike
 from pathlib import Path
 
 import numpy as np
+from numpy.typing import NDArray
 from PIL import Image
 
 from dmdcontrol.patterns.bitplanes import BitplaneStack, pack_bitplanes_rgb
@@ -46,27 +49,31 @@ RECIPE_PAIR_TESTS = (
 PAIR_TESTS = STATIC_PAIR_TESTS + DYNAMIC_PAIR_TESTS + RECIPE_PAIR_TESTS
 MAX_COUNT_SEQUENCE_FRAMES = 64
 
+RGBFrame = NDArray[np.uint8]
+BinaryMask = NDArray[np.uint8]
+FrameProvider = Callable[[], RGBFrame]
+
 
 @dataclass(frozen=True)
 class FramePair:
     """Named A/B DMD frames while preserving legacy tuple unpacking."""
 
-    a: np.ndarray
-    b: np.ndarray
+    a: RGBFrame
+    b: RGBFrame
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[RGBFrame]:
         yield self.a
         yield self.b
 
 
-def as_frame_pair(value):
+def as_frame_pair(value: FramePair | tuple[RGBFrame, RGBFrame]) -> FramePair:
     if isinstance(value, FramePair):
         return value
     frame_a, frame_b = value
     return FramePair(frame_a, frame_b)
 
 
-def _validate_rgb_frame(frame, label):
+def _validate_rgb_frame(frame: object, label: str) -> None:
     if not isinstance(frame, np.ndarray):
         raise TypeError(f"{label} must be a numpy array")
     if frame.ndim != 3 or frame.shape[2] != 3:
@@ -75,7 +82,7 @@ def _validate_rgb_frame(frame, label):
         raise ValueError(f"{label} must use dtype uint8")
 
 
-def compose_pair_frame(frame_a, frame_b):
+def compose_pair_frame(frame_a: RGBFrame, frame_b: RGBFrame) -> RGBFrame:
     """Return one RGB frame with B on the left half and A on the right half."""
     _validate_rgb_frame(frame_a, "frame_a")
     _validate_rgb_frame(frame_b, "frame_b")
@@ -91,13 +98,18 @@ def compose_pair_frame(frame_a, frame_b):
     return paired
 
 
-def _checkerboard(width, height, block_size=32):
+def _checkerboard(width: int, height: int, block_size: int = 32) -> RGBFrame:
     y, x = np.indices((height, width))
     mask = ((x // block_size + y // block_size) % 2).astype(np.uint8) * 255
     return np.repeat(mask[:, :, None], 3, axis=2)
 
 
-def load_static_image_frame(path, width=DMD_WIDTH, height=DMD_HEIGHT, size_px=DMD_HEIGHT):
+def load_static_image_frame(
+    path: str | PathLike[str],
+    width: int = DMD_WIDTH,
+    height: int = DMD_HEIGHT,
+    size_px: int = DMD_HEIGHT,
+) -> RGBFrame:
     """Load one RGBA/RGB image as a centered RGB frame on a black DMD canvas."""
     if width <= 0 or height <= 0:
         raise ValueError("width and height must be positive")
@@ -131,7 +143,14 @@ def load_static_image_frame(path, width=DMD_WIDTH, height=DMD_HEIGHT, size_px=DM
     return np.ascontiguousarray(np.array(canvas.convert("RGB"), dtype=np.uint8))
 
 
-def _fill_rect_rgb(frame, x0, y0, x1, y1, value=255):
+def _fill_rect_rgb(
+    frame: RGBFrame,
+    x0: int,
+    y0: int,
+    x1: int,
+    y1: int,
+    value: int = 255,
+) -> None:
     height, width = frame.shape[:2]
     x0 = max(0, min(width, int(x0)))
     x1 = max(0, min(width, int(x1)))
@@ -141,7 +160,7 @@ def _fill_rect_rgb(frame, x0, y0, x1, y1, value=255):
         frame[y0:y1, x0:x1, :] = value
 
 
-def _draw_block_letter(frame, label, x0, y0, cell):
+def _draw_block_letter(frame: RGBFrame, label: str, x0: int, y0: int, cell: int) -> None:
     if label == "A":
         rects = (
             (0,
@@ -199,14 +218,14 @@ def _draw_block_letter(frame, label, x0, y0, cell):
 
 
 def generate_dot_frame(
-    width=DMD_WIDTH,
-    height=DMD_HEIGHT,
-    x=None,
-    y=None,
-    radius=40,
-    shape="circle",
-    invert=False,
-):
+    width: int = DMD_WIDTH,
+    height: int = DMD_HEIGHT,
+    x: float | None = None,
+    y: float | None = None,
+    radius: int = 40,
+    shape: str = "circle",
+    invert: bool = False,
+) -> RGBFrame:
     """Generate a static RGB dot mask/aperture frame."""
     if width <= 0 or height <= 0:
         raise ValueError("width and height must be positive")
@@ -230,7 +249,7 @@ def generate_dot_frame(
     return np.ascontiguousarray(frame)
 
 
-def _route_mark(frame, label):
+def _route_mark(frame: RGBFrame, label: str) -> RGBFrame:
     marked = frame.copy()
     height, width = marked.shape[:2]
     if min(width, height) < 32:
@@ -255,16 +274,16 @@ def _route_mark(frame, label):
 
 
 def generate_static_frame(
-    mode,
-    width=DMD_WIDTH,
-    height=DMD_HEIGHT,
-    route_label="A",
-    dot_x=None,
-    dot_y=None,
-    dot_radius=40,
-    dot_shape="circle",
-    dot_invert=False,
-):
+    mode: str,
+    width: int = DMD_WIDTH,
+    height: int = DMD_HEIGHT,
+    route_label: str = "A",
+    dot_x: float | None = None,
+    dot_y: float | None = None,
+    dot_radius: int = 40,
+    dot_shape: str = "circle",
+    dot_invert: bool = False,
+) -> RGBFrame:
     if mode == "checkerboard":
         frame = _checkerboard(width, height)
     elif mode == "dot":
@@ -300,7 +319,13 @@ def generate_static_frame(
     return _route_mark(frame, route_label)
 
 
-def _static_frame(mode, width, height, route_label, dot_radius=40):
+def _static_frame(
+    mode: str,
+    width: int,
+    height: int,
+    route_label: str,
+    dot_radius: int = 40,
+) -> RGBFrame:
     return generate_static_frame(
         mode,
         width,
@@ -312,22 +337,22 @@ def _static_frame(mode, width, height, route_label, dot_radius=40):
 
 class PairFrameProvider:
 
-    def initial_pair(self):
+    def initial_pair(self) -> FramePair:
         raise NotImplementedError
 
-    def next_pair(self):
+    def next_pair(self) -> FramePair:
         raise NotImplementedError
 
 
 class SingleDmdFrameAdapter:
     """Small adapter exposing PatternEngine packing for one half of a paired window."""
 
-    def __init__(self, width=DMD_WIDTH, height=DMD_HEIGHT, window=None):
+    def __init__(self, width: int = DMD_WIDTH, height: int = DMD_HEIGHT, window: object = None):
         self.width = width
         self.height = height
         self.window = window
 
-    def pack_patterns(self, binary_images):
+    def pack_patterns(self, binary_images: Sequence[BinaryMask]) -> RGBFrame:
         return pack_bitplanes_rgb(binary_images, self.width, self.height)
 
 
@@ -339,7 +364,7 @@ class StaticPairFrameProvider(PairFrameProvider):
     height: int = DMD_HEIGHT
     dot_radius: int = 40
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self._frame_a = _static_frame(
             self.mode_a,
             self.width,
@@ -355,22 +380,22 @@ class StaticPairFrameProvider(PairFrameProvider):
             dot_radius=self.dot_radius,
         )
 
-    def initial_pair(self):
+    def initial_pair(self) -> FramePair:
         return FramePair(a=self._frame_a, b=self._frame_b)
 
-    def next_pair(self):
+    def next_pair(self) -> FramePair:
         return FramePair(a=self._frame_a, b=self._frame_b)
 
 
 @dataclass
 class StaticImagePairFrameProvider(PairFrameProvider):
-    path_a: str | Path
-    path_b: str | Path
+    path_a: str | PathLike[str]
+    path_b: str | PathLike[str]
     width: int = DMD_WIDTH
     height: int = DMD_HEIGHT
     size_px: int = DMD_HEIGHT
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self._frame_a = load_static_image_frame(
             self.path_a,
             width=self.width,
@@ -384,16 +409,21 @@ class StaticImagePairFrameProvider(PairFrameProvider):
             size_px=int(self.size_px),
         )
 
-    def initial_pair(self):
+    def initial_pair(self) -> FramePair:
         return FramePair(a=self._frame_a, b=self._frame_b)
 
-    def next_pair(self):
+    def next_pair(self) -> FramePair:
         return FramePair(a=self._frame_a, b=self._frame_b)
 
 
 class DynamicAStaticBPairFrameProvider(PairFrameProvider):
 
-    def __init__(self, frame_provider_a, frame_b, initial_frame_a=None):
+    def __init__(
+        self,
+        frame_provider_a: FrameProvider,
+        frame_b: RGBFrame,
+        initial_frame_a: RGBFrame | None = None,
+    ) -> None:
         _validate_rgb_frame(frame_b, "frame_b")
         if initial_frame_a is not None:
             _validate_rgb_frame(initial_frame_a, "initial_frame_a")
@@ -405,7 +435,7 @@ class DynamicAStaticBPairFrameProvider(PairFrameProvider):
         self._frame_b = frame_b
         self._initial_frame_a = initial_frame_a
 
-    def _next_a(self):
+    def _next_a(self) -> RGBFrame:
         frame_a = self._frame_provider_a()
         _validate_rgb_frame(frame_a, "frame_a")
         if frame_a.shape != self._frame_b.shape:
@@ -414,52 +444,65 @@ class DynamicAStaticBPairFrameProvider(PairFrameProvider):
             )
         return frame_a
 
-    def initial_pair(self):
+    def initial_pair(self) -> FramePair:
         if self._initial_frame_a is not None:
             return FramePair(a=self._initial_frame_a, b=self._frame_b)
         return FramePair(a=self._next_a(), b=self._frame_b)
 
-    def next_pair(self):
+    def next_pair(self) -> FramePair:
         return FramePair(a=self._next_a(), b=self._frame_b)
 
 
 class CalibrationSquareDotPairFrameProvider(DynamicAStaticBPairFrameProvider):
 
-    def __init__(self, frame_provider_a, frame_b, initial_frame_a=None, flicker_a=False):
+    def __init__(
+        self,
+        frame_provider_a: FrameProvider,
+        frame_b: RGBFrame,
+        initial_frame_a: RGBFrame | None = None,
+        flicker_a: bool = False,
+    ) -> None:
         super().__init__(frame_provider_a, frame_b, initial_frame_a=initial_frame_a)
         self.flicker_a = flicker_a
         self.frame_index = 0
         self._black_frame_a = (
             np.zeros_like(initial_frame_a) if initial_frame_a is not None else None)
 
-    def _remember_black_frame(self, frame_a):
+    def _remember_black_frame(self, frame_a: RGBFrame) -> None:
         if self._black_frame_a is None:
             self._black_frame_a = np.zeros_like(frame_a)
 
-    def initial_pair(self):
+    def initial_pair(self) -> FramePair:
         frame_pair = as_frame_pair(super().initial_pair())
         self._remember_black_frame(frame_pair.a)
         return frame_pair
 
-    def next_pair(self):
+    def next_pair(self) -> FramePair:
         self.frame_index += 1
         frame_a = self._next_a()
         self._remember_black_frame(frame_a)
         if self.flicker_a and self.frame_index % 2 == 1:
+            assert self._black_frame_a is not None
             return FramePair(a=self._black_frame_a, b=self._frame_b)
         return FramePair(a=frame_a, b=self._frame_b)
 
 
 class DynamicSnakePairFrameProvider(PairFrameProvider):
 
-    def __init__(self, width=DMD_WIDTH, height=DMD_HEIGHT, cells_x=24, cells_y=13):
+    def __init__(
+        self,
+        width: int = DMD_WIDTH,
+        height: int = DMD_HEIGHT,
+        cells_x: int = 24,
+        cells_y: int = 13,
+    ) -> None:
         self.width = width
         self.height = height
         self.cells_x = cells_x
         self.cells_y = cells_y
         self.frame_index = 0
 
-    def _frame_for_index(self, index):
+    def _frame_for_index(self, index: int) -> FramePair:
         frame_a = np.zeros((self.height, self.width, 3), dtype=np.uint8)
         frame_b = np.zeros((self.height, self.width, 3), dtype=np.uint8)
         cell_w = max(1, self.width // self.cells_x)
@@ -478,29 +521,29 @@ class DynamicSnakePairFrameProvider(PairFrameProvider):
                 frame[y0:y0 + cell_h, x0:x0 + cell_w, :] = level
         return FramePair(a=_route_mark(frame_a, "A"), b=_route_mark(frame_b, "B"))
 
-    def initial_pair(self):
+    def initial_pair(self) -> FramePair:
         return self._frame_for_index(self.frame_index)
 
-    def next_pair(self):
+    def next_pair(self) -> FramePair:
         self.frame_index += 1
         return self._frame_for_index(self.frame_index)
 
 
 def pack_count_sequence_frames(
-        count_start,
-        count_end,
-        count_slots_per_frame,
-        width,
-        height,
-        size_px=None,
-        count_blank_between_frames=False):
+        count_start: int,
+        count_end: int,
+        count_slots_per_frame: int,
+        width: int,
+        height: int,
+        size_px: int | None = None,
+        count_blank_between_frames: bool = False) -> tuple[RGBFrame, ...]:
     _validate_count_sequence_args(
         count_start,
         count_end,
         count_slots_per_frame,
         count_blank_between_frames=count_blank_between_frames,
     )
-    frames = []
+    frames: list[RGBFrame] = []
     counts = tuple(range(count_start, count_end + 1))
     for offset in range(0, len(counts), count_slots_per_frame):
         chunk = counts[offset:offset + count_slots_per_frame]
@@ -520,15 +563,18 @@ def pack_count_sequence_frames(
     return tuple(frames)
 
 
-def count_lut_entries_per_frame(count_slots_per_frame, count_blank_between_frames=False):
+def count_lut_entries_per_frame(
+    count_slots_per_frame: int,
+    count_blank_between_frames: bool = False,
+) -> int:
     return int(count_slots_per_frame) * (2 if count_blank_between_frames else 1)
 
 
 def _validate_count_sequence_args(
-        count_start,
-        count_end,
-        count_slots_per_frame,
-        count_blank_between_frames=False):
+        count_start: int,
+        count_end: int,
+        count_slots_per_frame: int,
+        count_blank_between_frames: bool = False) -> None:
     if count_start <= 0 or count_end <= 0:
         raise ValueError("count range values must be positive")
     if count_start > count_end:
@@ -553,7 +599,13 @@ def _validate_count_sequence_args(
             f"count sequence can span at most {MAX_COUNT_SEQUENCE_FRAMES} VSYNC frames")
 
 
-def _decimal_number_display_masks(numbers, *, width, height, size_px=None):
+def _decimal_number_display_masks(
+    numbers: Iterable[int],
+    *,
+    width: int,
+    height: int,
+    size_px: int | None = None,
+) -> list[BinaryMask]:
     return [
         (
             generate_decimal_number_rgb(
@@ -565,16 +617,16 @@ def _decimal_number_display_masks(numbers, *, width, height, size_px=None):
 
 
 def make_pair_frame_provider(
-    test,
-    test_a=None,
-    test_b=None,
-    width=DMD_WIDTH,
-    height=DMD_HEIGHT,
-    static_image_a=None,
-    static_image_b=None,
-    static_image_size_px=DMD_HEIGHT,
-    dot_radius=40,
-):
+    test: str,
+    test_a: str | None = None,
+    test_b: str | None = None,
+    width: int = DMD_WIDTH,
+    height: int = DMD_HEIGHT,
+    static_image_a: str | PathLike[str] | None = None,
+    static_image_b: str | PathLike[str] | None = None,
+    static_image_size_px: int = DMD_HEIGHT,
+    dot_radius: int = 40,
+) -> PairFrameProvider:
     if test in STATIC_PAIR_TESTS:
         return StaticPairFrameProvider(
             mode_a=test_a or test,
@@ -598,7 +650,7 @@ def make_pair_frame_provider(
     raise ValueError(f"Unsupported paired test mode: {test}")
 
 
-def _load_gl_modules():
+def _load_gl_modules() -> tuple[object, object]:
     import glfw
     import OpenGL.GL as gl
 
@@ -607,7 +659,14 @@ def _load_gl_modules():
 
 class PairedPatternEngine:
 
-    def __init__(self, width=PAIR_WIDTH, height=PAIR_HEIGHT, fps=TARGET_HZ, x=0, y=0):
+    def __init__(
+        self,
+        width: int = PAIR_WIDTH,
+        height: int = PAIR_HEIGHT,
+        fps: float = TARGET_HZ,
+        x: int = 0,
+        y: int = 0,
+    ) -> None:
         self.width = width
         self.height = height
         self.fps = fps
@@ -663,16 +722,16 @@ class PairedPatternEngine:
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
 
-    def make_context_current(self):
+    def make_context_current(self) -> None:
         self._glfw.make_context_current(self.window)
 
-    def release_context(self):
+    def release_context(self) -> None:
         self._glfw.make_context_current(None)
 
-    def display_pair(self, frame_a, frame_b):
+    def display_pair(self, frame_a: RGBFrame, frame_b: RGBFrame) -> None:
         self.display_frame(compose_pair_frame(frame_a, frame_b))
 
-    def display_frame(self, frame_array):
+    def display_frame(self, frame_array: RGBFrame) -> None:
         _validate_rgb_frame(frame_array, "frame_array")
         if frame_array.shape[:2] != (self.height, self.width):
             raise ValueError(
@@ -719,12 +778,12 @@ class PairedPatternEngine:
         self._glfw.swap_buffers(self.window)
         self._glfw.poll_events()
 
-    def should_close(self):
+    def should_close(self) -> bool:
         return self._glfw.window_should_close(self.window) or (
             self._glfw.get_key(self.window,
                                self._glfw.KEY_ESCAPE) == self._glfw.PRESS)
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         try:
             if getattr(self, "window", None):
                 self._glfw.destroy_window(self.window)

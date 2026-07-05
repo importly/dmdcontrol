@@ -6,6 +6,8 @@ import io
 import json
 import threading
 import time
+from collections.abc import Sequence
+from typing import NamedTuple, TypedDict
 from urllib import request
 
 import numpy as np
@@ -32,16 +34,53 @@ from dmdcontrol.patterns.paired import (
     KERNEL_STATIC_PAIR_TEST,
     PAIR_TESTS,
     STATIC_PAIR_TESTS,
+    BinaryMask,
     DynamicSnakePairFrameProvider,
+    RGBFrame,
     compose_pair_frame,
     generate_dot_frame,
     generate_static_frame,
     pack_count_sequence_frames,
 )
+from dmdcontrol.runtime.lifecycle import LutEntry, LutEntryLike, coerce_lut_entry
 from dmdcontrol.support.constants import BITPLANES
 
+PreviewMetadata = dict[str, object]
+PreviewLutEntry = LutEntryLike
+ImageArray = RGBFrame | BinaryMask
 
-def _json_safe_value(value):
+
+class LutPreviewEntryMetadata(TypedDict):
+    index: int
+    plane_index: int
+    plane_label: str
+    channel: str
+    bit: int
+    exposure_us: int
+    dark_us: int
+    start_us: int
+    end_us: int
+    segment_end_us: int
+    clear: bool
+    bit_depth: int
+    led_select: int | None
+    trig2_disabled: bool
+    image_index: int
+
+
+class LutPreviewMetadata(TypedDict):
+    bitplane_order: list[str]
+    entries: list[LutPreviewEntryMetadata]
+    timing: PreviewMetadata
+
+
+class LiveFrameSnapshot(NamedTuple):
+    frame: RGBFrame | None
+    metadata: PreviewMetadata
+    updated_at: float | None
+
+
+def _json_safe_value(value: object) -> object:
     if isinstance(value, np.integer):
         return int(value)
     if isinstance(value, np.floating):
@@ -55,20 +94,24 @@ def _json_safe_value(value):
     return value
 
 
-def build_lut_preview_metadata(entries, timing=None):
+def build_lut_preview_metadata(
+    entries: Sequence[PreviewLutEntry],
+    timing: PreviewMetadata | None = None,
+) -> LutPreviewMetadata:
     """Describe a DLPC900 video-pattern LUT in preview-friendly JSON data."""
 
-    preview_entries = []
+    preview_entries: list[LutPreviewEntryMetadata] = []
     cursor_us = 0
-    for index, entry in enumerate(entries):
-        plane_index = int(entry[0])
-        exposure_us = int(entry[1])
-        clear = bool(entry[2])
-        bit_depth = int(entry[3]) if len(entry) > 3 else 1
-        led_select = int(entry[4]) if len(entry) > 4 else None
-        dark_us = int(entry[5]) if len(entry) > 5 else 0
-        trig2_disabled = bool(entry[6]) if len(entry) > 6 else False
-        image_index = int(entry[8]) if len(entry) > 8 else 0
+    for index, raw_entry in enumerate(entries):
+        entry = coerce_lut_entry(raw_entry)
+        plane_index = int(entry.bitplane_index)
+        exposure_us = int(entry.exposure_us)
+        clear = bool(entry.clear_after)
+        bit_depth = int(entry.bit_depth)
+        led_select = int(entry.led_select)
+        dark_us = int(entry.dark_us)
+        trig2_disabled = bool(entry.trig2_disabled)
+        image_index = int(raw_entry[8]) if not isinstance(raw_entry, LutEntry) and len(raw_entry) > 8 else 0
         label = BITPLANE_LABELS[plane_index] if 0 <= plane_index < len(
             BITPLANE_LABELS) else f"P{plane_index}"
         preview_entries.append(
@@ -101,23 +144,28 @@ def build_lut_preview_metadata(entries, timing=None):
 class PreviewEngine:
     """Small no-GL engine implementing PatternEngine's pure packing API."""
 
-    def __init__(self, width=DMD_WIDTH, height=DMD_HEIGHT):
+    def __init__(self, width: int = DMD_WIDTH, height: int = DMD_HEIGHT) -> None:
         self.width = width
         self.height = height
 
-    def pack_patterns(self, binary_images):
+    def pack_patterns(self, binary_images: Sequence[BinaryMask]) -> RGBFrame:
         return pack_bitplanes_rgb(binary_images, self.width, self.height)
 
-    def rgb_to_binary_patterns(self, rgb_array):
+    def rgb_to_binary_patterns(self, rgb_array: RGBFrame) -> list[BinaryMask]:
         return unpack_rgb_bitplanes(rgb_array, self.width, self.height)
 
-    def generate_checkerboard(self, block_size=32):
+    def generate_checkerboard(self, block_size: int = 32) -> list[BinaryMask]:
         y, x = np.indices((self.height, self.width))
         checker = ((x // block_size) + (y // block_size)) % 2
         checker = checker.astype(np.uint8)
         return [checker for _ in range(BITPLANES)]
 
-    def generate_snake_frame(self, frame_index=0, grid_w=24, grid_h=13):
+    def generate_snake_frame(
+        self,
+        frame_index: int = 0,
+        grid_w: int = 24,
+        grid_h: int = 13,
+    ) -> RGBFrame:
         grid = np.zeros((grid_h, grid_w), dtype=np.uint8)
         path_len = grid_w * grid_h
         head = frame_index % path_len
@@ -136,7 +184,7 @@ class PreviewEngine:
         return np.ascontiguousarray(np.stack([padded, padded, padded], axis=-1))
 
 
-def _kernel_preview_frame(engine, frame_index):
+def _kernel_preview_frame(engine: PreviewEngine, frame_index: int) -> RGBFrame:
     frames, _metadata = build_kernel_frames(
         engine,
         kernel_px=30,
@@ -147,7 +195,12 @@ def _kernel_preview_frame(engine, frame_index):
     return frames[frame_index % len(frames)]
 
 
-def render_single_frame(test="grid", frame_index=0, width=DMD_WIDTH, height=DMD_HEIGHT):
+def render_single_frame(
+    test: str = "grid",
+    frame_index: int = 0,
+    width: int = DMD_WIDTH,
+    height: int = DMD_HEIGHT,
+) -> RGBFrame:
     if test not in PATTERN_NAMES:
         raise ValueError(f"unsupported single-DMD test: {test}")
     engine = PreviewEngine(width=width, height=height)
@@ -172,7 +225,12 @@ def render_single_frame(test="grid", frame_index=0, width=DMD_WIDTH, height=DMD_
     return engine.pack_patterns(patterns)
 
 
-def render_pair_frame(test="grid", test_a=None, test_b=None, frame_index=0):
+def render_pair_frame(
+    test: str = "grid",
+    test_a: str | None = None,
+    test_b: str | None = None,
+    frame_index: int = 0,
+) -> RGBFrame:
     if test not in PAIR_TESTS:
         raise ValueError(f"unsupported paired test: {test}")
 
@@ -211,12 +269,12 @@ def render_pair_frame(test="grid", test_a=None, test_b=None, frame_index=0):
 
 
 def render_offline_frame(
-    layout="pair",
-    test="grid",
-    test_a=None,
-    test_b=None,
-    frame_index=0,
-):
+    layout: str = "pair",
+    test: str = "grid",
+    test_a: str | None = None,
+    test_b: str | None = None,
+    frame_index: int = 0,
+) -> RGBFrame:
     if layout == "pair":
         return render_pair_frame(test=test, test_a=test_a, test_b=test_b, frame_index=frame_index)
     if layout == "single":
@@ -224,11 +282,15 @@ def render_offline_frame(
     raise ValueError("layout must be 'pair' or 'single'")
 
 
-def render_bitplane_image(packed_frame, plane):
+def render_bitplane_image(packed_frame: RGBFrame, plane: int) -> BinaryMask:
     return np.ascontiguousarray(extract_bitplane(packed_frame, plane))
 
 
-def render_view_image(packed_frame, view="packed", plane=0):
+def render_view_image(
+    packed_frame: RGBFrame,
+    view: str = "packed",
+    plane: int = 0,
+) -> ImageArray:
     if view == "packed":
         return packed_frame
     if view == "bitplane":
@@ -236,21 +298,21 @@ def render_view_image(packed_frame, view="packed", plane=0):
     raise ValueError("view must be 'packed' or 'bitplane'")
 
 
-def render_png_bytes(image_array):
+def render_png_bytes(image_array: ImageArray) -> bytes:
     buf = io.BytesIO()
     Image.fromarray(np.ascontiguousarray(image_array)).save(buf, format="PNG")
     return buf.getvalue()
 
 
 def render_preview_png(
-    layout="pair",
-    test="grid",
-    test_a=None,
-    test_b=None,
-    frame_index=0,
-    view="packed",
-    plane=0,
-):
+    layout: str = "pair",
+    test: str = "grid",
+    test_a: str | None = None,
+    test_b: str | None = None,
+    frame_index: int = 0,
+    view: str = "packed",
+    plane: int = 0,
+) -> bytes:
     packed = render_offline_frame(
         layout=layout,
         test=test,
@@ -263,13 +325,13 @@ def render_preview_png(
 
 class LiveFrameStore:
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._frame = None
-        self._metadata = {}
-        self._updated_at = None
+        self._frame: RGBFrame | None = None
+        self._metadata: PreviewMetadata = {}
+        self._updated_at: float | None = None
 
-    def set_png(self, png_bytes, metadata=None):
+    def set_png(self, png_bytes: bytes, metadata: PreviewMetadata | None = None) -> None:
         image = Image.open(io.BytesIO(png_bytes)).convert("RGB")
         frame = np.ascontiguousarray(np.array(image, dtype=np.uint8))
         with self._lock:
@@ -277,38 +339,49 @@ class LiveFrameStore:
             self._metadata = dict(metadata or {})
             self._updated_at = time.time()
 
-    def get_frame(self):
+    def get_frame(self) -> LiveFrameSnapshot:
         with self._lock:
             if self._frame is None:
-                return None, {}, None
-            return self._frame.copy(), dict(self._metadata), self._updated_at
+                return LiveFrameSnapshot(None, {}, None)
+            return LiveFrameSnapshot(self._frame.copy(), dict(self._metadata), self._updated_at)
 
-    def get_metadata(self):
+    def get_metadata(self) -> tuple[PreviewMetadata, float | None]:
         with self._lock:
             return dict(self._metadata), self._updated_at
 
-    def has_frame(self):
+    def has_frame(self) -> bool:
         with self._lock:
             return self._frame is not None
 
 
 class LivePreviewPoster:
 
-    def __init__(self, url, fps=1.0):
+    def __init__(self, url: str, fps: float = 1.0) -> None:
         if fps <= 0:
             raise ValueError("fps must be positive")
         self.url = url
         self.interval_s = 1.0 / float(fps)
         self._last_post_s = 0.0
-        self._active_thread = None
+        self._active_thread: threading.Thread | None = None
         self._lock = threading.Lock()
 
-    def maybe_post_pair(self, frame_a, frame_b, metadata=None, force=False):
-        post_metadata = {"layout": "pair"}
+    def maybe_post_pair(
+        self,
+        frame_a: RGBFrame,
+        frame_b: RGBFrame,
+        metadata: PreviewMetadata | None = None,
+        force: bool = False,
+    ) -> None:
+        post_metadata: PreviewMetadata = {"layout": "pair"}
         post_metadata.update(dict(metadata or {}))
         self.maybe_post(compose_pair_frame(frame_a, frame_b), post_metadata, force=force)
 
-    def maybe_post(self, packed_frame, metadata=None, force=False):
+    def maybe_post(
+        self,
+        packed_frame: RGBFrame,
+        metadata: PreviewMetadata | None = None,
+        force: bool = False,
+    ) -> None:
         now = time.monotonic()
         with self._lock:
             if not force and now - self._last_post_s < self.interval_s:
@@ -326,7 +399,7 @@ class LivePreviewPoster:
             )
             self._active_thread.start()
 
-    def _post_frame(self, packed_frame, metadata):
+    def _post_frame(self, packed_frame: RGBFrame, metadata: PreviewMetadata) -> None:
         body = render_png_bytes(packed_frame)
         headers = {
             "Content-Type": "image/png",
@@ -339,7 +412,7 @@ class LivePreviewPoster:
         except Exception:
             pass
 
-    def close(self, timeout=1.0):
+    def close(self, timeout: float = 1.0) -> None:
         with self._lock:
             thread = self._active_thread
         if thread is not None:

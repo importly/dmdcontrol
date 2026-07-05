@@ -5,9 +5,14 @@ Each builder takes the PatternEngine and returns (patterns_or_None, dynamic_kind
 - dynamic_kind: None for static; otherwise selects a dynamic frame provider.
 """
 
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from typing import NamedTuple, Protocol
 
 import numpy as np
+from numpy.typing import NDArray
 
 from dmdcontrol.patterns.visual import (
     generate_coarse_grid_rgb,
@@ -19,6 +24,39 @@ from dmdcontrol.support.constants import (
     DMD_WIDTH,
     MIN_CALIBRATION_SQUARE_PX,
 )
+
+BinaryMask = NDArray[np.uint8]
+RGBFrame = NDArray[np.uint8]
+
+
+class PatternBuildResult(NamedTuple):
+    patterns: list[BinaryMask] | None
+    dynamic_kind: str | None
+
+
+class PatternMode(NamedTuple):
+    label: str
+    builder: "PatternBuilder"
+
+
+class BuiltPattern(NamedTuple):
+    label: str
+    patterns: list[BinaryMask] | None
+    dynamic_kind: str | None
+
+
+class PatternBuildEngine(Protocol):
+    width: int
+    height: int
+
+    def generate_checkerboard(self) -> list[BinaryMask]:
+        ...
+
+    def rgb_to_binary_patterns(self, rgb_array: RGBFrame) -> list[BinaryMask]:
+        ...
+
+
+PatternBuilder = Callable[[PatternBuildEngine], PatternBuildResult]
 
 _DIGIT_SEGMENTS = {
     1: ("b",
@@ -85,11 +123,14 @@ class CalibrationSquareState:
     angle_deg: float = 0.0
 
 
-def _clamp(value, lo, hi):
+def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
 
 
-def default_calibration_square_state(width=DMD_WIDTH, height=DMD_HEIGHT):
+def default_calibration_square_state(
+    width: int = DMD_WIDTH,
+    height: int = DMD_HEIGHT,
+) -> CalibrationSquareState:
     size = max(
         MIN_CALIBRATION_SQUARE_PX,
         min(width,
@@ -103,7 +144,11 @@ def default_calibration_square_state(width=DMD_WIDTH, height=DMD_HEIGHT):
     )
 
 
-def clamp_calibration_square_state(state, width=DMD_WIDTH, height=DMD_HEIGHT):
+def clamp_calibration_square_state(
+    state: CalibrationSquareState,
+    width: int = DMD_WIDTH,
+    height: int = DMD_HEIGHT,
+) -> CalibrationSquareState:
     max_size = max(MIN_CALIBRATION_SQUARE_PX, min(width, height))
     return CalibrationSquareState(
         x=float(_clamp(state.x,
@@ -121,7 +166,11 @@ def clamp_calibration_square_state(state, width=DMD_WIDTH, height=DMD_HEIGHT):
     )
 
 
-def calibration_square_bounds(state, width=DMD_WIDTH, height=DMD_HEIGHT):
+def calibration_square_bounds(
+    state: CalibrationSquareState,
+    width: int = DMD_WIDTH,
+    height: int = DMD_HEIGHT,
+) -> tuple[int, int, int, int]:
     half = state.size / 2.0
     angle = np.deg2rad(state.angle_deg)
     cos_a = np.cos(angle)
@@ -157,14 +206,14 @@ def calibration_square_bounds(state, width=DMD_WIDTH, height=DMD_HEIGHT):
 
 
 def apply_calibration_square_commands(
-    state,
-    commands,
-    width=DMD_WIDTH,
-    height=DMD_HEIGHT,
-    move_px=10,
-    rotation_deg=2,
-    size_step_px=10,
-):
+    state: CalibrationSquareState,
+    commands: Iterable[str],
+    width: int = DMD_WIDTH,
+    height: int = DMD_HEIGHT,
+    move_px: int = 10,
+    rotation_deg: float = 2,
+    size_step_px: int = 10,
+) -> CalibrationSquareState:
     x = state.x
     y = state.y
     size = state.size
@@ -198,13 +247,13 @@ def apply_calibration_square_commands(
 
 
 def generate_calibration_square_mask(
-    width=DMD_WIDTH,
-    height=DMD_HEIGHT,
-    center_x=None,
-    center_y=None,
-    size_px=None,
-    angle_deg=0.0,
-):
+    width: int = DMD_WIDTH,
+    height: int = DMD_HEIGHT,
+    center_x: float | None = None,
+    center_y: float | None = None,
+    size_px: float | None = None,
+    angle_deg: float = 0.0,
+) -> BinaryMask:
     if width <= 0 or height <= 0:
         raise ValueError("width and height must be positive")
     if center_x is None:
@@ -239,7 +288,7 @@ def generate_calibration_square_mask(
     return mask
 
 
-def _fill_rect(img, x0, y0, x1, y1):
+def _fill_rect(img: RGBFrame, x0: int, y0: int, x1: int, y1: int) -> None:
     height, width = img.shape[:2]
     x0 = max(0, min(width, x0))
     x1 = max(0, min(width, x1))
@@ -249,7 +298,15 @@ def _fill_rect(img, x0, y0, x1, y1):
         img[y0:y1, x0:x1, :] = 255
 
 
-def _draw_digit_segments(img, segments, x0, y0, digit_w, digit_h, min_stroke_px=1):
+def _draw_digit_segments(
+    img: RGBFrame,
+    segments: Iterable[str],
+    x0: int,
+    y0: int,
+    digit_w: int,
+    digit_h: int,
+    min_stroke_px: int = 1,
+) -> None:
     x1 = x0 + digit_w
     y1 = y0 + digit_h
     mid = (y0 + y1) // 2
@@ -290,7 +347,12 @@ def _draw_digit_segments(img, segments, x0, y0, digit_w, digit_h, min_stroke_px=
         _fill_rect(img, *boxes[segment])
 
 
-def generate_decimal_number_rgb(number, width=DMD_WIDTH, height=DMD_HEIGHT, size_px=None):
+def generate_decimal_number_rgb(
+    number: int,
+    width: int = DMD_WIDTH,
+    height: int = DMD_HEIGHT,
+    size_px: int | None = None,
+) -> RGBFrame:
     """Generate a binary RGB seven-segment decimal label frame."""
     if number < 0:
         raise ValueError("number must be non-negative")
@@ -329,32 +391,44 @@ def generate_decimal_number_rgb(number, width=DMD_WIDTH, height=DMD_HEIGHT, size
     return img
 
 
-def _grid(engine):
+def _grid(engine: PatternBuildEngine) -> PatternBuildResult:
     rgb = generate_coarse_grid_rgb(width=engine.width, height=engine.height)
-    return engine.rgb_to_binary_patterns(rgb), None
+    return PatternBuildResult(engine.rgb_to_binary_patterns(rgb), None)
 
 
-def _bands(engine):
+def _bands(engine: PatternBuildEngine) -> PatternBuildResult:
     rgb = generate_coarse_lines_rgb(width=engine.width, height=engine.height)
-    return engine.rgb_to_binary_patterns(rgb), None
+    return PatternBuildResult(engine.rgb_to_binary_patterns(rgb), None)
 
 
-PATTERN_MODES = {
-    #                 label                                   pattern generator          dynamic or not
-    "checkerboard": ("Static Checkerboard", lambda e: (e.generate_checkerboard(), None)),
-    "grid": ("Grid", _grid),
-    "bands": ("Bands", _bands),
-    "calibr-square": ("Interactive Calibration Square", lambda e: (None, "calibr-square")),
-    "snake": ("60FPS Snake", lambda e: (None, "snake")),
-    "clock": ("Microsecond Clock", lambda e: (None, "clock")),
-    "kernel": ("3x3 Kernel Variations (512 patterns)", lambda e: (None, "kernel")),
+PATTERN_MODES: dict[str, PatternMode] = {
+    #    label                                   pattern generator          dynamic or not
+    "checkerboard": PatternMode(
+        "Static Checkerboard",
+        lambda e: PatternBuildResult(e.generate_checkerboard(), None),
+    ),
+    "grid": PatternMode("Grid", _grid),
+    "bands": PatternMode("Bands", _bands),
+    "calibr-square": PatternMode(
+        "Interactive Calibration Square",
+        lambda e: PatternBuildResult(None, "calibr-square"),
+    ),
+    "snake": PatternMode("60FPS Snake", lambda e: PatternBuildResult(None, "snake")),
+    "clock": PatternMode("Microsecond Clock", lambda e: PatternBuildResult(None, "clock")),
+    "kernel": PatternMode(
+        "3x3 Kernel Variations (512 patterns)",
+        lambda e: PatternBuildResult(None, "kernel"),
+    ),
 }
 
 PATTERN_NAMES = list(PATTERN_MODES.keys())
 
 
-def build_patterns(engine, mode):
+def build_patterns(
+    engine: PatternBuildEngine,
+    mode: str,
+) -> BuiltPattern:
     """Returns (label, patterns_or_None, dynamic_kind) for the given mode name."""
-    label, builder = PATTERN_MODES[mode]
-    patterns, dynamic_kind = builder(engine)
-    return label, patterns, dynamic_kind
+    pattern_mode = PATTERN_MODES[mode]
+    result = pattern_mode.builder(engine)
+    return BuiltPattern(pattern_mode.label, result.patterns, result.dynamic_kind)

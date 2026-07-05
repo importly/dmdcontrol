@@ -32,12 +32,11 @@ def _sync_check_test_metadata(args: argparse.Namespace, *, dry_run: bool) -> dic
 
 def sync_check_metadata(
     args: argparse.Namespace,
-    event_filter,
+    event_filter: object,
     *,
     dry_run: bool,
     command: list[str],
-) -> dict[str,
-          object]:
+) -> dict[str, object]:
     metadata = {
         "mode": "sync-check",
         "dry_run": dry_run,

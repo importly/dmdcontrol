@@ -4,7 +4,9 @@ import numpy as np
 import pytest
 
 from dmdcontrol.patterns.kernel import (
+    KernelFrameBuild,
     KernelFrameProvider,
+    KernelLutOverride,
     build_kernel_frames,
     compute_kernel_lut_override,
     generate_kernel_masks,
@@ -36,13 +38,17 @@ class KernelRuntimeTests(unittest.TestCase):
             single_runtime._build_parser().parse_args(["--dry-run-timing", "--hz", "120"])
 
     def test_compute_kernel_lut_override_clamps_to_bitplane_count(self):
-        entries, exposure_us = compute_kernel_lut_override(
+        override = compute_kernel_lut_override(
             enabled=True,
             exposure_us=3000,
             target_hz=60,
             sequence_utilization=0.9,
         )
+        entries, exposure_us = override
 
+        self.assertIsInstance(override, KernelLutOverride)
+        self.assertEqual(override.entries_count, 4)
+        self.assertEqual(override.exposure_us, 3000)
         self.assertEqual(entries, 4)
         self.assertEqual(exposure_us, 3000)
 
@@ -81,15 +87,18 @@ class KernelRuntimeTests(unittest.TestCase):
     def test_build_kernel_frames_includes_leaders_and_optional_blank(self):
         engine = _Engine()
 
-        frames, metadata = build_kernel_frames(
+        build = build_kernel_frames(
             engine,
             kernel_px=6,
             slots_per_frame=24,
             leader_frames=2,
             blank_end_frame=True,
         )
+        frames, metadata = build
 
+        self.assertIsInstance(build, KernelFrameBuild)
         self.assertEqual(len(frames), 25)
+        self.assertEqual(build.metadata["leader_frames"], 2)
         self.assertEqual(metadata["leader_frames"], 2)
         self.assertEqual(metadata["payload_vsyncs"], 23)
         self.assertEqual(metadata["blank_slot_count"], 16)

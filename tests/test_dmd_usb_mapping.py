@@ -5,6 +5,8 @@ from pathlib import Path
 
 from dmdcontrol.hardware.mapping import resolve_dmd_mapping
 from dmdcontrol.hardware.usb import (
+    PhysicalUsbPath,
+    UsbIds,
     format_usb_candidates,
     parse_physical_usb_path,
     parse_udevadm_properties,
@@ -45,14 +47,22 @@ class DmdUsbMappingTests(unittest.TestCase):
 
     def test_usb_ids_parse_from_standard_and_hid_id_properties(self):
         props = parse_udevadm_properties(UDEV_HIDRAW0)
-        self.assertEqual(usb_ids_from_properties(props), (0x0451, 0xC900))
+        ids = usb_ids_from_properties(props)
+        self.assertIsInstance(ids, UsbIds)
+        self.assertEqual(ids.vid, 0x0451)
+        self.assertEqual(ids.pid, 0xC900)
+        self.assertEqual(ids, (0x0451, 0xC900))
 
         hid_props = parse_udevadm_properties(
             "HID_ID=0003:00000451:0000C900\nDEVNAME=/dev/hidraw1\n")
         self.assertEqual(usb_ids_from_properties(hid_props), (0x0451, 0xC900))
 
     def test_physical_usb_path_parses_port_topology(self):
-        self.assertEqual(parse_physical_usb_path("usb1/1-8"), (1, (8, )))
+        parsed = parse_physical_usb_path("usb1/1-8")
+        self.assertIsInstance(parsed, PhysicalUsbPath)
+        self.assertEqual(parsed.bus, 1)
+        self.assertEqual(parsed.ports, (8, ))
+        self.assertEqual(parsed, (1, (8, )))
         self.assertEqual(parse_physical_usb_path("usb2/2-4.3"), (2, (4, 3)))
 
     def test_resolve_dmd_mapping_from_json(self):

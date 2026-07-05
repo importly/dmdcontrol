@@ -1,18 +1,43 @@
 from __future__ import annotations
 
 import math
+from argparse import Namespace
 from dataclasses import dataclass
+from types import SimpleNamespace
+from typing import TypedDict
 
 from dmdcontrol.patterns.paired import (
     MAX_COUNT_SEQUENCE_FRAMES,
     count_lut_entries_per_frame,
 )
-from dmdcontrol.runtime.lifecycle import build_lut_entries
+from dmdcontrol.runtime.lifecycle import LutTimingMetadata, build_lut_entries
 from dmdcontrol.support.constants import (
     BITPLANES,
     DEFAULT_HZ,
     DEFAULT_SEQUENCE_UTILIZATION,
 )
+
+ArgsNamespace = Namespace | SimpleNamespace
+
+
+class CountSequenceMetadata(TypedDict):
+    count_start: int
+    count_end: int
+    count_slots_per_frame: int
+    count_slots_per_frame_mode: str
+    count_blank_between_frames: bool
+    count_blank_after_each_count: bool
+    count_lut_entries_per_frame: int
+
+
+class CountPairPreviewMetadata(TypedDict):
+    start: int
+    end: int
+    slots_per_frame: int
+    slots_per_frame_mode: str
+    blank_between_frames: bool
+    blank_after_each_count: bool
+    lut_entries_per_frame: int
 
 
 @dataclass(frozen=True)
@@ -35,7 +60,7 @@ class CountSequenceConfig:
     @classmethod
     def from_args(
         cls,
-        args,
+        args: ArgsNamespace,
         *,
         require_resolved_slots: bool = True,
     ) -> "CountSequenceConfig | None":
@@ -99,7 +124,7 @@ class CountSequenceConfig:
         dark_time_us: int | None,
         target_hz: float = DEFAULT_HZ,
         sequence_utilization: float | None = DEFAULT_SEQUENCE_UTILIZATION,
-    ) -> dict:
+    ) -> LutTimingMetadata:
         return validate_count_lut_sequence_does_not_repeat(
             count_slots_per_frame=self.count_slots_per_frame,
             exposure_us=exposure_us,
@@ -109,7 +134,7 @@ class CountSequenceConfig:
             sequence_utilization=sequence_utilization,
         )
 
-    def to_metadata(self) -> dict[str, object]:
+    def to_metadata(self) -> CountSequenceMetadata:
         return {
             "count_start": self.count_start,
             "count_end": self.count_end,
@@ -120,7 +145,7 @@ class CountSequenceConfig:
             "count_lut_entries_per_frame": self.lut_entries_per_frame,
         }
 
-    def to_pair_preview_metadata(self) -> dict[str, object]:
+    def to_pair_preview_metadata(self) -> CountPairPreviewMetadata:
         return {
             "start": self.count_start,
             "end": self.count_end,
@@ -134,7 +159,7 @@ class CountSequenceConfig:
 
 class _DryRunDLPC:
 
-    def get_display_dimensions(self):
+    def get_display_dimensions(self) -> None:
         return None
 
 
@@ -146,7 +171,7 @@ def validate_count_lut_sequence_does_not_repeat(
     count_blank_between_frames: bool = False,
     target_hz: float = DEFAULT_HZ,
     sequence_utilization: float | None = DEFAULT_SEQUENCE_UTILIZATION,
-) -> dict:
+) -> LutTimingMetadata:
     utilization = (
         DEFAULT_SEQUENCE_UTILIZATION
         if sequence_utilization is None else sequence_utilization)

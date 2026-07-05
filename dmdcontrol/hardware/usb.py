@@ -5,8 +5,19 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 from dmdcontrol.support.constants import DLPC900_PID, DLPC900_VID
+
+
+class UsbIds(NamedTuple):
+    vid: int | None
+    pid: int | None
+
+
+class PhysicalUsbPath(NamedTuple):
+    bus: int
+    ports: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -33,19 +44,19 @@ def parse_udevadm_properties(text):
     return props
 
 
-def usb_ids_from_properties(props):
+def usb_ids_from_properties(props) -> UsbIds:
     vendor = props.get("ID_VENDOR_ID")
     model = props.get("ID_MODEL_ID")
     if vendor and model:
-        return int(vendor, 16), int(model, 16)
+        return UsbIds(int(vendor, 16), int(model, 16))
 
     hid_id = props.get("HID_ID")
     if hid_id:
         parts = hid_id.split(":")
         if len(parts) == 3:
-            return int(parts[1], 16), int(parts[2], 16)
+            return UsbIds(int(parts[1], 16), int(parts[2], 16))
 
-    return None, None
+    return UsbIds(None, None)
 
 
 def physical_path_from_devpath(devpath):
@@ -57,13 +68,13 @@ def physical_path_from_devpath(devpath):
     return f"{match.group(1)}/{match.group(2)}"
 
 
-def parse_physical_usb_path(physical_path):
+def parse_physical_usb_path(physical_path) -> PhysicalUsbPath | None:
     match = re.fullmatch(r"usb(\d+)/\d+-([0-9.]+)", physical_path or "")
     if not match:
         return None
     bus = int(match.group(1))
     ports = tuple(int(part) for part in match.group(2).split(".") if part)
-    return bus, ports
+    return PhysicalUsbPath(bus, ports)
 
 
 def _usb_device_devpath_from_hid_devpath(devpath):

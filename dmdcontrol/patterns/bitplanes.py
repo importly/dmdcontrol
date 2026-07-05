@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 import numpy as np
+from numpy.typing import NDArray
 
 from dmdcontrol.support.constants import BITPLANES
 
@@ -13,6 +15,9 @@ BITPLANE_LABELS = tuple(
 )
 _BITPLANE_RGB_CHANNELS = (1,) * 8 + (0,) * 8 + (2,) * 8
 _BITPLANE_BITS = tuple(range(8)) * 3
+
+BinaryMaskArray = NDArray[np.uint8]
+RGBFrameArray = NDArray[np.uint8]
 
 
 @dataclass(frozen=True)
@@ -39,7 +44,7 @@ def bitplane_location(index: int) -> BitplaneLocation:
 class BitplaneMask:
     """One validated binary mask for a single DLPC900 bitplane slot."""
 
-    array: np.ndarray
+    array: BinaryMaskArray
 
     @property
     def height(self) -> int:
@@ -50,7 +55,14 @@ class BitplaneMask:
         return int(self.array.shape[1])
 
     @classmethod
-    def from_array(cls, array, *, width: int, height: int, label: str = "mask"):
+    def from_array(
+        cls,
+        array: object,
+        *,
+        width: int,
+        height: int,
+        label: str = "mask",
+    ) -> BitplaneMask:
         mask = np.asarray(array)
         if mask.shape != (int(height), int(width)):
             raise ValueError(
@@ -59,7 +71,7 @@ class BitplaneMask:
         return cls(np.ascontiguousarray((mask > 0).astype(np.uint8)))
 
     @classmethod
-    def blank(cls, *, width: int, height: int):
+    def blank(cls, *, width: int, height: int) -> BitplaneMask:
         return cls(np.zeros((int(height), int(width)), dtype=np.uint8))
 
 
@@ -67,7 +79,7 @@ class BitplaneMask:
 class PackedRgbFrame:
     """One RGB888 frame containing the 24 packed DLPC900 bitplanes."""
 
-    array: np.ndarray
+    array: RGBFrameArray
 
     @property
     def height(self) -> int:
@@ -78,7 +90,13 @@ class PackedRgbFrame:
         return int(self.array.shape[1])
 
     @classmethod
-    def from_array(cls, array, *, width: int | None = None, height: int | None = None):
+    def from_array(
+        cls,
+        array: object,
+        *,
+        width: int | None = None,
+        height: int | None = None,
+    ) -> PackedRgbFrame:
         frame = np.asarray(array)
         if frame.ndim != 3 or frame.shape[2] != 3:
             raise ValueError(f"packed RGB frame must have shape HxWx3, got {frame.shape}")
@@ -90,13 +108,13 @@ class PackedRgbFrame:
             raise ValueError("packed RGB frame must use dtype uint8")
         return cls(np.ascontiguousarray(frame))
 
-    def extract_bitplane(self, index: int) -> np.ndarray:
+    def extract_bitplane(self, index: int) -> BinaryMaskArray:
         location = bitplane_location(index)
         return (
             ((self.array[:, :, location.rgb_channel] >> location.bit) & 1) * 255
         ).astype(np.uint8)
 
-    def unpack_masks(self) -> list[np.ndarray]:
+    def unpack_masks(self) -> list[BinaryMaskArray]:
         return [(self.extract_bitplane(index) > 0).astype(np.uint8) for index in range(BITPLANES)]
 
 
@@ -109,7 +127,13 @@ class BitplaneStack:
     height: int
 
     @classmethod
-    def from_masks(cls, masks, *, width: int, height: int):
+    def from_masks(
+        cls,
+        masks: Iterable[BitplaneMask | BinaryMaskArray],
+        *,
+        width: int,
+        height: int,
+    ) -> BitplaneStack:
         coerced = [
             _coerce_bitplane_mask(mask, width=int(width), height=int(height), label=f"mask {index}")
             for index, mask in enumerate(masks)
@@ -121,7 +145,14 @@ class BitplaneStack:
         return cls(tuple(coerced), int(width), int(height))
 
     @classmethod
-    def from_display_slots(cls, display_masks, *, bitplane_order, width: int, height: int):
+    def from_display_slots(
+        cls,
+        display_masks: Sequence[BitplaneMask | BinaryMaskArray],
+        *,
+        bitplane_order: Sequence[int],
+        width: int,
+        height: int,
+    ) -> BitplaneStack:
         display_masks = list(display_masks)
         order = tuple(int(index) for index in bitplane_order)
         if len(order) != len(display_masks):
@@ -129,7 +160,7 @@ class BitplaneStack:
         if sorted(order) != list(range(len(display_masks))):
             raise ValueError("bitplane_order must be a zero-based permutation of display slots")
 
-        ordered = [None] * len(display_masks)
+        ordered: list[BitplaneMask | BinaryMaskArray] = list(display_masks)
         for display_slot, bitplane_index in enumerate(order):
             ordered[bitplane_index] = display_masks[display_slot]
         return cls.from_masks(ordered, width=width, height=height)
@@ -137,12 +168,12 @@ class BitplaneStack:
     @classmethod
     def from_masks_with_optional_blanks(
         cls,
-        masks,
+        masks: Iterable[BitplaneMask | BinaryMaskArray],
         *,
         width: int,
         height: int,
         blank_between_masks: bool = False,
-    ):
+    ) -> BitplaneStack:
         masks = list(masks)
         if not blank_between_masks:
             return cls.from_masks(masks, width=width, height=height)
@@ -165,7 +196,13 @@ class BitplaneStack:
         return PackedRgbFrame(np.ascontiguousarray(np.stack([red, green, blue], axis=-1)))
 
 
-def _coerce_bitplane_mask(mask, *, width: int, height: int, label: str) -> BitplaneMask:
+def _coerce_bitplane_mask(
+    mask: BitplaneMask | BinaryMaskArray,
+    *,
+    width: int,
+    height: int,
+    label: str,
+) -> BitplaneMask:
     if isinstance(mask, BitplaneMask):
         if mask.array.shape != (height, width):
             raise ValueError(
@@ -175,16 +212,20 @@ def _coerce_bitplane_mask(mask, *, width: int, height: int, label: str) -> Bitpl
     return BitplaneMask.from_array(mask, width=width, height=height, label=label)
 
 
-def pack_bitplanes_rgb(binary_images, width, height):
+def pack_bitplanes_rgb(
+    binary_images: Iterable[BitplaneMask | BinaryMaskArray],
+    width: int,
+    height: int,
+) -> RGBFrameArray:
     binary_images = list(binary_images)
     if len(binary_images) != BITPLANES:
         raise ValueError(f"expected {BITPLANES} binary images, got {len(binary_images)}")
     return BitplaneStack.from_masks(binary_images, width=width, height=height).to_rgb_frame().array
 
 
-def unpack_rgb_bitplanes(rgb_array, width, height):
+def unpack_rgb_bitplanes(rgb_array: object, width: int, height: int) -> list[BinaryMaskArray]:
     return PackedRgbFrame.from_array(rgb_array, width=width, height=height).unpack_masks()
 
 
-def extract_bitplane(packed_frame, plane):
+def extract_bitplane(packed_frame: object, plane: int) -> BinaryMaskArray:
     return PackedRgbFrame.from_array(packed_frame).extract_bitplane(plane)

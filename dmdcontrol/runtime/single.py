@@ -583,9 +583,11 @@ def main(argv=None):
             finally:
                 glfw.make_context_current(None)
 
-        pump_thread = {"t": None}
+        pump_thread: threading.Thread | None = None
 
         def _prime_video_buffer():
+            nonlocal pump_thread
+
             logger.info("[+] Starting continuous background GL frame pump before sequencer arm...")
             # Release GL context from main thread so the pump thread can claim it.
             glfw.make_context_current(None)
@@ -593,7 +595,7 @@ def main(argv=None):
             pump_thread_ready.clear()
             t = threading.Thread(target=_continuous_pump, daemon=True)
             t.start()
-            pump_thread["t"] = t
+            pump_thread = t
             # Wait for the pump thread to actually own the context and start pushing frames.
             pump_thread_ready.wait(timeout=1.0)
             # Give the pump a few VSYNCs of head-start so the DP buffer is fully primed
@@ -619,8 +621,8 @@ def main(argv=None):
             if pump_event.is_set():
                 logger.info("[+] Stopping continuous background GL frame pump.")
                 pump_event.clear()
-                if pump_thread["t"] is not None:
-                    pump_thread["t"].join(timeout=1.0)
+                if pump_thread is not None:
+                    pump_thread.join(timeout=1.0)
                 glfw.make_context_current(engine.window)
 
         if args.trigger:

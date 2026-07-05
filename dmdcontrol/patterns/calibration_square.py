@@ -5,10 +5,18 @@ interactive provider imports GLFW only when calibration-square playback is
 actually constructed.
 """
 
+from __future__ import annotations
+
 import os
 import time
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from os import PathLike
+from typing import NamedTuple, Protocol
 
+from dmdcontrol.patterns.bitplanes import BinaryMaskArray, RGBFrameArray
 from dmdcontrol.patterns.modes import (
+    CalibrationSquareState,
     apply_calibration_square_commands,
     calibration_square_bounds,
     default_calibration_square_state,
@@ -20,7 +28,36 @@ from dmdcontrol.support.logging import logger
 VALID_CALIBRATION_COMMANDS = {"w", "a", "s", "d", "q", "e", "r", "f", "x"}
 
 
-def build_calibration_square_frame(engine, state, bitplanes=BITPLANES):
+class CalibrationSquareEngine(Protocol):
+    width: int
+    height: int
+    window: object
+
+    def pack_patterns(self, binary_images: Sequence[BinaryMaskArray]) -> RGBFrameArray:
+        ...
+
+
+FrameProvider = Callable[[], RGBFrameArray]
+
+
+class CalibrationControlRead(NamedTuple):
+    commands: str
+    offset: int
+
+
+@dataclass
+class CalibrationSquareProviderState:
+    square: CalibrationSquareState
+    frame: RGBFrameArray
+    control_offset: int = 0
+    last_log: float = 0.0
+
+
+def build_calibration_square_frame(
+    engine: CalibrationSquareEngine,
+    state: CalibrationSquareState,
+    bitplanes: int = BITPLANES,
+) -> RGBFrameArray:
     mask = generate_calibration_square_mask(
         width=engine.width,
         height=engine.height,
@@ -32,7 +69,11 @@ def build_calibration_square_frame(engine, state, bitplanes=BITPLANES):
     return engine.pack_patterns([mask] * bitplanes)
 
 
-def format_calibration_square_state(state, width, height):
+def format_calibration_square_state(
+    state: CalibrationSquareState,
+    width: int,
+    height: int,
+) -> str:
     left, top, right, bottom = calibration_square_bounds(state, width, height)
     return (
         f"center=({state.x:.0f},{state.y:.0f}) px, "
@@ -40,9 +81,12 @@ def format_calibration_square_state(state, width, height):
         f"size={state.size:.0f}px, angle={state.angle_deg:.1f}deg")
 
 
-def read_calibration_square_control_file(path, offset):
+def read_calibration_square_control_file(
+    path: str | PathLike[str] | None,
+    offset: int,
+) -> CalibrationControlRead:
     if not path:
-        return "", offset
+        return CalibrationControlRead("", offset)
     try:
         size = os.path.getsize(path)
         if size < offset:
@@ -53,12 +97,12 @@ def read_calibration_square_control_file(path, offset):
             offset = f.tell()
     except OSError as exc:
         logger.warning(f"[CALIBRATION] Cannot read control file {path}: {exc}")
-        return "", offset
+        return CalibrationControlRead("", offset)
     commands = "".join(ch.lower() for ch in data if ch.lower() in VALID_CALIBRATION_COMMANDS)
-    return commands, offset
+    return CalibrationControlRead(commands, offset)
 
 
-def calibration_square_key_commands(glfw):
+def calibration_square_key_commands(glfw: object) -> tuple[tuple[int, str], ...]:
     return (
         (glfw.KEY_W,
          "w"),
@@ -80,27 +124,26 @@ def calibration_square_key_commands(glfw):
 
 
 def make_calibration_square_frame_provider(
-    engine,
-    initial_frame,
-    control_file=None,
-    initial_state=None,
-):
+    engine: CalibrationSquareEngine,
+    initial_frame: RGBFrameArray,
+    control_file: str | PathLike[str] | None = None,
+    initial_state: CalibrationSquareState | None = None,
+) -> FrameProvider:
     import glfw
 
     key_commands = calibration_square_key_commands(glfw)
-    state = {
-        "square": initial_state or default_calibration_square_state(engine.width,
-                                                                    engine.height),
-        "frame": initial_frame,
-        "control_offset": 0,
-        "last_log": 0.0,
-    }
+    state = CalibrationSquareProviderState(
+        square=initial_state or default_calibration_square_state(engine.width, engine.height),
+        frame=initial_frame,
+    )
 
-    def _provider_calibration_square():
-        file_commands, state["control_offset"] = read_calibration_square_control_file(
+    def _provider_calibration_square() -> RGBFrameArray:
+        file_read = read_calibration_square_control_file(
             control_file,
-            state["control_offset"],
+            state.control_offset,
         )
+        file_commands = file_read.commands
+        state.control_offset = file_read.offset
         keyboard_commands = "".join(
             command for key, command in key_commands
             if glfw.get_key(engine.window, key) == glfw.PRESS)
@@ -110,20 +153,20 @@ def make_calibration_square_frame_provider(
             glfw.set_window_should_close(engine.window, True)
             commands = commands.replace("x", "")
         if commands:
-            state["square"] = apply_calibration_square_commands(
-                state["square"],
+            state.square = apply_calibration_square_commands(
+                state.square,
                 commands,
                 width=engine.width,
                 height=engine.height,
             )
-            state["frame"] = build_calibration_square_frame(engine, state["square"])
+            state.frame = build_calibration_square_frame(engine, state.square)
             now = time.monotonic()
-            if file_commands or now - state["last_log"] >= 0.25:
+            if file_commands or now - state.last_log >= 0.25:
                 logger.info(
                     "[CALIBRATION] square "
-                    f"{format_calibration_square_state(state['square'], engine.width, engine.height)}"
+                    f"{format_calibration_square_state(state.square, engine.width, engine.height)}"
                 )
-                state["last_log"] = now
-        return state["frame"]
+                state.last_log = now
+        return state.frame
 
     return _provider_calibration_square

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from dmdcontrol.runtime.count_slots import CountSequenceConfig
@@ -190,7 +191,11 @@ def pair_runtime_request_from_args(args: argparse.Namespace) -> PairRuntimeReque
     return PairRuntimeRequest.from_sync_args(args)
 
 
-def _argv_options(pairs, *, skip_none: bool = False) -> list[str]:
+def _argv_options(
+    pairs: Iterable[tuple[str, object | None]],
+    *,
+    skip_none: bool = False,
+) -> list[str]:
     return [
         item
         for flag, value in pairs

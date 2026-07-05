@@ -1,6 +1,6 @@
 import unittest
 
-from dmdcontrol.runtime.lifecycle import build_lut_entries, compute_trigger_out_2_timing
+from dmdcontrol.runtime.lifecycle import LutEntry, build_lut_entries, compute_trigger_out_2_timing
 
 
 class DryRunDLPC:
@@ -32,6 +32,27 @@ class TriggerTimingTests(unittest.TestCase):
         self.assertEqual(timing["trig2_mode"], "per_bitplane")
         self.assertEqual(timing["effective_binary_rate_hz"], 1440.0)
         self.assertEqual(timing["exposure_us"], 615)
+
+    def test_lut_entry_has_named_fields_and_legacy_tuple_shape(self):
+        entries, _timing = build_lut_entries(
+            DryRunDLPC(),
+            target_hz=60,
+            entries_count=1,
+            per_entry_exposure_us=4000,
+        )
+
+        entry = entries[0]
+
+        self.assertIsInstance(entry, LutEntry)
+        self.assertEqual(entry.bitplane_index, 0)
+        self.assertEqual(entry.exposure_us, 4000)
+        self.assertEqual(entry.clear_after, True)
+        self.assertEqual(entry.bit_depth, 1)
+        self.assertEqual(entry.led_select, 7)
+        self.assertEqual(entry.dark_us, 0)
+        self.assertEqual(entry.trig2_disabled, False)
+        self.assertEqual(entry.bit_position, 0)
+        self.assertEqual(entry, (0, 4000, True, 1, 7, 0, False, 0))
 
     def test_falling_edge_preserves_minimum_twenty_us_pulse(self):
         timing = compute_trigger_out_2_timing(rising_delay_us=15)

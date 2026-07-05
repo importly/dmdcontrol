@@ -142,6 +142,24 @@ class DmdPreviewRenderTests(unittest.TestCase):
         decoded = Image.open(io.BytesIO(png))
         self.assertEqual(decoded.size, (5, 4))
 
+    def test_live_frame_store_snapshot_has_named_fields_and_unpacks(self):
+        from dmdcontrol.preview.render import LiveFrameSnapshot, LiveFrameStore, render_png_bytes
+
+        store = LiveFrameStore()
+        empty = store.get_frame()
+        self.assertIsInstance(empty, LiveFrameSnapshot)
+        frame, metadata, updated_at = empty
+        self.assertIsNone(frame)
+        self.assertEqual(metadata, {})
+        self.assertIsNone(updated_at)
+
+        image = np.zeros((4, 5, 3), dtype=np.uint8)
+        store.set_png(render_png_bytes(image), metadata={"layout": "pair"})
+        snapshot = store.get_frame()
+        self.assertIsInstance(snapshot, LiveFrameSnapshot)
+        self.assertEqual(snapshot.metadata["layout"], "pair")
+        self.assertIsNotNone(snapshot.updated_at)
+
 
 if __name__ == "__main__":
     unittest.main()

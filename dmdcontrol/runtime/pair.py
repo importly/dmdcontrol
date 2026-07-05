@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TypedDict
 
 import numpy as np
 
@@ -22,6 +24,8 @@ from dmdcontrol.patterns.paired import (
     STATIC_IMAGES_PAIR_TEST,
     STATIC_PAIR_TESTS,
     FramePair,
+    PairFrameProvider,
+    RGBFrame,
     as_frame_pair,
 )
 from dmdcontrol.preview.render import LivePreviewPoster, build_lut_preview_metadata
@@ -29,8 +33,14 @@ from dmdcontrol.runtime.count_slots import (
     CountSequenceConfig,
     resolve_count_slots_per_frame,
 )
-from dmdcontrol.runtime.display_sequence import build_paired_display_sequence
+from dmdcontrol.runtime.display_sequence import (
+    DisplaySequenceMetadata,
+    PairedDisplaySequence,
+    StartupLeaderMetadata,
+    build_paired_display_sequence,
+)
 from dmdcontrol.runtime.lifecycle import (
+    PreparedSequenceState,
     compute_trigger_out_2_timing,
     load_pattern_sequence,
     prepare_dlpc900_for_video_pattern,
@@ -67,15 +77,28 @@ class PairConfig:
     target_hz: int = DEFAULT_HZ
 
 
-def _blank_dmd_frame():
+class BeforeStartContext(TypedDict):
+    args: argparse.Namespace
+    pair_config: PairConfig
+    state_a: PreparedSequenceState
+    state_b: PreparedSequenceState
+    preview_metadata: dict[str, object]
+    startup_leader: StartupLeaderMetadata
+    display_sequence: DisplaySequenceMetadata
+
+
+BeforeStartCallback = Callable[[BeforeStartContext], None]
+
+
+def _blank_dmd_frame() -> RGBFrame:
     return np.zeros((DMD_HEIGHT, DMD_WIDTH, 3), dtype=np.uint8)
 
 
-def _blank_pair_frames():
+def _blank_pair_frames() -> FramePair:
     return FramePair(a=_blank_dmd_frame(), b=_blank_dmd_frame())
 
 
-def resolve_pair_config(config_path=None):
+def resolve_pair_config(config_path: str | None = None) -> PairConfig:
     dmd_a = resolve_dmd_mapping("A", config_path)
     dmd_b = resolve_dmd_mapping("B", config_path)
     for mapping in (dmd_a, dmd_b):
@@ -87,7 +110,7 @@ def resolve_pair_config(config_path=None):
     return PairConfig(dmd_a=dmd_a, dmd_b=dmd_b)
 
 
-def _build_parser():
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Dual DLPC900 paired Video Pattern Mode runtime")
     parser.add_argument("--dmd-config", default=None, help="Path to DMD mapping config")
     parser.add_argument("--test", choices=PAIR_TESTS, default="checkerboard")
@@ -278,11 +301,11 @@ def _build_parser():
     return parser
 
 
-def _is_count_recipe(test):
+def _is_count_recipe(test: str) -> bool:
     return test == A_COUNT_B_STATIC_PAIR_TEST
 
 
-def _resolve_count_recipe_args(args, target_hz=DEFAULT_HZ):
+def _resolve_count_recipe_args(args: argparse.Namespace, target_hz: float = DEFAULT_HZ) -> None:
     if not _is_count_recipe(args.test):
         return
     mode = "auto" if args.count_slots_per_frame is None else "explicit"
@@ -302,7 +325,7 @@ def _resolve_count_recipe_args(args, target_hz=DEFAULT_HZ):
     args.count_slots_per_frame_mode = mode
 
 
-def _validate_pair_args(args, target_hz=DEFAULT_HZ):
+def _validate_pair_args(args: argparse.Namespace, target_hz: float = DEFAULT_HZ) -> None:
     if args.preview_fps <= 0:
         raise SystemExit("--preview-fps must be positive")
     try:
@@ -331,7 +354,7 @@ def _validate_pair_args(args, target_hz=DEFAULT_HZ):
         raise SystemExit("--test-a/--test-b are only valid for static paired tests")
 
 
-def _validate_count_recipe_args(args, target_hz=DEFAULT_HZ):
+def _validate_count_recipe_args(args: argparse.Namespace, target_hz: float = DEFAULT_HZ) -> None:
     if args.test_a:
         raise SystemExit("--test-a is not valid for a-count-b-static; A is the count stream")
     try:
@@ -347,7 +370,7 @@ def _validate_count_recipe_args(args, target_hz=DEFAULT_HZ):
         raise SystemExit(str(exc)) from exc
 
 
-def _dry_run_timing(args, pair_config):
+def _dry_run_timing(args: argparse.Namespace, pair_config: PairConfig) -> int:
     sequence = build_paired_display_sequence(
         args,
         target_hz=pair_config.target_hz,
@@ -445,7 +468,10 @@ def _dry_run_timing(args, pair_config):
         f"(pulse width {trigger_timing['pulse_width_us']}us).")
     return 0
 
-def _live_preview_metadata_for_frame(base_metadata, provider):
+def _live_preview_metadata_for_frame(
+    base_metadata: dict[str, object] | None,
+    provider: PairFrameProvider,
+) -> dict[str, object]:
     metadata = dict(base_metadata or {})
     frame_index = getattr(provider, "frame_index", None)
     if frame_index is not None:
@@ -453,7 +479,14 @@ def _live_preview_metadata_for_frame(base_metadata, provider):
     return metadata
 
 
-def _build_live_preview_metadata(args, pair_config, state_a, state_b, *, sequence=None):
+def _build_live_preview_metadata(
+    args: argparse.Namespace,
+    pair_config: PairConfig,
+    state_a: dict[str, object] | None,
+    state_b: dict[str, object] | None,
+    *,
+    sequence: PairedDisplaySequence | None = None,
+) -> dict[str, object]:
     lut_state = state_a or state_b
     metadata = {
         "layout": "pair",
@@ -488,7 +521,7 @@ def _build_live_preview_metadata(args, pair_config, state_a, state_b, *, sequenc
     return metadata
 
 
-def _display_frame_pair(engine, frame_pair):
+def _display_frame_pair(engine: object, frame_pair: FramePair | tuple[RGBFrame, RGBFrame]) -> None:
     frames = as_frame_pair(frame_pair)
     engine.display_pair(frames.a, frames.b)
 
@@ -514,15 +547,15 @@ class PairRenderCoordinator:
 
     def __init__(
         self,
-        engine,
-        provider,
-        args,
+        engine: object,
+        provider: PairFrameProvider,
+        args: argparse.Namespace,
         *,
-        startup_leader_pair,
-        startup_leader_vsyncs,
-        preview_poster=None,
-        preview_metadata=None,
-    ):
+        startup_leader_pair: FramePair | tuple[RGBFrame, RGBFrame],
+        startup_leader_vsyncs: int,
+        preview_poster: LivePreviewPoster | None = None,
+        preview_metadata: dict[str, object] | None = None,
+    ) -> None:
         self.engine = engine
         self.provider = provider
         self.args = args
@@ -535,48 +568,48 @@ class PairRenderCoordinator:
         self._prime_first_semantic_displayed = threading.Event()
         self._release_semantic = threading.Event()
         self._stop = threading.Event()
-        self._error = None
-        self._primed_first_semantic_pair = None
+        self._error: BaseException | None = None
+        self._primed_first_semantic_pair: FramePair | None = None
         self._thread = threading.Thread(target=self._run, daemon=True)
 
-    def start(self):
+    def start(self) -> "PairRenderCoordinator":
         self.engine.release_context()
         self._thread.start()
         return self
 
-    def wait_until_ready(self, timeout_s=1.0):
+    def wait_until_ready(self, timeout_s: float = 1.0) -> bool:
         ready = self._ready.wait(timeout=timeout_s)
         self._raise_if_failed()
         return ready
 
-    def release_semantic_frames(self):
+    def release_semantic_frames(self) -> None:
         self._release_semantic.set()
 
-    def prime_first_semantic_frame(self, timeout_s=1.0):
+    def prime_first_semantic_frame(self, timeout_s: float = 1.0) -> bool:
         self._prime_first_semantic.set()
         displayed = self._prime_first_semantic_displayed.wait(timeout=timeout_s)
         self._raise_if_failed()
         return displayed
 
-    def join(self):
+    def join(self) -> None:
         self._thread.join()
         self._raise_if_failed()
 
-    def stop(self, timeout_s=1.0):
+    def stop(self, timeout_s: float = 1.0) -> None:
         self._stop.set()
         self._release_semantic.set()
         if self._thread.is_alive():
             self._thread.join(timeout=timeout_s)
 
-    def _raise_if_failed(self):
+    def _raise_if_failed(self) -> None:
         if self._error is not None:
             raise self._error
 
-    def _engine_should_close(self):
+    def _engine_should_close(self) -> bool:
         should_close = getattr(self.engine, "should_close", None)
         return bool(should_close()) if should_close is not None else False
 
-    def _run(self):
+    def _run(self) -> None:
         try:
             self.engine.make_context_current()
             self._ready.set()
@@ -595,7 +628,7 @@ class PairRenderCoordinator:
             except Exception:
                 pass
 
-    def _run_blank_until_released(self):
+    def _run_blank_until_released(self) -> None:
         while (
             not self._stop.is_set()
             and not self._release_semantic.is_set()
@@ -607,13 +640,13 @@ class PairRenderCoordinator:
             else:
                 _display_frame_pair(self.engine, self.startup_leader_pair)
 
-    def _run_startup_leader(self):
+    def _run_startup_leader(self) -> None:
         for _ in range(max(0, self.startup_leader_vsyncs)):
             if self._stop.is_set() or self._engine_should_close():
                 return
             _display_frame_pair(self.engine, self.startup_leader_pair)
 
-    def _run_semantic_frames(self):
+    def _run_semantic_frames(self) -> None:
         end_t = None if self.args.runtime_seconds <= 0 else time.time() + self.args.runtime_seconds
         first_semantic_frame = self._primed_first_semantic_pair is None
         while (
@@ -637,22 +670,22 @@ class PairRenderCoordinator:
                     ),
                 )
 
-    def _first_semantic_pair(self):
+    def _first_semantic_pair(self) -> FramePair:
         if self._primed_first_semantic_pair is None:
             self._primed_first_semantic_pair = as_frame_pair(self.provider.initial_pair())
         return self._primed_first_semantic_pair
 
 
 def _start_pair_render_coordinator(
-    engine,
-    provider,
-    args,
+    engine: object,
+    provider: PairFrameProvider,
+    args: argparse.Namespace,
     *,
-    startup_leader_pair,
-    startup_leader_vsyncs,
-    preview_poster=None,
-    preview_metadata=None,
-):
+    startup_leader_pair: FramePair | tuple[RGBFrame, RGBFrame],
+    startup_leader_vsyncs: int,
+    preview_poster: LivePreviewPoster | None = None,
+    preview_metadata: dict[str, object] | None = None,
+) -> PairRenderCoordinator:
     return PairRenderCoordinator(
         engine,
         provider,
@@ -664,7 +697,11 @@ def _start_pair_render_coordinator(
     ).start()
 
 
-def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
+def _run_prepared_pair(
+    args: argparse.Namespace,
+    pair_config: PairConfig,
+    before_sequencer_start: BeforeStartCallback | None = None,
+) -> int:
     from dmdcontrol.hardware.dlpc900 import DLPC900
     from dmdcontrol.patterns.paired import PairedPatternEngine
 
@@ -674,8 +711,8 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
     engine = None
     dlpc_a = None
     dlpc_b = None
-    render_coordinator = None
-    preview_poster = None
+    render_coordinator: PairRenderCoordinator | None = None
+    preview_poster: LivePreviewPoster | None = None
     try:
         engine = PairedPatternEngine(fps=pair_config.target_hz)
         sequence = build_paired_display_sequence(
@@ -820,7 +857,10 @@ def _run_prepared_pair(args, pair_config, before_sequencer_start=None):
             engine.cleanup()
 
 
-def _run_namespace(args, before_start=None):
+def _run_namespace(
+    args: argparse.Namespace,
+    before_start: BeforeStartCallback | None = None,
+) -> int:
     setup_logger(verbosity=args.verbose)
     pair_config = resolve_pair_config(args.dmd_config)
     _validate_pair_args(args, target_hz=pair_config.target_hz)
@@ -831,23 +871,26 @@ def _run_namespace(args, before_start=None):
     return _run_prepared_pair(args, pair_config, before_sequencer_start=before_start)
 
 
-def _run(argv, before_start=None):
+def _run(argv: list[str] | None, before_start: BeforeStartCallback | None = None) -> int:
     return _run_namespace(_build_parser().parse_args(argv), before_start)
 
 
-def run_with_before_start_callback(argv, before_start):
+def run_with_before_start_callback(argv: list[str] | None, before_start: BeforeStartCallback) -> int:
     return _run(argv, before_start)
 
 
-def run_with_before_start_namespace(args, before_start):
+def run_with_before_start_namespace(
+    args: argparse.Namespace,
+    before_start: BeforeStartCallback,
+) -> int:
     return _run_namespace(args, before_start)
 
 
-def run_namespace(args):
+def run_namespace(args: argparse.Namespace) -> int:
     return _run_namespace(args)
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     return _run(argv)
 
 

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import NamedTuple, Protocol, TypedDict
+
 import numpy as np
 
+from dmdcontrol.patterns.bitplanes import BinaryMaskArray, RGBFrameArray
 from dmdcontrol.support.constants import (
     BITPLANES,
     DMD_HEIGHT,
@@ -13,24 +17,55 @@ from dmdcontrol.support.constants import (
 )
 
 
+class KernelPackEngine(Protocol):
+    width: int
+    height: int
+
+    def pack_patterns(self, binary_images: Sequence[BinaryMaskArray]) -> RGBFrameArray:
+        ...
+
+
+class KernelLutOverride(NamedTuple):
+    entries_count: int | None
+    exposure_us: int | None
+
+
+class KernelFrameMetadata(TypedDict):
+    leader_frames: int
+    payload_vsyncs: int
+    blank_slot_count: int
+    cycle_vsyncs: int
+    cycle_fires: int
+    black_frame: RGBFrameArray
+
+
+class KernelFrameBuild(NamedTuple):
+    frames: list[RGBFrameArray]
+    metadata: KernelFrameMetadata
+
+
 def compute_kernel_lut_override(
-    enabled,
-    exposure_us=None,
-    target_hz=None,
-    sequence_utilization=None,
-    dark_time_us=None,
-):
+    enabled: bool,
+    exposure_us: int | None = None,
+    target_hz: float | None = None,
+    sequence_utilization: float | None = None,
+    dark_time_us: int | None = None,
+) -> KernelLutOverride:
     if not enabled or exposure_us is None:
-        return None, None
+        return KernelLutOverride(None, None)
     frame_period_us = 1_000_000.0 / target_hz
     usable_us = (frame_period_us - SAFE_MARGIN_US) * sequence_utilization
     actual_dark_us = INTER_PATTERN_DARK_US if dark_time_us is None else dark_time_us
     entries_count = int(usable_us // (exposure_us + actual_dark_us))
     entries_count = max(1, min(BITPLANES, entries_count))
-    return entries_count, exposure_us
+    return KernelLutOverride(entries_count, exposure_us)
 
 
-def generate_kernel_masks(width=DMD_WIDTH, height=DMD_HEIGHT, kernel_px=30):
+def generate_kernel_masks(
+    width: int = DMD_WIDTH,
+    height: int = DMD_HEIGHT,
+    kernel_px: int = 30,
+) -> list[BinaryMaskArray]:
     """Generate 512 binary masks, one per 3x3 binary kernel variation."""
     if kernel_px % 3 != 0:
         raise ValueError(f"kernel_px ({kernel_px}) must be a multiple of 3")
@@ -40,7 +75,7 @@ def generate_kernel_masks(width=DMD_WIDTH, height=DMD_HEIGHT, kernel_px=30):
     cell = kernel_px // 3
     x0 = (width - kernel_px) // 2
     y0 = (height - kernel_px) // 2
-    masks = []
+    masks: list[BinaryMaskArray] = []
     for kernel_index in range(512):
         mask = np.zeros((height, width), dtype=np.uint8)
         for bit in range(9):
@@ -52,7 +87,12 @@ def generate_kernel_masks(width=DMD_WIDTH, height=DMD_HEIGHT, kernel_px=30):
     return masks
 
 
-def pack_kernel_frames(engine, masks, slots_per_frame=BITPLANES, blank_end_frame=False):
+def pack_kernel_frames(
+    engine: KernelPackEngine,
+    masks: Sequence[BinaryMaskArray],
+    slots_per_frame: int = BITPLANES,
+    blank_end_frame: bool = False,
+) -> list[RGBFrameArray]:
     """Pack kernel masks into DisplayPort RGB frames consumed by the LUT."""
     if slots_per_frame < 1 or slots_per_frame > BITPLANES:
         raise ValueError(f"slots_per_frame ({slots_per_frame}) must be in [1, {BITPLANES}].")
@@ -69,12 +109,12 @@ def pack_kernel_frames(engine, masks, slots_per_frame=BITPLANES, blank_end_frame
 
 
 def build_kernel_frames(
-    engine,
-    kernel_px,
-    slots_per_frame=BITPLANES,
-    leader_frames=3,
-    blank_end_frame=True,
-):
+    engine: KernelPackEngine,
+    kernel_px: int,
+    slots_per_frame: int = BITPLANES,
+    leader_frames: int = 3,
+    blank_end_frame: bool = True,
+) -> KernelFrameBuild:
     if leader_frames < 0:
         raise ValueError("leader_frames must be non-negative")
     kernel_masks = generate_kernel_masks(engine.width, engine.height, kernel_px)
@@ -89,26 +129,27 @@ def build_kernel_frames(
         blank_end_frame=blank_end_frame,
     )
     frames = [black_frame] * leader_frames + payload_frames
-    metadata = {
-        "leader_frames":
-        leader_frames,
-        "payload_vsyncs":
-        len(payload_frames),
-        "blank_slot_count": (slots_per_frame - (512 % slots_per_frame)) % slots_per_frame,
-        "cycle_vsyncs":
-        len(frames),
-        "cycle_fires": (leader_frames * slots_per_frame) + 512 +
+    metadata = KernelFrameMetadata(
+        leader_frames=leader_frames,
+        payload_vsyncs=len(payload_frames),
+        blank_slot_count=(slots_per_frame - (512 % slots_per_frame)) % slots_per_frame,
+        cycle_vsyncs=len(frames),
+        cycle_fires=(leader_frames * slots_per_frame) + 512 +
         ((slots_per_frame -
           (512 % slots_per_frame)) % slots_per_frame) + (slots_per_frame if blank_end_frame else 0),
-        "black_frame":
-        black_frame,
-    }
-    return frames, metadata
+        black_frame=black_frame,
+    )
+    return KernelFrameBuild(frames, metadata)
 
 
 class KernelFrameProvider:
 
-    def __init__(self, frames, black_frame, single_shot=False):
+    def __init__(
+        self,
+        frames: Sequence[RGBFrameArray],
+        black_frame: RGBFrameArray,
+        single_shot: bool = False,
+    ) -> None:
         if not frames:
             raise ValueError("frames must not be empty")
         self._frames = frames
@@ -116,7 +157,7 @@ class KernelFrameProvider:
         self._single_shot = single_shot
         self._index = 0
 
-    def __call__(self):
+    def __call__(self) -> RGBFrameArray:
         index = self._index
         if self._single_shot and index >= len(self._frames):
             return self._black_frame

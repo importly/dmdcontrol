@@ -2,7 +2,10 @@ import os
 import tempfile
 import unittest
 
-from dmdcontrol.patterns.calibration_square import read_calibration_square_control_file
+from dmdcontrol.patterns.calibration_square import (
+    CalibrationControlRead,
+    read_calibration_square_control_file,
+)
 
 
 class CalibrationSquareControlFileTests(unittest.TestCase):
@@ -13,7 +16,10 @@ class CalibrationSquareControlFileTests(unittest.TestCase):
             f.write("wzx\n")
 
         try:
-            commands, offset = read_calibration_square_control_file(path, 0)
+            read = read_calibration_square_control_file(path, 0)
+            commands, offset = read
+            self.assertIsInstance(read, CalibrationControlRead)
+            self.assertEqual(read.commands, "wx")
             self.assertEqual(commands, "wx")
 
             with open(path, "a", encoding="ascii") as f:

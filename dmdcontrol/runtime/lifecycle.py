@@ -1,7 +1,12 @@
 """DLPC900 setup, status, LUT, and verification helpers."""
 
+from __future__ import annotations
+
+from argparse import Namespace
+from collections.abc import Callable, Sequence
 import threading
 import time
+from typing import NamedTuple, NotRequired, TypedDict
 
 from dmdcontrol.support.constants import (
     BITPLANES,
@@ -22,7 +27,71 @@ from dmdcontrol.support.constants import (
 from dmdcontrol.support.logging import logger
 
 
-def _format_hw(hw):
+class LutEntry(NamedTuple):
+    bitplane_index: int
+    exposure_us: int
+    clear_after: bool
+    bit_depth: int
+    led_select: int
+    dark_us: int
+    trig2_disabled: bool
+    bit_position: int
+
+
+LutEntryLike = LutEntry | Sequence[object]
+
+
+class TriggerOutTiming(TypedDict):
+    channel: str
+    edge: str
+    rising_delay_us: int
+    falling_delay_us: int
+    pulse_width_us: int
+
+
+class LutTimingMetadata(TypedDict):
+    timing_source: str
+    sequence_utilization: float
+    trig2_mode: str
+    frame_period_us: float
+    safe_frame_period_us: float
+    usable_frame_period_us: float
+    safe_margin_us: float
+    measured_frame_hz: float | None
+    effective_frame_hz: float
+    requested_binary_rate_hz: float
+    effective_binary_rate_hz: float
+    exposure_us: int
+    dark_us: int
+    total_sequence_us: float
+    idle_headroom_us: float
+    entries_count: int
+    trigger_out_2: NotRequired[TriggerOutTiming]
+
+
+class PreparedSequenceState(TypedDict):
+    entries: list[LutEntry]
+    timing: LutTimingMetadata
+
+
+def coerce_lut_entry(entry: LutEntryLike) -> LutEntry:
+    if isinstance(entry, LutEntry):
+        return entry
+    if len(entry) < 8:
+        raise ValueError("LUT entries must have at least 8 fields")
+    return LutEntry(
+        bitplane_index=int(entry[0]),
+        exposure_us=int(entry[1]),
+        clear_after=bool(entry[2]),
+        bit_depth=int(entry[3]),
+        led_select=int(entry[4]),
+        dark_us=int(entry[5]),
+        trig2_disabled=bool(entry[6]),
+        bit_position=int(entry[7]),
+    )
+
+
+def _format_hw(hw: int | None) -> str:
     if hw is None:
         return "??"
     # DLPU018J Table 2-21. Bit 5 is reserved (commonly reads 1).
@@ -46,7 +115,7 @@ def _format_hw(hw):
     return f"0x{hw:02X}[{'|'.join(bits) if bits else 'clean'}]"
 
 
-def warn_dark_time_video_pattern_mode(args):
+def warn_dark_time_video_pattern_mode(args: Namespace) -> None:
     if getattr(args, "dark_time_us", None) is None:
         return
     logger.warning(
@@ -55,7 +124,7 @@ def warn_dark_time_video_pattern_mode(args):
         "kept for LUT timing/budget accounting.")
 
 
-def log_board_snapshot(dlpc, tag):
+def log_board_snapshot(dlpc: object, tag: str) -> None:
     logger.debug("=" * 66)
     logger.debug(f"  DLPC900 Status Snapshot: {tag}")
     logger.debug("=" * 66)
@@ -135,14 +204,14 @@ def log_board_snapshot(dlpc, tag):
 
 
 def build_lut_entries(
-    dlpc,
-    target_hz,
-    sequence_utilization=DEFAULT_SEQUENCE_UTILIZATION,
-    trig2_frame_zero=False,
-    entries_count=None,
-    per_entry_exposure_us=None,
-    dark_time_us=None,
-):
+    dlpc: object,
+    target_hz: float,
+    sequence_utilization: float = DEFAULT_SEQUENCE_UTILIZATION,
+    trig2_frame_zero: bool = False,
+    entries_count: int | None = None,
+    per_entry_exposure_us: int | None = None,
+    dark_time_us: int | None = None,
+) -> tuple[list[LutEntry], LutTimingMetadata]:
     if target_hz <= 0:
         raise ValueError("target_hz must be positive")
     if sequence_utilization <= 0.0 or sequence_utilization > 1.0:
@@ -250,20 +319,20 @@ def build_lut_entries(
     total_sequence_us = (exposure_us + actual_dark_us) * entries_count
     idle_headroom_us = frame_period_us - total_sequence_us
 
-    entries = []
+    entries: list[LutEntry] = []
     for bit_pos in range(entries_count):
         clear_flag = bit_pos == (entries_count - 1)
         trig2_disable = (bit_pos != 0) if trig2_frame_zero else False
         entries.append(
-            (
-                bit_pos,
-                exposure_us,
-                clear_flag,
-                1,
-                7,
-                actual_dark_us,
-                trig2_disable,
-                bit_pos,
+            LutEntry(
+                bitplane_index=bit_pos,
+                exposure_us=exposure_us,
+                clear_after=clear_flag,
+                bit_depth=1,
+                led_select=7,
+                dark_us=actual_dark_us,
+                trig2_disabled=trig2_disable,
+                bit_position=bit_pos,
             ))
         # print(len(entries))
         # print(entries_count)
@@ -290,9 +359,9 @@ def build_lut_entries(
 
 
 def compute_trigger_out_2_timing(
-    rising_delay_us=0,
-    pulse_width_us=TRIGGER_OUT_PULSE_WIDTH_US,
-):
+    rising_delay_us: int = 0,
+    pulse_width_us: int = TRIGGER_OUT_PULSE_WIDTH_US,
+) -> TriggerOutTiming:
     if not isinstance(rising_delay_us, int):
         raise ValueError("rising_delay_us must be an integer")
     if not isinstance(pulse_width_us, int):
@@ -319,7 +388,7 @@ def compute_trigger_out_2_timing(
     }
 
 
-def wait_for_external_lock(dlpc, timeout_s=4.0):
+def wait_for_external_lock(dlpc: object, timeout_s: float = 4.0) -> bool:
     start = time.time()
     while time.time() - start < timeout_s:
         ms = dlpc.get_main_status()
@@ -329,7 +398,7 @@ def wait_for_external_lock(dlpc, timeout_s=4.0):
     return False
 
 
-def wait_for_sequencer_running(dlpc, timeout_s=1.5):
+def wait_for_sequencer_running(dlpc: object, timeout_s: float = 1.5) -> bool:
     start = time.time()
     while time.time() - start < timeout_s:
         ms = dlpc.get_main_status()
@@ -339,7 +408,7 @@ def wait_for_sequencer_running(dlpc, timeout_s=1.5):
     return False
 
 
-def _bit6_is_cosmetic(dlpc, hw):
+def _bit6_is_cosmetic(dlpc: object, hw: int | None) -> bool:
     """Return True when bit 6 is latched but all real health signals are good."""
     if hw is None or not (hw & 0x40):
         return False
@@ -352,7 +421,11 @@ def _bit6_is_cosmetic(dlpc, hw):
         and ms.get("port1_syncs_valid"))
 
 
-def ensure_video_pattern_mode(dlpc, retries=3, poll_timeout_s=1.2):
+def ensure_video_pattern_mode(
+    dlpc: object,
+    retries: int = 3,
+    poll_timeout_s: float = 1.2,
+) -> bool:
     mode, _ = dlpc.get_display_mode()
     if mode == 2:
         return True
@@ -376,7 +449,7 @@ def ensure_video_pattern_mode(dlpc, retries=3, poll_timeout_s=1.2):
     return False
 
 
-def load_pattern_sequence(dlpc, entries):
+def load_pattern_sequence(dlpc: object, entries: Sequence[LutEntry]) -> None:
     # DLPU018J §2.4.4.3.4: Pattern Display LUT Reorder (0x1A32) is "only applicable
     # in Pre-stored Pattern Mode and Pattern On-The-Fly Mode" — NOT Video Pattern Mode.
 
@@ -391,22 +464,22 @@ def load_pattern_sequence(dlpc, entries):
     logger.debug(f"  [arm] hw post-LUT = {_format_hw(hw_after_lut)}")
 
 
-def start_loaded_pattern_sequence(dlpc, post_start_delay_s=0.2):
+def start_loaded_pattern_sequence(dlpc: object, post_start_delay_s: float = 0.2) -> None:
     dlpc.start_pattern_display(2)
     if post_start_delay_s > 0:
         time.sleep(post_start_delay_s)
 
 
 def start_loaded_pattern_sequences(
-    dlpc_a,
-    dlpc_b,
-    post_start_delay_s=0.2,
-    verify=False,
-):
+    dlpc_a: object,
+    dlpc_b: object,
+    post_start_delay_s: float = 0.2,
+    verify: bool = False,
+) -> None:
     barrier = threading.Barrier(3)
-    errors = []
+    errors: list[tuple[str, BaseException]] = []
 
-    def _start_one(label, dlpc):
+    def _start_one(label: str, dlpc: object) -> None:
         try:
             barrier.wait()
             dlpc.start_pattern_display(2)
@@ -442,7 +515,7 @@ def start_loaded_pattern_sequences(
         verify_started_pattern_sequence(dlpc_b, label="B")
 
 
-def verify_started_pattern_sequence(dlpc, label="DLPC900"):
+def verify_started_pattern_sequence(dlpc: object, label: str = "DLPC900") -> int | None:
     if not ensure_video_pattern_mode(dlpc, retries=2, poll_timeout_s=1.0):
         mode, _ = dlpc.get_display_mode()
         ms = dlpc.get_main_status() or {}
@@ -469,7 +542,11 @@ def verify_started_pattern_sequence(dlpc, label="DLPC900"):
     return hw
 
 
-def apply_pattern_sequence(dlpc, entries, frame_pump=None):
+def apply_pattern_sequence(
+    dlpc: object,
+    entries: Sequence[LutEntry],
+    frame_pump: Callable[[], None] | None = None,
+) -> None:
     load_pattern_sequence(dlpc, entries)
 
     if frame_pump is not None:
@@ -528,16 +605,16 @@ def apply_pattern_sequence(dlpc, entries, frame_pump=None):
 
 
 def prepare_dlpc900_for_video_pattern(
-    dlpc,
-    target_hz=DEFAULT_HZ,
-    dual_pixel=False,
-    sequence_utilization=DEFAULT_SEQUENCE_UTILIZATION,
-    trig2_frame_zero=False,
-    entries_count=None,
-    per_entry_exposure_us=None,
-    trigger_out_2_rising_delay_us=0,
-    dark_time_us=None,
-):
+    dlpc: object,
+    target_hz: float = DEFAULT_HZ,
+    dual_pixel: bool = False,
+    sequence_utilization: float = DEFAULT_SEQUENCE_UTILIZATION,
+    trig2_frame_zero: bool = False,
+    entries_count: int | None = None,
+    per_entry_exposure_us: int | None = None,
+    trigger_out_2_rising_delay_us: int = 0,
+    dark_time_us: int | None = None,
+) -> PreparedSequenceState:
     actual_entries = entries_count if entries_count is not None else BITPLANES
     logger.info(
         f"[+] Configuring DLPC900 for {DMD_WIDTH}x{DMD_HEIGHT} @ {target_hz}Hz Video Pattern Mode "
@@ -700,18 +777,18 @@ def prepare_dlpc900_for_video_pattern(
 
 
 def configure_dlpc900_for_video_pattern(
-    dlpc,
-    target_hz=DEFAULT_HZ,
-    dual_pixel=False,
-    sequence_utilization=DEFAULT_SEQUENCE_UTILIZATION,
-    trig2_frame_zero=False,
-    pre_arm_callback=None,
-    frame_pump=None,
-    entries_count=None,
-    per_entry_exposure_us=None,
-    trigger_out_2_rising_delay_us=0,
-    dark_time_us=None,
-):
+    dlpc: object,
+    target_hz: float = DEFAULT_HZ,
+    dual_pixel: bool = False,
+    sequence_utilization: float = DEFAULT_SEQUENCE_UTILIZATION,
+    trig2_frame_zero: bool = False,
+    pre_arm_callback: Callable[[], None] | None = None,
+    frame_pump: Callable[[], None] | None = None,
+    entries_count: int | None = None,
+    per_entry_exposure_us: int | None = None,
+    trigger_out_2_rising_delay_us: int = 0,
+    dark_time_us: int | None = None,
+) -> PreparedSequenceState:
     sequence_state = prepare_dlpc900_for_video_pattern(
         dlpc,
         target_hz=target_hz,
@@ -737,7 +814,7 @@ def configure_dlpc900_for_video_pattern(
     return sequence_state
 
 
-def verify_runtime_state(dlpc):
+def verify_runtime_state(dlpc: object) -> bool:
     ms = dlpc.get_main_status() or {}
     mode, _ = dlpc.get_display_mode()
     hw = dlpc.get_hardware_status()
