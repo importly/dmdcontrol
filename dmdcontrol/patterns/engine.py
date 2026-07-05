@@ -2,7 +2,34 @@ import time
 
 import glfw
 import numpy as np
-from OpenGL.GL import *
+from OpenGL.GL import (
+    GL_COLOR_BUFFER_BIT,
+    GL_MODELVIEW,
+    GL_NEAREST,
+    GL_PROJECTION,
+    GL_QUADS,
+    GL_RGB,
+    GL_RGB8,
+    GL_TEXTURE_2D,
+    GL_TEXTURE_MAG_FILTER,
+    GL_TEXTURE_MIN_FILTER,
+    GL_UNSIGNED_BYTE,
+    glBegin,
+    glBindTexture,
+    glClear,
+    glDisable,
+    glEnable,
+    glEnd,
+    glGenTextures,
+    glLoadIdentity,
+    glMatrixMode,
+    glOrtho,
+    glTexCoord2f,
+    glTexImage2D,
+    glTexParameteri,
+    glVertex2f,
+    glViewport,
+)
 
 from dmdcontrol.patterns.bitplanes import pack_bitplanes_rgb, unpack_rgb_bitplanes
 from dmdcontrol.support.constants import DMD_HEIGHT, DMD_WIDTH, TARGET_HZ

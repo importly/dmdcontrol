@@ -14,11 +14,16 @@ from dmdcontrol.patterns.modes import generate_decimal_number_rgb
 from dmdcontrol.patterns.visual import (
     DEFAULT_COARSE_GRID_SPACING,
     DEFAULT_COARSE_LINE_SPACING,
-    DEFAULT_ROUTE_MARKER_SIZE,
     generate_coarse_grid_rgb,
     generate_coarse_lines_rgb,
 )
-from dmdcontrol.support.constants import BITPLANES, DMD_HEIGHT, DMD_WIDTH, TARGET_HZ
+from dmdcontrol.support.constants import (
+    BITPLANES,
+    DEFAULT_ROUTE_MARKER_SIZE,
+    DMD_HEIGHT,
+    DMD_WIDTH,
+    TARGET_HZ,
+)
 from dmdcontrol.support.logging import logger
 
 PAIR_WIDTH = DMD_WIDTH * 2
@@ -603,11 +608,6 @@ def _validate_count_sequence_args(
     if frame_count > MAX_COUNT_SEQUENCE_FRAMES:
         raise ValueError(
             f"count sequence can span at most {MAX_COUNT_SEQUENCE_FRAMES} VSYNC frames")
-
-
-def count_sequence_frame_count(count_start, count_end, count_slots_per_frame):
-    _validate_count_sequence_args(count_start, count_end, count_slots_per_frame)
-    return (count_end - count_start + 1) // count_slots_per_frame
 
 
 def _decimal_number_display_masks(numbers, *, width, height, size_px=None):

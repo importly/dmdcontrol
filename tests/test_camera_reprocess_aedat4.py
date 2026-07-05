@@ -8,9 +8,9 @@ import pytest
 from dmdcontrol.camera.accumulation import TriggerRecord
 from dmdcontrol.camera.reprocess_aedat4 import (
     Aedat4RecordingData,
-    build_parser,
     _trigger_edge_name,
     _trigger_record,
+    build_parser,
     main,
 )
 

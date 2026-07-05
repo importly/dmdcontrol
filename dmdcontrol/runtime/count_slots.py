@@ -3,7 +3,10 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from dmdcontrol.patterns.paired import MAX_COUNT_SEQUENCE_FRAMES, count_lut_entries_per_frame
+from dmdcontrol.patterns.paired import (
+    MAX_COUNT_SEQUENCE_FRAMES,
+    count_lut_entries_per_frame,
+)
 from dmdcontrol.runtime.lifecycle import build_lut_entries
 from dmdcontrol.support.constants import (
     BITPLANES,

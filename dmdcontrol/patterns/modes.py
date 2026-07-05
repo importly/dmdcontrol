@@ -9,7 +9,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from dmdcontrol.patterns.visual import generate_coarse_grid_rgb, generate_coarse_lines_rgb
+from dmdcontrol.patterns.visual import (
+    generate_coarse_grid_rgb,
+    generate_coarse_lines_rgb,
+)
 from dmdcontrol.support.constants import (
     DEFAULT_CALIBRATION_SQUARE_FRACTION,
     DMD_HEIGHT,

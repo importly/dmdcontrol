@@ -7,6 +7,30 @@ try:
 except ImportError:
     cv2 = None
 
+from dmdcontrol.hardware.mapping import resolve_dmd_mapping
+from dmdcontrol.patterns.calibration_square import (
+    build_calibration_square_frame,
+    format_calibration_square_state,
+    make_calibration_square_frame_provider,
+)
+from dmdcontrol.patterns.kernel import build_kernel_frames
+from dmdcontrol.patterns.modes import (
+    PATTERN_NAMES,
+    build_patterns,
+    default_calibration_square_state,
+)
+from dmdcontrol.runtime.lifecycle import (
+    build_lut_entries,
+    compute_trigger_out_2_timing,
+    configure_dlpc900_for_video_pattern,
+    log_board_snapshot,
+    verify_runtime_state,
+)
+from dmdcontrol.runtime.lifecycle import (
+    warn_dark_time_video_pattern_mode as _warn_dark_time_video_pattern_mode,
+)
+from dmdcontrol.runtime.loop import run_render_loop, run_trigger_loop
+from dmdcontrol.support.argparse_types import trigger_out_rising_delay_us
 from dmdcontrol.support.constants import (
     BITPLANES,
     DEFAULT_HZ,
@@ -15,29 +39,7 @@ from dmdcontrol.support.constants import (
     DMD_WIDTH,
     SAFE_MARGIN_US,
 )
-from dmdcontrol.patterns.calibration_square import (
-    build_calibration_square_frame,
-    format_calibration_square_state,
-    make_calibration_square_frame_provider,
-)
-from dmdcontrol.patterns.kernel import build_kernel_frames
-from dmdcontrol.runtime.lifecycle import (
-    build_lut_entries,
-    compute_trigger_out_2_timing,
-    configure_dlpc900_for_video_pattern,
-    log_board_snapshot,
-    verify_runtime_state,
-    warn_dark_time_video_pattern_mode as _warn_dark_time_video_pattern_mode,
-)
-from dmdcontrol.hardware.mapping import resolve_dmd_mapping
 from dmdcontrol.support.logging import logger, setup_logger
-from dmdcontrol.patterns.modes import (
-    PATTERN_NAMES,
-    build_patterns,
-    default_calibration_square_state,
-)
-from dmdcontrol.runtime.loop import run_render_loop, run_trigger_loop
-from dmdcontrol.support.argparse_types import trigger_out_rising_delay_us
 
 
 def _build_parser():
@@ -447,6 +449,7 @@ def main(argv=None):
     engine = None
     try:
         import glfw
+
         from dmdcontrol.hardware.dlpc900 import DLPC900
         from dmdcontrol.patterns.engine import PatternEngine
         engine = PatternEngine(monitor_index=monitor_index, fps=target_hz)

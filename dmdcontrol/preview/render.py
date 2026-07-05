@@ -29,16 +29,17 @@ from dmdcontrol.patterns.paired import (
     CALIBRATION_DOT_PAIR_TEST,
     DMD_HEIGHT,
     DMD_WIDTH,
-    DynamicSnakePairFrameProvider,
     KERNEL_STATIC_PAIR_TEST,
     PAIR_TESTS,
     STATIC_PAIR_TESTS,
+    DynamicSnakePairFrameProvider,
     compose_pair_frame,
     generate_dot_frame,
     generate_static_frame,
     make_pair_frame_provider,
 )
 from dmdcontrol.support.constants import BITPLANES
+
 
 def _json_safe_value(value):
     if isinstance(value, np.integer):
@@ -115,10 +116,6 @@ class PreviewEngine:
         checker = ((x // block_size) + (y // block_size)) % 2
         checker = checker.astype(np.uint8)
         return [checker for _ in range(BITPLANES)]
-
-    def generate_solid(self, val):
-        solid = np.full((self.height, self.width), val, dtype=np.uint8)
-        return [solid for _ in range(BITPLANES)]
 
     def generate_snake_frame(self, frame_index=0, grid_w=24, grid_h=13):
         grid = np.zeros((grid_h, grid_w), dtype=np.uint8)

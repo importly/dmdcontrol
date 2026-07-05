@@ -2,7 +2,10 @@
 
 import time
 
-from dmdcontrol.runtime.lifecycle import apply_pattern_sequence, ensure_video_pattern_mode
+from dmdcontrol.runtime.lifecycle import (
+    apply_pattern_sequence,
+    ensure_video_pattern_mode,
+)
 from dmdcontrol.support.logging import logger
 
 

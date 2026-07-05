@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import is_dataclass, replace
 import gc
+from dataclasses import is_dataclass, replace
 
 from dmdcontrol.camera.capture import flush_stale_batches, validate_camera_ready
 from dmdcontrol.camera.discovery import (
@@ -24,9 +24,9 @@ def _ready_with_initial_flush(ready, initial_flush):
 def _open_configured_camera_capture(args):
     import dv_processing as dv
 
-    capture = open_camera_capture(dv)
-    writer = None
+    capture = None
     try:
+        capture = open_camera_capture(dv)
         configure_camera_performance(
             capture,
             bias_sensitivity=args.bias_sensitivity,
@@ -38,19 +38,6 @@ def _open_configured_camera_capture(args):
             stream_rearm=None,
             trigger_configuration=trigger_configuration,
         )
-    except Exception:
-        del capture
-        gc.collect()
-        raise
-    return capture, ready
-
-
-def open_ready_camera_capture(args):
-    capture = None
-    try:
-        capture, ready = _open_configured_camera_capture(args)
-        initial_flush = flush_stale_batches(capture, reads=args.camera_flush_reads)
-        ready = _ready_with_initial_flush(ready, initial_flush)
     except Exception:
         if capture is not None:
             del capture

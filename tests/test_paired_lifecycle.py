@@ -1,6 +1,9 @@
 import unittest
 
-from dmdcontrol.runtime.lifecycle import load_pattern_sequence, start_loaded_pattern_sequences
+from dmdcontrol.runtime.lifecycle import (
+    load_pattern_sequence,
+    start_loaded_pattern_sequences,
+)
 
 
 class _FakeDlpc:

@@ -6,7 +6,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from dmdcontrol.support.constants import DLPC900_VID, DLPC900_PID
+from dmdcontrol.support.constants import DLPC900_PID, DLPC900_VID
 
 
 @dataclass(frozen=True)

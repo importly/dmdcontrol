@@ -34,11 +34,11 @@ from dmdcontrol.patterns.paired import (
     A_COUNT_B_STATIC_PAIR_TEST,
     CALIBRATION_DOT_PAIR_TEST,
     KERNEL_STATIC_PAIR_TEST,
-    CalibrationSquareDotPairFrameProvider,
-    FramePair,
     STATIC_IMAGES_PAIR_TEST,
     STATIC_PAIR_TESTS,
+    CalibrationSquareDotPairFrameProvider,
     DynamicAStaticBPairFrameProvider,
+    FramePair,
     SingleDmdFrameAdapter,
     as_frame_pair,
     generate_dot_frame,
@@ -184,9 +184,6 @@ class PairedDisplaySequence:
 
     def expected_trigger_count(self) -> int:
         return sum(1 for frame in self.frames for slot in frame.lut_slots if slot.trig2_enabled)
-
-    def first_frame_pair(self) -> FramePair:
-        return self.frames[0].frame_pair
 
 
 class _DryRunDLPC:

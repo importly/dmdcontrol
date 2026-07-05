@@ -4,12 +4,13 @@ from unittest import mock
 
 import numpy as np
 
-from dmdcontrol.runtime import single
 from dmdcontrol.patterns.modes import (
     PATTERN_NAMES,
     build_patterns,
     generate_decimal_number_rgb,
 )
+from dmdcontrol.runtime import single
+
 
 class NumbersModeTests(unittest.TestCase):
 

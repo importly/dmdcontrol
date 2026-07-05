@@ -13,36 +13,31 @@ from dmdcontrol.hardware.mapping import DmdMapping, resolve_dmd_mapping
 from dmdcontrol.patterns.paired import (
     A_COUNT_B_STATIC_PAIR_TEST,
     CALIBRATION_DOT_PAIR_TEST,
-    FramePair,
     KERNEL_STATIC_PAIR_TEST,
     OFFSET_A,
     OFFSET_B,
     PAIR_HEIGHT,
     PAIR_TESTS,
     PAIR_WIDTH,
-    STATIC_PAIR_TESTS,
     STATIC_IMAGES_PAIR_TEST,
+    STATIC_PAIR_TESTS,
+    FramePair,
     as_frame_pair,
 )
 from dmdcontrol.preview.render import LivePreviewPoster, build_lut_preview_metadata
+from dmdcontrol.runtime.count_slots import (
+    CountSequenceConfig,
+    resolve_count_slots_per_frame,
+)
 from dmdcontrol.runtime.display_sequence import build_paired_display_sequence
 from dmdcontrol.runtime.lifecycle import (
     compute_trigger_out_2_timing,
     load_pattern_sequence,
     prepare_dlpc900_for_video_pattern,
     start_loaded_pattern_sequences,
+)
+from dmdcontrol.runtime.lifecycle import (
     warn_dark_time_video_pattern_mode as _warn_dark_time_video_pattern_mode,
-)
-from dmdcontrol.runtime.count_slots import (
-    CountSequenceConfig,
-    resolve_count_slots_per_frame,
-)
-from dmdcontrol.support.constants import (
-    BITPLANES,
-    DEFAULT_HZ,
-    DEFAULT_SEQUENCE_UTILIZATION,
-    DMD_HEIGHT,
-    DMD_WIDTH,
 )
 from dmdcontrol.support.argparse_types import (
     count_slots_per_frame,
@@ -50,8 +45,13 @@ from dmdcontrol.support.argparse_types import (
     positive_int,
     trigger_out_rising_delay_us,
 )
+from dmdcontrol.support.constants import (
+    DEFAULT_HZ,
+    DEFAULT_SEQUENCE_UTILIZATION,
+    DMD_HEIGHT,
+    DMD_WIDTH,
+)
 from dmdcontrol.support.logging import logger, setup_logger
-
 
 PAIRED_STARTUP_LEADER_VSYNCS = 16
 
@@ -73,52 +73,6 @@ def _blank_dmd_frame():
 
 def _blank_pair_frames():
     return FramePair(a=_blank_dmd_frame(), b=_blank_dmd_frame())
-
-
-def _startup_leader_metadata(timing, *, vsyncs=PAIRED_STARTUP_LEADER_VSYNCS):
-    timing = timing or {}
-    entries_count = int(timing.get("entries_count") or BITPLANES)
-    trig2_mode = timing.get("trig2_mode") or "per_bitplane"
-    leader_vsyncs = int(vsyncs)
-    trigger_count = (
-        leader_vsyncs
-        if trig2_mode == "frame_zero" else leader_vsyncs * entries_count)
-    return {
-        "vsyncs": leader_vsyncs,
-        "trigger_count": int(trigger_count),
-        "entries_count": entries_count,
-        "trig2_mode": trig2_mode,
-        "frame_role": "blank_startup_leader",
-    }
-
-
-def _should_prime_first_semantic_frame(args) -> bool:
-    """Use a stable first source frame for count/blank bitplane sequences.
-
-    The normal startup leader starts the DLPC sequencers while the source frame
-    is blank, then switches to semantic frames after the LUT is already running.
-    That is fine for one LUT entry per VSYNC, but it is fragile when one source
-    frame contains both a count and a blank bitplane: the source-frame handoff
-    transition can land in the wrong half of the two-entry sequence. For this mode, prime
-    count 1 into the DisplayPort pipeline before starting the sequencers.
-    """
-
-    return (
-        _is_count_recipe(getattr(args, "test", None))
-        and bool(getattr(args, "count_blank_between_frames", False))
-    )
-
-
-def _effective_startup_leader_vsyncs(args) -> int:
-    if _should_prime_first_semantic_frame(args):
-        return 0
-    return int(getattr(args, "paired_startup_leader_vsyncs", PAIRED_STARTUP_LEADER_VSYNCS))
-
-
-class _DryRunDLPC:
-
-    def get_display_dimensions(self):
-        return None
 
 
 def resolve_pair_config(config_path=None):
@@ -708,46 +662,6 @@ def _start_pair_render_coordinator(
         preview_poster=preview_poster,
         preview_metadata=preview_metadata,
     ).start()
-
-
-def _run_pair_render_loop(
-    dlpc_a,
-    dlpc_b,
-    engine,
-    provider,
-    args,
-    preview_poster=None,
-    preview_metadata=None,
-    startup_leader_vsyncs=0,
-    startup_leader_pair=None,
-):
-    end_t = None if args.runtime_seconds <= 0 else time.time() + args.runtime_seconds
-    first_semantic_frame = True
-
-    def should_continue():
-        return (end_t is None or time.time() < end_t) and not engine.should_close()
-
-    if startup_leader_vsyncs:
-        startup_pair = as_frame_pair(startup_leader_pair or _blank_pair_frames())
-        for _ in range(int(startup_leader_vsyncs)):
-            if not should_continue():
-                return
-            _display_frame_pair(engine, startup_pair)
-
-    while should_continue():
-        if first_semantic_frame:
-            frame_pair = as_frame_pair(provider.initial_pair())
-            first_semantic_frame = False
-        else:
-            frame_pair = as_frame_pair(provider.next_pair())
-        _display_frame_pair(engine, frame_pair)
-        if preview_poster is not None:
-            preview_poster.maybe_post_pair(
-                frame_pair.a,
-                frame_pair.b,
-                metadata=_live_preview_metadata_for_frame(preview_metadata,
-                                                          provider),
-            )
 
 
 def _run_prepared_pair(args, pair_config, before_sequencer_start=None):

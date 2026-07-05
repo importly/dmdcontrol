@@ -13,7 +13,6 @@ from dmdcontrol.camera.capture import merge_time_range
 from dmdcontrol.camera.runs import (
     CameraRunDirectory,
     write_capture_artifacts,
-    write_json,
     write_run_metadata,
 )
 from dmdcontrol.support.argparse_types import nonnegative_int, positive_int

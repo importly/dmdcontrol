@@ -10,7 +10,10 @@ from dmdcontrol.camera.sync_check import (
     dry_run,
     expected_trigger_count,
 )
-from dmdcontrol.camera.sync_check_runtime import PairRuntimeRequest, pair_runtime_request_from_args
+from dmdcontrol.camera.sync_check_runtime import (
+    PairRuntimeRequest,
+    pair_runtime_request_from_args,
+)
 
 
 def test_sync_check_has_focused_helper_modules():
@@ -733,9 +736,9 @@ def test_camera_sync_check_cli_dry_run_creates_artifacts(tmp_path):
 def test_live_capture_flushes_queued_triggers_before_recording(monkeypatch, tmp_path):
     from types import SimpleNamespace
 
+    from dmdcontrol.camera import sync_check
     from dmdcontrol.camera.capture import CaptureResult
     from dmdcontrol.camera.runs import create_run_directory
-    from dmdcontrol.camera import sync_check
 
     args = build_parser().parse_args(
         [

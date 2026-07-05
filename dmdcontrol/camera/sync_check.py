@@ -22,12 +22,12 @@ from dmdcontrol.camera.runs import (
     write_json,
     write_run_metadata,
 )
-from dmdcontrol.camera.session import (
-    close_camera_resources,
-    open_ready_camera as _open_ready_camera,
+from dmdcontrol.camera.session import close_camera_resources
+from dmdcontrol.camera.session import open_ready_camera as _open_ready_camera
+from dmdcontrol.camera.sync_check_metadata import (
+    _sync_check_test_metadata as _sync_check_test_metadata,
 )
 from dmdcontrol.camera.sync_check_metadata import (
-    _sync_check_test_metadata,
     sync_check_metadata as _sync_check_metadata,
 )
 from dmdcontrol.camera.sync_check_runtime import (
@@ -38,7 +38,10 @@ from dmdcontrol.camera.sync_check_runtime import (
     expected_trigger_count,
     pair_runtime_request_from_args,
 )
-from dmdcontrol.runtime.count_slots import CountSequenceConfig, resolve_count_slots_per_frame
+from dmdcontrol.runtime.count_slots import (
+    CountSequenceConfig,
+    resolve_count_slots_per_frame,
+)
 from dmdcontrol.support.argparse_types import (
     count_slots_per_frame,
     nonnegative_int,

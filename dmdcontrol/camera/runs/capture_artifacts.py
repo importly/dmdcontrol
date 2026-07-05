@@ -4,7 +4,10 @@ from pathlib import Path
 
 import numpy as np
 
-from dmdcontrol.camera.accumulation import accumulate_events_for_triggers, structured_field
+from dmdcontrol.camera.accumulation import (
+    accumulate_events_for_triggers,
+    structured_field,
+)
 from dmdcontrol.camera.local_support_filter import (
     LocalSupportFilterConfig,
     apply_local_support_filter_arrays,

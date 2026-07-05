@@ -4,7 +4,6 @@ import argparse
 
 from dmdcontrol.camera.capture import (
     AsyncCapture,
-    flush_stale_batches,
     record_until_trigger_count,
 )
 from dmdcontrol.camera.command_artifacts import camera_command_argv, command_text
@@ -24,6 +23,8 @@ from dmdcontrol.camera.runs import (
 )
 from dmdcontrol.camera.session import (
     close_camera_resources,
+)
+from dmdcontrol.camera.session import (
     open_ready_camera as _open_ready_camera,
 )
 from dmdcontrol.camera.sync_check_runtime import PairRuntimeRequest

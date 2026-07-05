@@ -1,13 +1,13 @@
-import types
 import time
+import types
 
 import numpy as np
 import pytest
 
 from dmdcontrol.patterns.paired import (
     A_COUNT_B_STATIC_PAIR_TEST,
-    FramePair,
     STATIC_IMAGES_PAIR_TEST,
+    FramePair,
 )
 from dmdcontrol.runtime.pair import main
 
@@ -251,26 +251,6 @@ def test_pair_runtime_parser_rejects_negative_paired_startup_leader_vsyncs():
             ["--dry-run-timing", "--paired-startup-leader-vsyncs", "-1"])
 
 
-def test_startup_leader_metadata_uses_requested_vsync_count():
-    from dmdcontrol.runtime import pair
-
-    metadata = pair._startup_leader_metadata(
-        {
-            "entries_count": 2,
-            "trig2_mode": "per_bitplane",
-        },
-        vsyncs=12,
-    )
-
-    assert metadata == {
-        "vsyncs": 12,
-        "trigger_count": 24,
-        "entries_count": 2,
-        "trig2_mode": "per_bitplane",
-        "frame_role": "blank_startup_leader",
-    }
-
-
 def test_pair_runtime_auto_count_slots_uses_fastest_valid_timing():
     from dmdcontrol.runtime import pair
 
@@ -449,8 +429,7 @@ def test_pair_runtime_parser_accepts_static_dot_radius():
 
 
 def test_static_dot_dry_run_uses_generic_exposure_for_dynamic_entry_count(monkeypatch):
-    from dmdcontrol.runtime import pair
-    from dmdcontrol.runtime import display_sequence
+    from dmdcontrol.runtime import display_sequence, pair
 
     captured = {}
 
@@ -721,9 +700,9 @@ def test_pair_dry_run_timing_rejects_count_sequence_when_dark_time_exceeds_budge
 
 
 def test_run_prepared_pair_starts_render_coordinator_without_post_start_sleep(monkeypatch):
-    from dmdcontrol.runtime import pair
     import dmdcontrol.hardware.dlpc900 as dlpc_module
     import dmdcontrol.patterns.paired as paired_module
+    from dmdcontrol.runtime import pair
 
     calls = {}
     dlpcs = []
@@ -843,9 +822,9 @@ def test_run_prepared_pair_starts_render_coordinator_without_post_start_sleep(mo
 
 
 def test_run_prepared_pair_uses_single_render_coordinator_without_pump_handoff(monkeypatch):
-    from dmdcontrol.runtime import pair
     import dmdcontrol.hardware.dlpc900 as dlpc_module
     import dmdcontrol.patterns.paired as paired_module
+    from dmdcontrol.runtime import pair
 
     calls = []
     before_start_context = {}
@@ -989,10 +968,10 @@ def test_run_prepared_pair_uses_single_render_coordinator_without_pump_handoff(m
 
 
 def test_run_prepared_pair_primes_count_blank_frame_before_sequencer_start(monkeypatch):
-    from dmdcontrol.patterns.paired import A_COUNT_B_STATIC_PAIR_TEST
-    from dmdcontrol.runtime import pair
     import dmdcontrol.hardware.dlpc900 as dlpc_module
     import dmdcontrol.patterns.paired as paired_module
+    from dmdcontrol.patterns.paired import A_COUNT_B_STATIC_PAIR_TEST
+    from dmdcontrol.runtime import pair
 
     calls = []
     before_start_context = {}
@@ -1131,10 +1110,10 @@ def test_run_prepared_pair_primes_count_blank_frame_before_sequencer_start(monke
 
 
 def test_run_prepared_pair_uses_display_sequence_instead_of_lut_override(monkeypatch):
-    from dmdcontrol.patterns.paired import FramePair
-    from dmdcontrol.runtime import pair
     import dmdcontrol.hardware.dlpc900 as dlpc_module
     import dmdcontrol.patterns.paired as paired_module
+    from dmdcontrol.patterns.paired import FramePair
+    from dmdcontrol.runtime import pair
 
     calls = []
     blank = np.zeros((1, 1, 3), dtype=np.uint8)
@@ -1259,48 +1238,6 @@ def test_run_prepared_pair_uses_display_sequence_instead_of_lut_override(monkeyp
 
     assert pair._run_prepared_pair(args, pair_config) == 0
     assert ("load", [(0, 8000, True, 1, 7, 0, False, 0)]) in calls
-
-
-def test_run_pair_render_loop_emits_blank_leader_before_first_semantic_frame():
-    from dmdcontrol.runtime import pair
-
-    blank_a = np.zeros((1, 1, 3), dtype=np.uint8)
-    blank_b = np.zeros((1, 1, 3), dtype=np.uint8)
-    first_a = np.full((1, 1, 3), 3, dtype=np.uint8)
-    first_b = np.full((1, 1, 3), 4, dtype=np.uint8)
-    second_a = np.full((1, 1, 3), 5, dtype=np.uint8)
-    second_b = np.full((1, 1, 3), 6, dtype=np.uint8)
-    displayed = []
-
-    class FakeEngine:
-
-        def should_close(self):
-            return len(displayed) >= 4
-
-        def display_pair(self, frame_a, frame_b):
-            displayed.append((frame_a.copy(), frame_b.copy()))
-
-    class FakeProvider:
-
-        def initial_pair(self):
-            return first_a, first_b
-
-        def next_pair(self):
-            return second_a, second_b
-
-    args = types.SimpleNamespace(runtime_seconds=0)
-
-    pair._run_pair_render_loop(
-        None,
-        None,
-        FakeEngine(),
-        FakeProvider(),
-        args,
-        startup_leader_vsyncs=2,
-        startup_leader_pair=(blank_a, blank_b),
-    )
-
-    assert [int(frame_a[0, 0, 0]) for frame_a, _ in displayed] == [0, 0, 3, 5]
 
 
 def test_pair_render_coordinator_can_prime_first_semantic_frame_before_release():

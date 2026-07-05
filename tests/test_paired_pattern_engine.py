@@ -7,20 +7,23 @@ from PIL import Image
 
 from dmdcontrol.patterns.bitplanes import extract_bitplane
 from dmdcontrol.patterns.paired import (
+    PAIR_TESTS,
+    STATIC_IMAGES_PAIR_TEST,
+    STATIC_PAIR_TESTS,
     CalibrationSquareDotPairFrameProvider,
     DynamicAStaticBPairFrameProvider,
     DynamicSnakePairFrameProvider,
-    PAIR_TESTS,
-    STATIC_PAIR_TESTS,
-    STATIC_IMAGES_PAIR_TEST,
-    StaticPairFrameProvider,
     StaticImagePairFrameProvider,
+    StaticPairFrameProvider,
     compose_pair_frame,
     generate_dot_frame,
     generate_static_frame,
     make_pair_frame_provider,
 )
-from dmdcontrol.patterns.visual import DEFAULT_COARSE_GRID_SPACING, generate_coarse_grid_rgb
+from dmdcontrol.patterns.visual import (
+    DEFAULT_COARSE_GRID_SPACING,
+    generate_coarse_grid_rgb,
+)
 
 
 def _extract_packed_bitplane(frame, plane):
@@ -149,7 +152,10 @@ class PairedPatternEngineTests(unittest.TestCase):
 
     def test_count_a_static_b_provider_packs_counts_across_vsync_frames(self):
         from dmdcontrol.patterns.modes import generate_decimal_number_rgb
-        from dmdcontrol.patterns.paired import A_COUNT_B_STATIC_PAIR_TEST, make_pair_frame_provider
+        from dmdcontrol.patterns.paired import (
+            A_COUNT_B_STATIC_PAIR_TEST,
+            make_pair_frame_provider,
+        )
 
         provider = make_pair_frame_provider(
             A_COUNT_B_STATIC_PAIR_TEST,
@@ -193,7 +199,10 @@ class PairedPatternEngineTests(unittest.TestCase):
 
     def test_count_a_static_b_provider_can_insert_blank_bitplanes_between_counts(self):
         from dmdcontrol.patterns.modes import generate_decimal_number_rgb
-        from dmdcontrol.patterns.paired import A_COUNT_B_STATIC_PAIR_TEST, make_pair_frame_provider
+        from dmdcontrol.patterns.paired import (
+            A_COUNT_B_STATIC_PAIR_TEST,
+            make_pair_frame_provider,
+        )
 
         provider = make_pair_frame_provider(
             A_COUNT_B_STATIC_PAIR_TEST,
@@ -240,7 +249,10 @@ class PairedPatternEngineTests(unittest.TestCase):
         np.testing.assert_array_equal(frame0_b, frame0_again_b)
 
     def test_count_a_static_b_provider_rejects_partial_final_vsync(self):
-        from dmdcontrol.patterns.paired import A_COUNT_B_STATIC_PAIR_TEST, make_pair_frame_provider
+        from dmdcontrol.patterns.paired import (
+            A_COUNT_B_STATIC_PAIR_TEST,
+            make_pair_frame_provider,
+        )
 
         with self.assertRaisesRegex(ValueError, "divisible by count_slots_per_frame"):
             make_pair_frame_provider(
@@ -253,7 +265,10 @@ class PairedPatternEngineTests(unittest.TestCase):
             )
 
     def test_count_a_static_b_provider_rejects_excessive_frame_count(self):
-        from dmdcontrol.patterns.paired import A_COUNT_B_STATIC_PAIR_TEST, make_pair_frame_provider
+        from dmdcontrol.patterns.paired import (
+            A_COUNT_B_STATIC_PAIR_TEST,
+            make_pair_frame_provider,
+        )
 
         with self.assertRaisesRegex(ValueError, "at most 64 VSYNC frames"):
             make_pair_frame_provider(

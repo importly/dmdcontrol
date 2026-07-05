@@ -33,7 +33,11 @@ class DmdPreviewRenderTests(unittest.TestCase):
         self.assertEqual(extract_bitplane(packed, 0)[0, 1], 0)
 
     def test_offline_paired_grid_places_b_left_and_a_right(self):
-        from dmdcontrol.patterns.paired import DMD_HEIGHT, DMD_WIDTH, generate_static_frame
+        from dmdcontrol.patterns.paired import (
+            DMD_HEIGHT,
+            DMD_WIDTH,
+            generate_static_frame,
+        )
         from dmdcontrol.preview.render import render_offline_frame
 
         frame = render_offline_frame(layout="pair", test="grid")
@@ -49,7 +53,11 @@ class DmdPreviewRenderTests(unittest.TestCase):
         )
 
     def test_offline_a_count_b_static_preview_uses_static_b_left(self):
-        from dmdcontrol.patterns.paired import DMD_HEIGHT, DMD_WIDTH, generate_static_frame
+        from dmdcontrol.patterns.paired import (
+            DMD_HEIGHT,
+            DMD_WIDTH,
+            generate_static_frame,
+        )
         from dmdcontrol.preview.render import render_offline_frame
 
         frame = render_offline_frame(layout="pair", test="a-count-b-static")
@@ -62,7 +70,10 @@ class DmdPreviewRenderTests(unittest.TestCase):
         self.assertGreater(np.count_nonzero(frame[:, DMD_WIDTH:, :]), 0)
 
     def test_bitplane_render_is_binary_grayscale(self):
-        from dmdcontrol.preview.render import render_bitplane_image, render_offline_frame
+        from dmdcontrol.preview.render import (
+            render_bitplane_image,
+            render_offline_frame,
+        )
 
         frame = render_offline_frame(layout="pair", test="grid")
         bitplane = render_bitplane_image(frame, plane=0)
