@@ -9,9 +9,9 @@
 set -e
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-source "$REPO_ROOT/scripts/lib/dmd_shell_common.sh"
-source "$REPO_ROOT/scripts/lib/dmd_x11_common.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$REPO_ROOT/scripts/dmd_shell_common.sh"
+source "$REPO_ROOT/scripts/dmd_x11_common.sh"
 
 if [ "$#" -lt 4 ]; then
     echo "[ERROR] Usage: dmd_xinit_client.sh <single|pair> <python-module> <python-args...> __DMD_XINIT_RUN_ARGS__ <run-args...>"

@@ -77,7 +77,7 @@ dmd_run_xinit_python_module() {
     local layout="$2"
     local module="$3"
     shift 3
-    local xinitrc="$script_dir/scripts/lib/dmd_xinit_client.sh"
+    local xinitrc="$script_dir/scripts/dmd_xinit_client.sh"
     local xinit_args=()
     local saw_separator=0
 

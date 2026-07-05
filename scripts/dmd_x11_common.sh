@@ -1,5 +1,5 @@
 #!/bin/bash
-# Shared X11/NVIDIA modeline helpers for DMD runner scripts.
+# Shared X11/NVIDIA layout helpers for DMD runner scripts.
 
 DMD_MODE_60="1920x1080_60_RAW"
 
