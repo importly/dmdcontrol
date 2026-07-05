@@ -4,7 +4,7 @@ set -e
 
 echo "=== Paired DLPC900 Calibration Square + B Dot ==="
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/scripts/lib/dmd_shell_common.sh"
+source "$SCRIPT_DIR/scripts/dmd_shell_common.sh"
 
 dmd_parse_dmd_config_arg "$@"
 

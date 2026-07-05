@@ -6,7 +6,7 @@ set -e
 
 echo "=== DLPC900 Calibration Square ==="
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/scripts/lib/dmd_shell_common.sh"
+source "$SCRIPT_DIR/scripts/dmd_shell_common.sh"
 
 CONTROL_FILE="$(dmd_create_calibr_square_control_file)"
 DMD_CALIBR_CONTROL_PID=""

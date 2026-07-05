@@ -3,9 +3,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
-SHELL_HELPER = SCRIPTS / "lib" / "dmd_shell_common.sh"
-X11_HELPER = SCRIPTS / "lib" / "dmd_x11_common.sh"
-XINIT_CLIENT = SCRIPTS / "lib" / "dmd_xinit_client.sh"
+SHELL_HELPER = SCRIPTS / "dmd_shell_common.sh"
+X11_HELPER = SCRIPTS / "dmd_x11_common.sh"
+XINIT_CLIENT = SCRIPTS / "dmd_xinit_client.sh"
 
 
 class PairWrapperTests(unittest.TestCase):
@@ -87,7 +87,7 @@ class PairWrapperTests(unittest.TestCase):
     def test_preview_server_runner_uses_package_cli_with_default_bind(self):
         script = (ROOT / "run_dmd_preview_server.sh").read_text(encoding="utf-8")
 
-        self.assertIn('source "$SCRIPT_DIR/scripts/lib/dmd_shell_common.sh"', script)
+        self.assertIn('source "$SCRIPT_DIR/scripts/dmd_shell_common.sh"', script)
         self.assertIn(
             'dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol preview serve '
             '--host 0.0.0.0 --port 8080 "$@"',
@@ -110,12 +110,12 @@ class PairWrapperTests(unittest.TestCase):
                 "run_dmd_pair_calibr_square.sh",
         ):
             script = (ROOT / name).read_text(encoding="utf-8")
-            self.assertIn('source "$SCRIPT_DIR/scripts/lib/dmd_shell_common.sh"', script)
+            self.assertIn('source "$SCRIPT_DIR/scripts/dmd_shell_common.sh"', script)
 
     def test_generic_xinit_client_sources_common_x11_helpers(self):
         client = XINIT_CLIENT.read_text(encoding="utf-8")
 
-        self.assertIn('source "$REPO_ROOT/scripts/lib/dmd_x11_common.sh"', client)
+        self.assertIn('source "$REPO_ROOT/scripts/dmd_x11_common.sh"', client)
 
     def test_calibration_runner_uses_shared_control_reader(self):
         script = (ROOT / "run_calibr_square.sh").read_text(encoding="utf-8")
@@ -226,6 +226,9 @@ class PairWrapperTests(unittest.TestCase):
 
     def test_command_specific_xinit_wrappers_were_removed(self):
         self.assertFalse((SCRIPTS / "xinit").exists())
+
+    def test_nested_scripts_lib_folder_was_removed(self):
+        self.assertFalse((SCRIPTS / "lib").exists())
 
     def test_debug_shell_wrappers_were_removed(self):
         self.assertFalse((SCRIPTS / "debug").exists())

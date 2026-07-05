@@ -486,64 +486,7 @@ class DynamicSnakePairFrameProvider(PairFrameProvider):
         return self._frame_for_index(self.frame_index)
 
 
-class CountSequenceAStaticBPairFrameProvider(PairFrameProvider):
-
-    def __init__(
-        self,
-        mode_b="dot",
-        count_start=1,
-        count_end=100,
-        count_slots_per_frame=2,
-        width=DMD_WIDTH,
-        height=DMD_HEIGHT,
-        size_px=None,
-        b_dot_x=None,
-        b_dot_y=None,
-        b_dot_radius=40,
-        b_dot_shape="circle",
-        b_dot_invert=False,
-        count_blank_between_frames=False,
-    ):
-        _validate_count_sequence_args(
-            count_start,
-            count_end,
-            count_slots_per_frame,
-            count_blank_between_frames=count_blank_between_frames,
-        )
-        self.width = width
-        self.height = height
-        self.frame_index = 0
-        self.count_blank_between_frames = bool(count_blank_between_frames)
-        self._frames_a = _pack_count_sequence_frames(
-            count_start,
-            count_end,
-            count_slots_per_frame,
-            width=width,
-            height=height,
-            size_px=size_px,
-            count_blank_between_frames=count_blank_between_frames,
-        )
-        self._frame_b = generate_static_frame(
-            mode_b,
-            width=width,
-            height=height,
-            route_label="B",
-            dot_x=b_dot_x,
-            dot_y=b_dot_y,
-            dot_radius=b_dot_radius,
-            dot_shape=b_dot_shape,
-            dot_invert=b_dot_invert,
-        )
-
-    def initial_pair(self):
-        return FramePair(a=self._frames_a[self.frame_index], b=self._frame_b)
-
-    def next_pair(self):
-        self.frame_index = (self.frame_index + 1) % len(self._frames_a)
-        return FramePair(a=self._frames_a[self.frame_index], b=self._frame_b)
-
-
-def _pack_count_sequence_frames(
+def pack_count_sequence_frames(
         count_start,
         count_end,
         count_slots_per_frame,
@@ -627,20 +570,10 @@ def make_pair_frame_provider(
     test_b=None,
     width=DMD_WIDTH,
     height=DMD_HEIGHT,
-    numbers_size_px=None,
-    count_start=1,
-    count_end=100,
-    count_slots_per_frame=2,
-    count_blank_between_frames=False,
     static_image_a=None,
     static_image_b=None,
     static_image_size_px=DMD_HEIGHT,
     dot_radius=40,
-    b_dot_x=None,
-    b_dot_y=None,
-    b_dot_radius=40,
-    b_dot_shape="circle",
-    b_dot_invert=False,
 ):
     if test in STATIC_PAIR_TESTS:
         return StaticPairFrameProvider(
@@ -662,22 +595,6 @@ def make_pair_frame_provider(
         )
     if test == "snake":
         return DynamicSnakePairFrameProvider(width=width, height=height)
-    if test == A_COUNT_B_STATIC_PAIR_TEST:
-        return CountSequenceAStaticBPairFrameProvider(
-            mode_b=test_b or "dot",
-            count_start=count_start,
-            count_end=count_end,
-            count_slots_per_frame=count_slots_per_frame,
-            count_blank_between_frames=count_blank_between_frames,
-            width=width,
-            height=height,
-            size_px=numbers_size_px,
-            b_dot_x=b_dot_x,
-            b_dot_y=b_dot_y,
-            b_dot_radius=b_dot_radius,
-            b_dot_shape=b_dot_shape,
-            b_dot_invert=b_dot_invert,
-        )
     raise ValueError(f"Unsupported paired test mode: {test}")
 
 

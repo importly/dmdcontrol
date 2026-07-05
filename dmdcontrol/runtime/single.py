@@ -557,8 +557,8 @@ def main(argv=None):
             # Keep indexed dynamic playback deterministic: do not consume the
             # kernel/calibration provider during DLPC arm. The real
             # loop starts at frame 0 after configuration completes.
-            prearm_frame_provider = lambda: _maybe_invert_frame(
-                black_frame if args.trigger else frame, args.invert_dmd)
+            def prearm_frame_provider():
+                return _maybe_invert_frame(black_frame if args.trigger else frame, args.invert_dmd)
         else:
             prearm_frame_provider = frame_provider
 

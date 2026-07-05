@@ -8,6 +8,7 @@ from dmdcontrol.patterns.paired import (
     A_COUNT_B_STATIC_PAIR_TEST,
     STATIC_IMAGES_PAIR_TEST,
     FramePair,
+    as_frame_pair,
 )
 from dmdcontrol.runtime.pair import main
 
@@ -551,16 +552,11 @@ def test_pair_runtime_parser_rejects_nonpositive_count_slots():
             ["--test", A_COUNT_B_STATIC_PAIR_TEST, "--count-slots-per-frame", "0"])
 
 
-def test_a_count_b_static_runtime_forwards_count_geometry(monkeypatch):
+def test_a_count_b_static_runtime_builds_count_frames_without_pair_provider(monkeypatch):
     from dmdcontrol.runtime import display_sequence
 
-    captured = {}
-    provider = _FakeSequenceProvider()
-
     def fake_make_pair_frame_provider(*args, **kwargs):
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return provider
+        raise AssertionError("count sequence construction should not use pair providers")
 
     monkeypatch.setattr(display_sequence, "make_pair_frame_provider", fake_make_pair_frame_provider)
 
@@ -590,19 +586,19 @@ def test_a_count_b_static_runtime_forwards_count_geometry(monkeypatch):
         engine=types.SimpleNamespace(window=None),
         target_hz=60)
 
-    assert sequence.provider is provider
-    assert captured["args"] == (A_COUNT_B_STATIC_PAIR_TEST, )
-    assert captured["kwargs"]["test_b"] == "dot"
-    assert captured["kwargs"]["count_start"] == 1
-    assert captured["kwargs"]["count_end"] == 100
-    assert captured["kwargs"]["count_slots_per_frame"] == 2
-    assert captured["kwargs"]["count_blank_between_frames"] is True
-    assert captured["kwargs"]["numbers_size_px"] == 123
-    assert captured["kwargs"]["b_dot_x"] == 955
-    assert captured["kwargs"]["b_dot_y"] == 535
-    assert captured["kwargs"]["b_dot_radius"] == 12
-    assert captured["kwargs"]["b_dot_shape"] == "circle"
-    assert captured["kwargs"]["b_dot_invert"] is False
+    assert type(sequence.provider).__name__ == "FrameSequenceProvider"
+    np.testing.assert_array_equal(
+        as_frame_pair(sequence.provider.initial_pair()).a,
+        sequence.frames[0].frame_pair.a,
+    )
+    assert len(sequence.frames) == 50
+    assert [slot.semantic_label for slot in sequence.frames[0].lut_slots] == [
+        "count:1",
+        "blank",
+        "count:2",
+        "blank",
+    ]
+    assert int(np.count_nonzero(sequence.frames[0].frame_pair.b)) > 0
 
 
 def test_static_images_runtime_forwards_paths_and_size(monkeypatch):
@@ -636,6 +632,10 @@ def test_static_images_runtime_forwards_paths_and_size(monkeypatch):
         target_hz=60)
 
     assert sequence.provider is provider
+    np.testing.assert_array_equal(
+        as_frame_pair(sequence.provider.initial_pair()).a,
+        sequence.frames[0].frame_pair.a,
+    )
     assert captured["args"] == (STATIC_IMAGES_PAIR_TEST, )
     assert captured["kwargs"]["static_image_a"] == "images/T.png"
     assert captured["kwargs"]["static_image_b"] == "images/O.png"
@@ -1291,3 +1291,57 @@ def test_pair_render_coordinator_can_prime_first_semantic_frame_before_release()
         assert any(int(frame_a[0, 0, 0]) == 3 for frame_a, _ in displayed)
     finally:
         coordinator.stop(timeout_s=1.0)
+
+
+def test_pair_render_coordinator_advances_after_primed_first_semantic_frame():
+    from dmdcontrol.runtime import pair
+
+    blank = np.zeros((1, 1, 3), dtype=np.uint8)
+    displayed_values = []
+
+    class FakeEngine:
+
+        def make_context_current(self):
+            pass
+
+        def release_context(self):
+            pass
+
+        def should_close(self):
+            return bool(displayed_values)
+
+        def display_pair(self, frame_a, frame_b):
+            value = int(frame_a[0, 0, 0])
+            displayed_values.append(value)
+
+    class FakeProvider:
+
+        def __init__(self):
+            self.initial_calls = 0
+            self.next_calls = 0
+
+        def initial_pair(self):
+            self.initial_calls += 1
+            first = np.full((1, 1, 3), 1, dtype=np.uint8)
+            return first, first
+
+        def next_pair(self):
+            self.next_calls += 1
+            second = np.full((1, 1, 3), self.next_calls + 1, dtype=np.uint8)
+            return second, second
+
+    provider = FakeProvider()
+    coordinator = pair.PairRenderCoordinator(
+        FakeEngine(),
+        provider,
+        types.SimpleNamespace(runtime_seconds=0),
+        startup_leader_pair=(blank, blank),
+        startup_leader_vsyncs=0,
+    )
+
+    coordinator._primed_first_semantic_pair = provider.initial_pair()
+    coordinator._run_semantic_frames()
+
+    assert provider.initial_calls == 1
+    assert provider.next_calls == 1
+    assert displayed_values == [2]

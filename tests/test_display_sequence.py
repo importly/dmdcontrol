@@ -8,8 +8,13 @@ from dmdcontrol.patterns.paired import (
     A_COUNT_B_STATIC_PAIR_TEST,
     CALIBRATION_DOT_PAIR_TEST,
     KERNEL_STATIC_PAIR_TEST,
+    as_frame_pair,
 )
 from dmdcontrol.runtime import display_sequence
+
+
+def _assert_sequence_cursor(sequence):
+    assert type(sequence.provider).__name__ == "FrameSequenceProvider"
 
 
 def _count_args(**overrides):
@@ -74,6 +79,47 @@ def test_count_blank_sequence_pairs_each_frame_with_its_lut_slots():
     assert int(np.count_nonzero(extract_bitplane(frame0.frame_pair.a, 1))) == 0
 
 
+def test_exact_count_blank_sixty_sequence_keeps_frames_luts_and_provider_in_order():
+    sequence = display_sequence.build_paired_display_sequence(
+        _count_args(count_end=60),
+        target_hz=60,
+        engine=types.SimpleNamespace(window=None),
+        width=120,
+        height=160,
+    )
+
+    assert len(sequence.frames) == 60
+    assert sequence.startup_policy.mode == "prime_first_frame"
+    assert sequence.startup_leader_metadata()["trigger_count"] == 0
+    assert sequence.lut_entries() == [
+        (0, 8000, False, 1, 7, 0, False, 0),
+        (1, 8000, True, 1, 7, 0, False, 1),
+    ]
+    assert sequence.expected_trigger_count() == 120
+
+    for index, frame in enumerate(sequence.frames):
+        count = index + 1
+        assert frame.source_frame_index == index
+        assert frame.semantic_labels == (f"count:{count}",)
+        assert [slot.semantic_label for slot in frame.lut_slots] == [f"count:{count}", "blank"]
+        assert [slot.semantic_role for slot in frame.lut_slots] == ["count", "blank"]
+        assert [slot.bitplane_index for slot in frame.lut_slots] == [0, 1]
+        assert [slot.exposure_us for slot in frame.lut_slots] == [8000, 8000]
+        assert [slot.trig2_enabled for slot in frame.lut_slots] == [True, True]
+        np.testing.assert_array_equal(
+            extract_bitplane(frame.frame_pair.a, 0),
+            generate_decimal_number_rgb(count, width=120, height=160, size_px=80)[:, :, 0],
+        )
+        assert int(np.count_nonzero(extract_bitplane(frame.frame_pair.a, 1))) == 0
+
+    runtime_first = as_frame_pair(sequence.provider.initial_pair())
+    runtime_second = as_frame_pair(sequence.provider.next_pair())
+    _assert_sequence_cursor(sequence)
+    np.testing.assert_array_equal(runtime_first.a, sequence.frames[0].frame_pair.a)
+    np.testing.assert_array_equal(runtime_second.a, sequence.frames[1].frame_pair.a)
+    np.testing.assert_array_equal(runtime_first.b, runtime_second.b)
+
+
 def test_count_without_blank_sequence_uses_blank_leader_policy():
     sequence = display_sequence.build_paired_display_sequence(
         _count_args(count_blank_between_frames=False, exposure_us=16000),
@@ -115,10 +161,18 @@ def test_static_sequence_has_one_repeating_frame_and_timing_from_exposure():
 
     assert len(sequence.frames) == 1
     assert sequence.repeat is True
+    np.testing.assert_array_equal(
+        as_frame_pair(sequence.provider.initial_pair()).a,
+        sequence.frames[0].frame_pair.a,
+    )
+    np.testing.assert_array_equal(
+        as_frame_pair(sequence.provider.next_pair()).a,
+        sequence.frames[0].frame_pair.a,
+    )
     assert sequence.lut_slots[0].exposure_us == 4000
 
 
-def test_kernel_sequence_preserves_kernel_cycle_metadata():
+def test_kernel_sequence_preserves_kernel_cycle_metadata_and_uses_sequence_cursor():
     sequence = display_sequence.build_paired_display_sequence(
         _count_args(
             test=KERNEL_STATIC_PAIR_TEST,
@@ -137,6 +191,11 @@ def test_kernel_sequence_preserves_kernel_cycle_metadata():
 
     assert sequence.mode_metadata["kernel"]["kernel_px"] == 30
     assert sequence.mode_metadata["kernel"]["cycle_fires"] >= 512
+    _assert_sequence_cursor(sequence)
+    runtime_first = as_frame_pair(sequence.provider.initial_pair())
+    runtime_second = as_frame_pair(sequence.provider.next_pair())
+    np.testing.assert_array_equal(runtime_first.a, sequence.frames[0].frame_pair.a)
+    np.testing.assert_array_equal(runtime_second.a, sequence.frames[1].frame_pair.a)
     assert sequence.lut_slots[0].exposure_us == 3000
 
 
@@ -155,4 +214,5 @@ def test_calibration_dot_sequence_uses_dynamic_provider_with_common_lut_slots():
 
     assert sequence.startup_policy.mode == "blank_leader"
     assert sequence.provider is not None
+    assert type(sequence.provider).__name__ != "FrameSequenceProvider"
     assert sequence.lut_slots[0].exposure_us == 4000

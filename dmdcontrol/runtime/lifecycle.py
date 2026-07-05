@@ -27,14 +27,22 @@ def _format_hw(hw):
         return "??"
     # DLPU018J Table 2-21. Bit 5 is reserved (commonly reads 1).
     bits = []
-    if hw & 0x01: bits.append("init_ok")
-    if hw & 0x02: bits.append("dmd_compat_err")
-    if hw & 0x04: bits.append("dmd_reset_err")
-    if hw & 0x08: bits.append("forced_swap")
-    if hw & 0x10: bits.append("bit4")
-    if hw & 0x20: bits.append("bit5_rsvd")
-    if hw & 0x40: bits.append("ABORT")
-    if hw & 0x80: bits.append("SEQ_ERR")
+    if hw & 0x01:
+        bits.append("init_ok")
+    if hw & 0x02:
+        bits.append("dmd_compat_err")
+    if hw & 0x04:
+        bits.append("dmd_reset_err")
+    if hw & 0x08:
+        bits.append("forced_swap")
+    if hw & 0x10:
+        bits.append("bit4")
+    if hw & 0x20:
+        bits.append("bit5_rsvd")
+    if hw & 0x40:
+        bits.append("ABORT")
+    if hw & 0x80:
+        bits.append("SEQ_ERR")
     return f"0x{hw:02X}[{'|'.join(bits) if bits else 'clean'}]"
 
 

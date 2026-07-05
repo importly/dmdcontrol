@@ -615,7 +615,7 @@ class PairRenderCoordinator:
 
     def _run_semantic_frames(self):
         end_t = None if self.args.runtime_seconds <= 0 else time.time() + self.args.runtime_seconds
-        first_semantic_frame = True
+        first_semantic_frame = self._primed_first_semantic_pair is None
         while (
             not self._stop.is_set()
             and (end_t is None or time.time() < end_t)

@@ -36,7 +36,7 @@ from dmdcontrol.patterns.paired import (
     compose_pair_frame,
     generate_dot_frame,
     generate_static_frame,
-    make_pair_frame_provider,
+    pack_count_sequence_frames,
 )
 from dmdcontrol.support.constants import BITPLANES
 
@@ -185,15 +185,15 @@ def render_pair_frame(test="grid", test_a=None, test_b=None, frame_index=0):
         frame_a, frame_b = DynamicSnakePairFrameProvider()._frame_for_index(frame_index)
         return compose_pair_frame(frame_a, frame_b)
     if test == A_COUNT_B_STATIC_PAIR_TEST:
-        frame_provider = make_pair_frame_provider(
-            test,
-            test_b=test_b,
-            count_start=1,
-            count_end=2,
-            count_slots_per_frame=2,
-            numbers_size_px=360,
-        )
-        frame_a, frame_b = frame_provider.initial_pair()
+        frame_a = pack_count_sequence_frames(
+            1,
+            2,
+            2,
+            width=DMD_WIDTH,
+            height=DMD_HEIGHT,
+            size_px=360,
+        )[0]
+        frame_b = generate_static_frame(test_b or "dot", route_label="B")
         return compose_pair_frame(frame_a, frame_b)
     if test == CALIBRATION_DOT_PAIR_TEST:
         engine = PreviewEngine()

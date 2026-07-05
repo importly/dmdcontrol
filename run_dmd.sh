@@ -5,7 +5,7 @@
 set -e
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/scripts/lib/dmd_shell_common.sh"
+source "$SCRIPT_DIR/scripts/dmd_shell_common.sh"
 
 if dmd_has_flag --dry-run-timing "$@"; then
     echo "=== Single dry-run timing (no DP wake, no X, no sudo) ==="

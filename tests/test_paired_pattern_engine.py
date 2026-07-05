@@ -150,30 +150,21 @@ class PairedPatternEngineTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             generate_decimal_number_rgb(-1, width=160, height=160, size_px=90)
 
-    def test_count_a_static_b_provider_packs_counts_across_vsync_frames(self):
+    def test_count_sequence_frame_packing_packs_counts_across_vsync_frames(self):
         from dmdcontrol.patterns.modes import generate_decimal_number_rgb
-        from dmdcontrol.patterns.paired import (
-            A_COUNT_B_STATIC_PAIR_TEST,
-            make_pair_frame_provider,
-        )
+        from dmdcontrol.patterns.paired import pack_count_sequence_frames
 
-        provider = make_pair_frame_provider(
-            A_COUNT_B_STATIC_PAIR_TEST,
-            test_b="dot",
+        frames = pack_count_sequence_frames(
             count_start=1,
             count_end=4,
             count_slots_per_frame=2,
             width=120,
             height=160,
-            numbers_size_px=80,
-            b_dot_x=60,
-            b_dot_y=80,
-            b_dot_radius=3,
+            size_px=80,
         )
 
-        frame0_a, frame0_b = provider.initial_pair()
-        frame1_a, frame1_b = provider.next_pair()
-        frame0_again_a, frame0_again_b = provider.next_pair()
+        frame0_a = frames[0]
+        frame1_a = frames[1]
 
         np.testing.assert_array_equal(
             _extract_packed_bitplane(frame0_a, 0),
@@ -193,35 +184,23 @@ class PairedPatternEngineTests(unittest.TestCase):
         )
         self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame0_a, 2))), 0)
         self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame1_a, 2))), 0)
-        np.testing.assert_array_equal(frame0_a, frame0_again_a)
-        np.testing.assert_array_equal(frame0_b, frame1_b)
-        np.testing.assert_array_equal(frame0_b, frame0_again_b)
 
-    def test_count_a_static_b_provider_can_insert_blank_bitplanes_between_counts(self):
+    def test_count_sequence_frame_packing_can_insert_blank_bitplanes_between_counts(self):
         from dmdcontrol.patterns.modes import generate_decimal_number_rgb
-        from dmdcontrol.patterns.paired import (
-            A_COUNT_B_STATIC_PAIR_TEST,
-            make_pair_frame_provider,
-        )
+        from dmdcontrol.patterns.paired import pack_count_sequence_frames
 
-        provider = make_pair_frame_provider(
-            A_COUNT_B_STATIC_PAIR_TEST,
-            test_b="dot",
+        frames = pack_count_sequence_frames(
             count_start=1,
             count_end=4,
             count_slots_per_frame=2,
             count_blank_between_frames=True,
             width=120,
             height=160,
-            numbers_size_px=80,
-            b_dot_x=60,
-            b_dot_y=80,
-            b_dot_radius=3,
+            size_px=80,
         )
 
-        frame0_a, frame0_b = provider.initial_pair()
-        frame1_a, frame1_b = provider.next_pair()
-        frame0_again_a, frame0_again_b = provider.next_pair()
+        frame0_a = frames[0]
+        frame1_a = frames[1]
 
         np.testing.assert_array_equal(
             _extract_packed_bitplane(frame0_a, 0),
@@ -243,20 +222,12 @@ class PairedPatternEngineTests(unittest.TestCase):
             generate_decimal_number_rgb(4, width=120, height=160, size_px=80)[:, :, 0],
         )
         self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame1_a, 3))), 0)
-        np.testing.assert_array_equal(frame0_a, frame0_again_a)
-        self.assertGreater(int(np.count_nonzero(frame0_b)), 0)
-        np.testing.assert_array_equal(frame0_b, frame1_b)
-        np.testing.assert_array_equal(frame0_b, frame0_again_b)
 
-    def test_count_a_static_b_provider_rejects_partial_final_vsync(self):
-        from dmdcontrol.patterns.paired import (
-            A_COUNT_B_STATIC_PAIR_TEST,
-            make_pair_frame_provider,
-        )
+    def test_count_sequence_frame_packing_rejects_partial_final_vsync(self):
+        from dmdcontrol.patterns.paired import pack_count_sequence_frames
 
         with self.assertRaisesRegex(ValueError, "divisible by count_slots_per_frame"):
-            make_pair_frame_provider(
-                A_COUNT_B_STATIC_PAIR_TEST,
+            pack_count_sequence_frames(
                 count_start=1,
                 count_end=5,
                 count_slots_per_frame=2,
@@ -264,15 +235,11 @@ class PairedPatternEngineTests(unittest.TestCase):
                 height=160,
             )
 
-    def test_count_a_static_b_provider_rejects_excessive_frame_count(self):
-        from dmdcontrol.patterns.paired import (
-            A_COUNT_B_STATIC_PAIR_TEST,
-            make_pair_frame_provider,
-        )
+    def test_count_sequence_frame_packing_rejects_excessive_frame_count(self):
+        from dmdcontrol.patterns.paired import pack_count_sequence_frames
 
         with self.assertRaisesRegex(ValueError, "at most 64 VSYNC frames"):
-            make_pair_frame_provider(
-                A_COUNT_B_STATIC_PAIR_TEST,
+            pack_count_sequence_frames(
                 count_start=1,
                 count_end=130,
                 count_slots_per_frame=2,

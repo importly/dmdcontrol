@@ -29,7 +29,7 @@ Currently working on camera timing issue. not sure if root cause is timing.
 - A `Screen` section with
   `Option "MetaModes" "1920x1080_60_RAW +0+0 {ColorSpace=RGB, ColorRange=Full, ForceFullCompositionPipeline=On}"`
 
-`scripts/lib/dmd_x11_common.sh` detects when xrandr cannot switch to the custom mode by name (expected on NVIDIA
+`scripts/dmd_x11_common.sh` detects when xrandr cannot switch to the custom mode by name (expected on NVIDIA
 proprietary) and validates the active MetaMode via `nvidia-settings -q CurrentMetaMode` instead. It only aborts if
 neither path applied the target mode.
 
@@ -38,7 +38,7 @@ neither path applied the target mode.
 On the Linux DMD box, the root `run_*.sh` launchers are the production orchestration entrypoints. They handle
 DisplayPort wakeup, `xinit`, sudo/env pass-through, NVIDIA/X11 mode validation, and calibration terminal input wiring
 before handing off to the Python package. Each public runner names the Python subcommand it will launch; the only hidden
-X-stage script is the generic `scripts/lib/dmd_xinit_client.sh`.
+X-stage script is the generic `scripts/dmd_xinit_client.sh`.
 
 ```bash
 ./run_dmd.sh [flags]
@@ -144,7 +144,7 @@ python -m dmdcontrol pair run --dry-run-timing --mode snake
 ./run_dmd_pair_calibr_square.sh --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
 ```
 
-`run_dmd_pair.sh` wakes both mapped controllers, starts the generic `scripts/lib/dmd_xinit_client.sh` in paired-layout
+`run_dmd_pair.sh` wakes both mapped controllers, starts the generic `scripts/dmd_xinit_client.sh` in paired-layout
 mode, and launches `python -m dmdcontrol pair run`. The paired X layout is one X screen at `3840x1080`: B/`DP-0` is the left half at
 `+0+0`, and A/`DP-2` is the right half at `+1920+0`. The runtime opens one undecorated GLFW window at `(0, 0)`, renders
 B into `x=0..1919`, renders A into `x=1920..3839`, and performs one buffer swap per paired frame.
@@ -404,7 +404,7 @@ run_dmd_pair_calibr_square.sh  Paired calibration launcher with terminal input
 run_camera_sync_check.sh       Camera sync-check launcher
 run_dmd_pair_capture.sh        Paired DMD + camera capture launcher
 run_dmd_preview_server.sh      Preview server launcher, defaults to 0.0.0.0:8080
-scripts/lib/       Shared shell helpers, X11 layout helpers, and generic xinit client
+scripts/           Shared shell helpers, X11 layout helpers, and generic xinit client
 compat/legacy/     Old Python entrypoint/import shims kept out of the repository root
 sync_dmd.sh         rsync local -> lab box (bash)
 sync_dmd.ps1        rsync local -> lab box (PowerShell)
