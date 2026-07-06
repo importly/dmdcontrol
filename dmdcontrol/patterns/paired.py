@@ -554,12 +554,19 @@ def pack_count_sequence_frames(
             height=height,
             size_px=size_px,
         )
-        stack = BitplaneStack.from_masks_with_optional_blanks(
-            count_masks,
-            width=width,
-            height=height,
-            blank_between_masks=count_blank_between_frames,
-        )
+        if count_blank_between_frames:
+            # In Video Pattern Mode the first post-VSYNC LUT slot can straddle
+            # the previous and current source frame. Keep changing count pixels
+            # out of that slot; after skipping the first guard trigger the
+            # timeline is still count, blank, count, blank, ...
+            blank = np.zeros((height, width), dtype=np.uint8)
+            display_masks = []
+            for mask in count_masks:
+                display_masks.append(blank)
+                display_masks.append(mask)
+            stack = BitplaneStack.from_masks(display_masks, width=width, height=height)
+        else:
+            stack = BitplaneStack.from_masks(count_masks, width=width, height=height)
         frames.append(stack.to_rgb_frame().array)
     return tuple(frames)
 

@@ -44,11 +44,10 @@ class CountPairPreviewMetadata(TypedDict):
 class CountSequenceConfig:
     """Semantic count recipe before it is packed into RGB bitplanes.
 
-    The display order is count, optional blank, count, optional blank, ...
-    `count_slots_per_frame` is the number of visible count labels packed into
-    one VSYNC frame. Blank insertion consumes a matching number of LUT entries,
-    so one visible count still maps to one trigger and one blank maps to one
-    trigger.
+    The semantic display order is count, optional blank, count, optional blank,
+    ... after any pre-semantic phase guard triggers are skipped. In the packed
+    source frame, count/blank mode puts each blank before its count so changing
+    count pixels do not occupy the first post-VSYNC LUT slot.
     """
 
     count_start: int

@@ -234,6 +234,28 @@ def test_pair_runtime_parser_accepts_count_blank_after_each_count_alias():
     assert args.count_blank_between_frames is True
 
 
+def test_pair_runtime_rejects_count_blank_with_frame_zero_trigger():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--test",
+            A_COUNT_B_STATIC_PAIR_TEST,
+            "--count-end",
+            "4",
+            "--count-slots-per-frame",
+            "1",
+            "--count-blank-after-each-count",
+            "--trig2-frame-zero",
+            "--exposure-us",
+            "7000",
+        ])
+
+    with pytest.raises(SystemExit, match="trig2-frame-zero"):
+        pair._validate_pair_args(args)
+
+
 def test_pair_runtime_parser_accepts_paired_startup_leader_vsyncs():
     from dmdcontrol.runtime import pair
 
@@ -594,10 +616,10 @@ def test_a_count_b_static_runtime_builds_count_frames_without_pair_provider(monk
     )
     assert len(sequence.frames) == 50
     assert [slot.semantic_label for slot in sequence.frames[0].lut_slots] == [
+        "blank",
         "count:1",
         "blank",
         "count:2",
-        "blank",
     ]
     assert int(np.count_nonzero(sequence.frames[0].frame_pair.b)) > 0
 

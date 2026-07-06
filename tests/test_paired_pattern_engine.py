@@ -202,26 +202,26 @@ class PairedPatternEngineTests(unittest.TestCase):
         frame0_a = frames[0]
         frame1_a = frames[1]
 
+        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame0_a, 0))), 0)
         np.testing.assert_array_equal(
-            _extract_packed_bitplane(frame0_a, 0),
+            _extract_packed_bitplane(frame0_a, 1),
             generate_decimal_number_rgb(1, width=120, height=160, size_px=80)[:, :, 0],
         )
-        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame0_a, 1))), 0)
+        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame0_a, 2))), 0)
         np.testing.assert_array_equal(
-            _extract_packed_bitplane(frame0_a, 2),
+            _extract_packed_bitplane(frame0_a, 3),
             generate_decimal_number_rgb(2, width=120, height=160, size_px=80)[:, :, 0],
         )
-        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame0_a, 3))), 0)
+        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame1_a, 0))), 0)
         np.testing.assert_array_equal(
-            _extract_packed_bitplane(frame1_a, 0),
+            _extract_packed_bitplane(frame1_a, 1),
             generate_decimal_number_rgb(3, width=120, height=160, size_px=80)[:, :, 0],
         )
-        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame1_a, 1))), 0)
+        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame1_a, 2))), 0)
         np.testing.assert_array_equal(
-            _extract_packed_bitplane(frame1_a, 2),
+            _extract_packed_bitplane(frame1_a, 3),
             generate_decimal_number_rgb(4, width=120, height=160, size_px=80)[:, :, 0],
         )
-        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame1_a, 3))), 0)
 
     def test_count_sequence_frame_packing_rejects_partial_final_vsync(self):
         from dmdcontrol.patterns.paired import pack_count_sequence_frames

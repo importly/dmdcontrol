@@ -49,7 +49,9 @@ def _dry_run_timing(args: argparse.Namespace, pair_config: PairConfig) -> int:
         f"[DRY RUN] Display sequence: {len(sequence.frames)} source frames, "
         f"{len(sequence.lut_slots)} LUT slots per source frame, "
         f"startup_policy={sequence.startup_policy.mode}, "
-        f"startup_leader_triggers={startup_leader['trigger_count']}.")
+        f"pre_semantic_skip_triggers={startup_leader['trigger_count']} "
+        f"(startup_leader={startup_leader['startup_leader_trigger_count']}, "
+        f"phase_guard={startup_leader['phase_guard_trigger_count']}).")
     logger.info("[DRY RUN] Hardware was not opened. OpenGL and USB modules were not imported.")
     logger.info(
         f"[DRY RUN] X layout: {pair_config.desktop_width}x{pair_config.desktop_height}; "
@@ -102,7 +104,8 @@ def _dry_run_timing(args: argparse.Namespace, pair_config: PairConfig) -> int:
         if sequence.startup_policy.mode == "prime_first_frame":
             logger.info(
                 "[DRY RUN] Startup prime: first count/blank source frame is shown "
-                "before sequencer start; blank startup leader triggers are disabled "
+                "before sequencer start; blank startup leader triggers are disabled, "
+                "and the first blank phase-guard trigger is skipped by camera artifacts "
                 f"(effective leader VSYNCs={startup_leader_vsyncs}).")
     elif args.test == STATIC_IMAGES_PAIR_TEST:
         logger.info(

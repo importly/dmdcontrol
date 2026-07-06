@@ -286,6 +286,10 @@ def _validate_pair_args(args: argparse.Namespace, target_hz: float = DEFAULT_HZ)
 def _validate_count_recipe_args(args: argparse.Namespace, target_hz: float = DEFAULT_HZ) -> None:
     if args.test_a:
         raise SystemExit("--test-a is not valid for a-count-b-static; A is the count stream")
+    if args.count_blank_between_frames and args.trig2_frame_zero:
+        raise SystemExit(
+            "--trig2-frame-zero is not valid with --count-blank-after-each-count; "
+            "the first LUT slot is a blank phase guard.")
     try:
         config = CountSequenceConfig.from_args(args)
         config.validate_shape()

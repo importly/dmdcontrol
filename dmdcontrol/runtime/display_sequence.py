@@ -10,9 +10,10 @@ The paired pipeline intentionally has one ownership point for timing now:
    and renders a sequence-backed cursor for prebuilt modes, so displayed frames
    and LUT timing cannot drift into separate interpretations.
 
-For count/blank mode, one source RGB frame contains `count:N` in bitplane 0 and
-`blank` in bitplane 1. The two corresponding LUT slots fire in order at equal
-duration, giving `1, blank, 2, blank, ...` without a runtime handoff guess.
+For count/blank mode, one source RGB frame contains a blank guard in bitplane 0
+and `count:N` in bitplane 1. After the first guard trigger is skipped, the LUT
+timeline is `1, blank, 2, blank, ...` without placing changing count pixels in
+the first post-VSYNC slot.
 """
 
 from __future__ import annotations
@@ -67,6 +68,8 @@ class StartupLeaderMetadata(TypedDict):
     trig2_mode: str
     frame_role: str
     startup_policy: str
+    startup_leader_trigger_count: int
+    phase_guard_trigger_count: int
 
 
 class LutSlotMetadata(TypedDict):
@@ -171,18 +174,34 @@ class PairedDisplaySequence:
     def startup_leader_metadata(self) -> StartupLeaderMetadata:
         entries_count = len(self.lut_slots)
         leader_vsyncs = int(self.startup_policy.leader_vsyncs)
-        trigger_count = 0
+        startup_leader_trigger_count = 0
         if self.startup_policy.mode == "blank_leader":
-            trigger_count = leader_vsyncs if self.timing.get("trig2_mode") == "frame_zero" else (
+            startup_leader_trigger_count = (
+                leader_vsyncs if self.timing.get("trig2_mode") == "frame_zero" else
                 leader_vsyncs * entries_count)
+        phase_guard_trigger_count = self._phase_guard_trigger_count()
         return {
             "vsyncs": leader_vsyncs,
-            "trigger_count": int(trigger_count),
+            "trigger_count": int(startup_leader_trigger_count + phase_guard_trigger_count),
             "entries_count": entries_count,
             "trig2_mode": str(self.timing.get("trig2_mode") or "per_bitplane"),
-            "frame_role": "blank_startup_leader",
+            "frame_role": (
+                "blank_phase_guard"
+                if phase_guard_trigger_count and not startup_leader_trigger_count
+                else "blank_startup_leader"
+            ),
             "startup_policy": self.startup_policy.mode,
+            "startup_leader_trigger_count": int(startup_leader_trigger_count),
+            "phase_guard_trigger_count": int(phase_guard_trigger_count),
         }
+
+    def _phase_guard_trigger_count(self) -> int:
+        if self.startup_policy.mode != "prime_first_frame" or not self.lut_slots:
+            return 0
+        first_slot = self.lut_slots[0]
+        if first_slot.semantic_role == "blank" and first_slot.trig2_enabled:
+            return 1
+        return 0
 
     def metadata(self) -> DisplaySequenceMetadata:
         """Describe the frame/LUT pairing without exposing image arrays.
@@ -611,9 +630,9 @@ def _slots_with_labels(slots: tuple[LutSlot, ...], labels: list[str]) -> tuple[L
 def _count_slot_labels(counts: Iterable[int], *, blank_after_each_count: bool) -> list[str]:
     labels: list[str] = []
     for count in counts:
-        labels.append(f"count:{count}")
         if blank_after_each_count:
             labels.append("blank")
+        labels.append(f"count:{count}")
     return labels
 
 
