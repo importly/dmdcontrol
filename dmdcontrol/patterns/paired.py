@@ -48,7 +48,7 @@ RECIPE_PAIR_TESTS = (
     STATIC_IMAGES_PAIR_TEST,
 )
 PAIR_TESTS = STATIC_PAIR_TESTS + DYNAMIC_PAIR_TESTS + RECIPE_PAIR_TESTS
-MAX_COUNT_SEQUENCE_FRAMES = 64
+MAX_COUNT_SEQUENCE_FRAMES = 128
 
 RGBFrame = NDArray[np.uint8]
 BinaryMask = NDArray[np.uint8]
@@ -546,6 +546,20 @@ def pack_count_sequence_frames(
     )
     frames: list[RGBFrame] = []
     counts = tuple(range(count_start, count_end + 1))
+    if count_blank_between_frames:
+        blank_frame = np.zeros((height, width, 3), dtype=np.uint8)
+        for count in counts:
+            count_mask = _decimal_number_display_masks(
+                (count,),
+                width=width,
+                height=height,
+                size_px=size_px,
+            )
+            stack = BitplaneStack.from_masks(count_mask, width=width, height=height)
+            frames.append(stack.to_rgb_frame().array)
+            frames.append(blank_frame.copy())
+        return tuple(frames)
+
     for offset in range(0, len(counts), count_slots_per_frame):
         chunk = counts[offset:offset + count_slots_per_frame]
         count_masks = _decimal_number_display_masks(
@@ -554,19 +568,7 @@ def pack_count_sequence_frames(
             height=height,
             size_px=size_px,
         )
-        if count_blank_between_frames:
-            # In Video Pattern Mode the first post-VSYNC LUT slot can straddle
-            # the previous and current source frame. Keep changing count pixels
-            # out of that slot; after skipping the first guard trigger the
-            # timeline is still count, blank, count, blank, ...
-            blank = np.zeros((height, width), dtype=np.uint8)
-            display_masks = []
-            for mask in count_masks:
-                display_masks.append(blank)
-                display_masks.append(mask)
-            stack = BitplaneStack.from_masks(display_masks, width=width, height=height)
-        else:
-            stack = BitplaneStack.from_masks(count_masks, width=width, height=height)
+        stack = BitplaneStack.from_masks(count_masks, width=width, height=height)
         frames.append(stack.to_rgb_frame().array)
     return tuple(frames)
 
@@ -575,7 +577,9 @@ def count_lut_entries_per_frame(
     count_slots_per_frame: int,
     count_blank_between_frames: bool = False,
 ) -> int:
-    return int(count_slots_per_frame) * (2 if count_blank_between_frames else 1)
+    if count_blank_between_frames:
+        return 1
+    return int(count_slots_per_frame)
 
 
 def _validate_count_sequence_args(
@@ -589,6 +593,8 @@ def _validate_count_sequence_args(
         raise ValueError("count_start must be <= count_end")
     if count_slots_per_frame <= 0 or count_slots_per_frame > BITPLANES:
         raise ValueError(f"count_slots_per_frame must be in the range 1..{BITPLANES}")
+    if count_blank_between_frames and count_slots_per_frame != 1:
+        raise ValueError("count blank insertion requires count_slots_per_frame=1")
     lut_entries = count_lut_entries_per_frame(
         count_slots_per_frame,
         count_blank_between_frames=count_blank_between_frames,
@@ -599,9 +605,9 @@ def _validate_count_sequence_args(
             f"count_slots_per_frame with blank frames needs {lut_entries} LUT entries, "
             f"but only {BITPLANES} bitplanes are available")
     count_total = count_end - count_start + 1
-    if count_total % count_slots_per_frame != 0:
+    if not count_blank_between_frames and count_total % count_slots_per_frame != 0:
         raise ValueError("count range length must be divisible by count_slots_per_frame")
-    frame_count = count_total // count_slots_per_frame
+    frame_count = count_total * 2 if count_blank_between_frames else count_total // count_slots_per_frame
     if frame_count > MAX_COUNT_SEQUENCE_FRAMES:
         raise ValueError(
             f"count sequence can span at most {MAX_COUNT_SEQUENCE_FRAMES} VSYNC frames")

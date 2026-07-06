@@ -192,36 +192,48 @@ class PairedPatternEngineTests(unittest.TestCase):
         frames = pack_count_sequence_frames(
             count_start=1,
             count_end=4,
-            count_slots_per_frame=2,
+            count_slots_per_frame=1,
             count_blank_between_frames=True,
             width=120,
             height=160,
             size_px=80,
         )
 
-        frame0_a = frames[0]
-        frame1_a = frames[1]
+        self.assertEqual(len(frames), 8)
 
-        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame0_a, 0))), 0)
         np.testing.assert_array_equal(
-            _extract_packed_bitplane(frame0_a, 1),
+            _extract_packed_bitplane(frames[0], 0),
             generate_decimal_number_rgb(1, width=120, height=160, size_px=80)[:, :, 0],
         )
-        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame0_a, 2))), 0)
+        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frames[1], 0))), 0)
         np.testing.assert_array_equal(
-            _extract_packed_bitplane(frame0_a, 3),
+            _extract_packed_bitplane(frames[2], 0),
             generate_decimal_number_rgb(2, width=120, height=160, size_px=80)[:, :, 0],
         )
-        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame1_a, 0))), 0)
+        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frames[3], 0))), 0)
         np.testing.assert_array_equal(
-            _extract_packed_bitplane(frame1_a, 1),
+            _extract_packed_bitplane(frames[4], 0),
             generate_decimal_number_rgb(3, width=120, height=160, size_px=80)[:, :, 0],
         )
-        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frame1_a, 2))), 0)
+        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frames[5], 0))), 0)
         np.testing.assert_array_equal(
-            _extract_packed_bitplane(frame1_a, 3),
+            _extract_packed_bitplane(frames[6], 0),
             generate_decimal_number_rgb(4, width=120, height=160, size_px=80)[:, :, 0],
         )
+        self.assertEqual(int(np.count_nonzero(_extract_packed_bitplane(frames[7], 0))), 0)
+
+    def test_count_sequence_frame_packing_rejects_packed_blank_mode(self):
+        from dmdcontrol.patterns.paired import pack_count_sequence_frames
+
+        with self.assertRaisesRegex(ValueError, "requires count_slots_per_frame=1"):
+            pack_count_sequence_frames(
+                count_start=1,
+                count_end=4,
+                count_slots_per_frame=2,
+                count_blank_between_frames=True,
+                width=120,
+                height=160,
+            )
 
     def test_count_sequence_frame_packing_rejects_partial_final_vsync(self):
         from dmdcontrol.patterns.paired import pack_count_sequence_frames
@@ -238,10 +250,10 @@ class PairedPatternEngineTests(unittest.TestCase):
     def test_count_sequence_frame_packing_rejects_excessive_frame_count(self):
         from dmdcontrol.patterns.paired import pack_count_sequence_frames
 
-        with self.assertRaisesRegex(ValueError, "at most 64 VSYNC frames"):
+        with self.assertRaisesRegex(ValueError, "at most 128 VSYNC frames"):
             pack_count_sequence_frames(
                 count_start=1,
-                count_end=130,
+                count_end=258,
                 count_slots_per_frame=2,
                 width=120,
                 height=160,

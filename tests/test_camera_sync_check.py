@@ -61,7 +61,7 @@ def _exact_count_sync_check_argv(output_root, *, timestamp="20260629-120100"):
         "--b-dot-radius",
         "30",
         "--exposure-us",
-        "8000",
+        "16000",
         "--seq-utilization",
         "1.0",
         "--trigger-out-2-rising-delay-us",
@@ -279,7 +279,7 @@ def test_sync_check_parser_accepts_count_mode_options():
             "5",
             "--count-slots-per-frame",
             "2"],
-        ["--count-end", "130", "--count-slots-per-frame", "2"],
+        ["--count-end", "258", "--count-slots-per-frame", "2"],
         ["--count-slots-per-frame", "25"],
     ],
 )
@@ -699,10 +699,10 @@ def test_sync_check_exact_count_blank_command_dry_run_metadata(tmp_path):
     assert metadata["count_slots_per_frame"] == 1
     assert metadata["count_blank_between_frames"] is True
     assert metadata["count_blank_after_each_count"] is True
-    assert metadata["count_lut_entries_per_frame"] == 2
+    assert metadata["count_lut_entries_per_frame"] == 1
     assert metadata["number_size_px"] == 400
     assert metadata["b_dot_radius"] == 30
-    assert metadata["exposure_us"] == 8000
+    assert metadata["exposure_us"] == 16000
     assert metadata["expected_trigger_count"] == 120
     assert metadata["accumulation_start_offset_us"] == -250
     assert metadata["accumulation_cycles"] == 1

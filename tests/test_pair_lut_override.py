@@ -234,7 +234,7 @@ def test_pair_runtime_parser_accepts_count_blank_after_each_count_alias():
     assert args.count_blank_between_frames is True
 
 
-def test_pair_runtime_rejects_count_blank_with_frame_zero_trigger():
+def test_pair_runtime_allows_count_blank_with_frame_zero_trigger():
     from dmdcontrol.runtime import pair
 
     args = pair._build_parser().parse_args(
@@ -249,11 +249,12 @@ def test_pair_runtime_rejects_count_blank_with_frame_zero_trigger():
             "--count-blank-after-each-count",
             "--trig2-frame-zero",
             "--exposure-us",
-            "7000",
+            "16000",
+            "--seq-utilization",
+            "1.0",
         ])
 
-    with pytest.raises(SystemExit, match="trig2-frame-zero"):
-        pair._validate_pair_args(args)
+    pair._validate_pair_args(args)
 
 
 def test_pair_runtime_parser_accepts_paired_startup_leader_vsyncs():
@@ -299,7 +300,7 @@ def test_pair_runtime_auto_count_slots_uses_fastest_valid_timing():
     assert args.count_slots_per_frame_mode == "auto"
 
 
-def test_pair_runtime_auto_count_slots_accounts_for_blank_bitplanes():
+def test_pair_runtime_auto_count_slots_uses_single_source_frame_blank_mode():
     from dmdcontrol.runtime import pair
     from dmdcontrol.runtime.count_slots import CountSequenceConfig
 
@@ -313,7 +314,7 @@ def test_pair_runtime_auto_count_slots_accounts_for_blank_bitplanes():
             "--count-end",
             "60",
             "--exposure-us",
-            "4000",
+            "16000",
             "--seq-utilization",
             "1.0",
             "--count-blank-between-frames",
@@ -321,9 +322,9 @@ def test_pair_runtime_auto_count_slots_accounts_for_blank_bitplanes():
 
     pair._validate_pair_args(args)
 
-    assert args.count_slots_per_frame == 2
+    assert args.count_slots_per_frame == 1
     assert args.count_slots_per_frame_mode == "auto"
-    assert CountSequenceConfig.from_args(args).lut_entries_per_frame == 4
+    assert CountSequenceConfig.from_args(args).lut_entries_per_frame == 1
 
 
 def test_pair_runtime_count_slots_accepts_auto_literal():
@@ -378,7 +379,7 @@ def test_pair_runtime_explicit_count_slots_override_is_preserved():
     assert args.count_slots_per_frame_mode == "explicit"
 
 
-def test_pair_runtime_rejects_count_sequences_that_repeat_before_vsync():
+def test_pair_runtime_rejects_blank_after_count_sequences_that_repeat_before_vsync():
     from dmdcontrol.runtime import pair
 
     args = pair._build_parser().parse_args(
@@ -399,7 +400,32 @@ def test_pair_runtime_rejects_count_sequences_that_repeat_before_vsync():
             "--count-blank-between-frames",
         ])
 
-    with pytest.raises(SystemExit, match="use --count-slots-per-frame 2"):
+    with pytest.raises(SystemExit, match="use a longer exposure such as --exposure-us 16000"):
+        pair._validate_pair_args(args)
+
+
+def test_pair_runtime_rejects_packed_count_slots_with_blank_after_each_count():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--test",
+            A_COUNT_B_STATIC_PAIR_TEST,
+            "--count-start",
+            "1",
+            "--count-end",
+            "4",
+            "--count-slots-per-frame",
+            "2",
+            "--exposure-us",
+            "16000",
+            "--seq-utilization",
+            "1.0",
+            "--count-blank-after-each-count",
+        ])
+
+    with pytest.raises(SystemExit, match="requires --count-slots-per-frame 1"):
         pair._validate_pair_args(args)
 
 
@@ -551,10 +577,10 @@ def test_static_dot_radius_applies_to_both_dmds():
                 "--test",
                 A_COUNT_B_STATIC_PAIR_TEST,
                 "--count-end",
-                "130",
+                "258",
                 "--count-slots-per-frame",
                 "2"],
-            "at most 64 VSYNC frames",
+            "at most 128 VSYNC frames",
         ),
     ],
 )
@@ -587,8 +613,8 @@ def test_a_count_b_static_runtime_builds_count_frames_without_pair_provider(monk
         test=A_COUNT_B_STATIC_PAIR_TEST,
         test_b="dot",
         count_start=1,
-        count_end=100,
-        count_slots_per_frame=2,
+        count_end=60,
+        count_slots_per_frame=1,
         count_blank_between_frames=True,
         numbers_size_px=123,
         b_dot_x=955,
@@ -597,7 +623,7 @@ def test_a_count_b_static_runtime_builds_count_frames_without_pair_provider(monk
         b_dot_shape="circle",
         b_dot_invert=False,
         count_slots_per_frame_mode="explicit",
-        exposure_us=4000,
+        exposure_us=16000,
         seq_utilization=1.0,
         trig2_frame_zero=False,
         dark_time_us=None,
@@ -614,13 +640,10 @@ def test_a_count_b_static_runtime_builds_count_frames_without_pair_provider(monk
         as_frame_pair(sequence.provider.initial_pair()).a,
         sequence.frames[0].frame_pair.a,
     )
-    assert len(sequence.frames) == 50
-    assert [slot.semantic_label for slot in sequence.frames[0].lut_slots] == [
-        "blank",
-        "count:1",
-        "blank",
-        "count:2",
-    ]
+    assert len(sequence.frames) == 120
+    assert [slot.semantic_label for slot in sequence.frames[0].lut_slots] == ["count:1"]
+    assert [slot.semantic_label for slot in sequence.frames[1].lut_slots] == ["blank"]
+    assert [slot.semantic_label for slot in sequence.frames[2].lut_slots] == ["count:2"]
     assert int(np.count_nonzero(sequence.frames[0].frame_pair.b)) > 0
 
 
@@ -673,10 +696,10 @@ def test_pair_live_preview_metadata_includes_count_mode():
         test_a=None,
         test_b="dot",
         count_start=1,
-        count_end=100,
-        count_slots_per_frame=2,
+        count_end=60,
+        count_slots_per_frame=1,
         count_blank_between_frames=True,
-        exposure_us=7000,
+        exposure_us=16000,
     )
     pair_config = types.SimpleNamespace(
         dmd_a=types.SimpleNamespace(xrandr_output="DP-2"),
@@ -692,13 +715,13 @@ def test_pair_live_preview_metadata_includes_count_mode():
 
     assert metadata["count"] == {
         "start": 1,
-        "end": 100,
-        "slots_per_frame": 2,
+        "end": 60,
+        "slots_per_frame": 1,
         "slots_per_frame_mode": "explicit",
         "blank_between_frames": True,
         "blank_after_each_count": True,
-        "lut_entries_per_frame": 4,
-        "exposure_us": 7000,
+        "lut_entries_per_frame": 1,
+        "exposure_us": 16000,
     }
 
 

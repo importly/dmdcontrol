@@ -55,82 +55,103 @@ def _count_args(**overrides):
 
 def test_count_blank_sequence_pairs_each_frame_with_its_lut_slots():
     sequence = display_sequence.build_paired_display_sequence(
-        _count_args(),
+        _count_args(exposure_us=16000),
         target_hz=60,
         engine=types.SimpleNamespace(window=None),
         width=120,
         height=160,
     )
 
-    assert sequence.startup_policy.mode == "prime_first_frame"
-    assert sequence.startup_leader_metadata()["trigger_count"] == 1
+    assert sequence.startup_policy.mode == "blank_leader"
+    assert sequence.startup_leader_metadata()["trigger_count"] == 16
     assert sequence.lut_entries() == [
-        LutEntry(0, 8000, False, 1, 7, 0, False, 0),
-        LutEntry(1, 8000, True, 1, 7, 0, False, 1),
+        LutEntry(0, 16000, True, 1, 7, 0, False, 0),
     ]
     assert sequence.expected_trigger_count() == 8
-    assert sequence.timing["entries_count"] == 2
+    assert sequence.timing["entries_count"] == 1
+    assert len(sequence.frames) == 8
 
     frame0 = sequence.frames[0]
-    assert [slot.semantic_label for slot in frame0.lut_slots] == ["blank", "count:1"]
-    assert int(np.count_nonzero(extract_bitplane(frame0.frame_pair.a, 0))) == 0
+    frame1 = sequence.frames[1]
+    assert [slot.semantic_label for slot in frame0.lut_slots] == ["count:1"]
+    assert [slot.semantic_label for slot in frame1.lut_slots] == ["blank"]
     np.testing.assert_array_equal(
-        extract_bitplane(frame0.frame_pair.a, 1),
+        extract_bitplane(frame0.frame_pair.a, 0),
         generate_decimal_number_rgb(1, width=120, height=160, size_px=80)[:, :, 0],
     )
+    assert int(np.count_nonzero(extract_bitplane(frame1.frame_pair.a, 0))) == 0
 
 
-def test_count_blank_sequence_keeps_changing_count_out_of_first_vsync_slot():
+def test_count_blank_sequence_uses_separate_count_and_blank_source_frames():
     sequence = display_sequence.build_paired_display_sequence(
-        _count_args(),
+        _count_args(exposure_us=16000),
         target_hz=60,
         engine=types.SimpleNamespace(window=None),
         width=120,
         height=160,
     )
 
-    frame0 = sequence.frames[0]
-    assert [slot.semantic_label for slot in frame0.lut_slots] == ["blank", "count:1"]
-    assert int(np.count_nonzero(extract_bitplane(frame0.frame_pair.a, 0))) == 0
+    assert sequence.metadata()["source_frame_count"] == 8
+    assert sequence.metadata()["lut_slots_per_source_frame"] == 1
+    assert sequence.startup_leader_metadata()["phase_guard_trigger_count"] == 0
+    assert [frame.semantic_labels for frame in sequence.frames[:4]] == [
+        ("count:1",),
+        ("blank",),
+        ("count:2",),
+        ("blank",),
+    ]
     np.testing.assert_array_equal(
-        extract_bitplane(frame0.frame_pair.a, 1),
+        extract_bitplane(sequence.frames[0].frame_pair.a, 0),
         generate_decimal_number_rgb(1, width=120, height=160, size_px=80)[:, :, 0],
     )
-    assert sequence.startup_leader_metadata()["phase_guard_trigger_count"] == 1
+    assert int(np.count_nonzero(extract_bitplane(sequence.frames[1].frame_pair.a, 0))) == 0
+    np.testing.assert_array_equal(
+        extract_bitplane(sequence.frames[2].frame_pair.a, 0),
+        generate_decimal_number_rgb(2, width=120, height=160, size_px=80)[:, :, 0],
+    )
+    assert int(np.count_nonzero(extract_bitplane(sequence.frames[3].frame_pair.a, 0))) == 0
 
 
 def test_exact_count_blank_sixty_sequence_keeps_frames_luts_and_provider_in_order():
     sequence = display_sequence.build_paired_display_sequence(
-        _count_args(count_end=60),
+        _count_args(count_end=60, exposure_us=16000),
         target_hz=60,
         engine=types.SimpleNamespace(window=None),
         width=120,
         height=160,
     )
 
-    assert len(sequence.frames) == 60
-    assert sequence.startup_policy.mode == "prime_first_frame"
-    assert sequence.startup_leader_metadata()["trigger_count"] == 1
+    assert len(sequence.frames) == 120
+    assert sequence.startup_policy.mode == "blank_leader"
+    assert sequence.startup_leader_metadata()["trigger_count"] == 16
     assert sequence.lut_entries() == [
-        LutEntry(0, 8000, False, 1, 7, 0, False, 0),
-        LutEntry(1, 8000, True, 1, 7, 0, False, 1),
+        LutEntry(0, 16000, True, 1, 7, 0, False, 0),
     ]
     assert sequence.expected_trigger_count() == 120
 
-    for index, frame in enumerate(sequence.frames):
+    for index in range(60):
         count = index + 1
-        assert frame.source_frame_index == index
-        assert frame.semantic_labels == (f"count:{count}",)
-        assert [slot.semantic_label for slot in frame.lut_slots] == ["blank", f"count:{count}"]
-        assert [slot.semantic_role for slot in frame.lut_slots] == ["blank", "count"]
-        assert [slot.bitplane_index for slot in frame.lut_slots] == [0, 1]
-        assert [slot.exposure_us for slot in frame.lut_slots] == [8000, 8000]
-        assert [slot.trig2_enabled for slot in frame.lut_slots] == [True, True]
-        assert int(np.count_nonzero(extract_bitplane(frame.frame_pair.a, 0))) == 0
+        count_frame = sequence.frames[index * 2]
+        blank_frame = sequence.frames[index * 2 + 1]
+        assert count_frame.source_frame_index == index * 2
+        assert blank_frame.source_frame_index == index * 2 + 1
+        assert count_frame.semantic_labels == (f"count:{count}",)
+        assert blank_frame.semantic_labels == ("blank",)
+        assert [slot.semantic_label for slot in count_frame.lut_slots] == [f"count:{count}"]
+        assert [slot.semantic_label for slot in blank_frame.lut_slots] == ["blank"]
+        assert [slot.semantic_role for slot in count_frame.lut_slots] == ["count"]
+        assert [slot.semantic_role for slot in blank_frame.lut_slots] == ["blank"]
+        assert [slot.bitplane_index for slot in count_frame.lut_slots] == [0]
+        assert [slot.bitplane_index for slot in blank_frame.lut_slots] == [0]
+        assert [slot.exposure_us for slot in count_frame.lut_slots] == [16000]
+        assert [slot.exposure_us for slot in blank_frame.lut_slots] == [16000]
+        assert [slot.trig2_enabled for slot in count_frame.lut_slots] == [True]
+        assert [slot.trig2_enabled for slot in blank_frame.lut_slots] == [True]
         np.testing.assert_array_equal(
-            extract_bitplane(frame.frame_pair.a, 1),
+            extract_bitplane(count_frame.frame_pair.a, 0),
             generate_decimal_number_rgb(count, width=120, height=160, size_px=80)[:, :, 0],
         )
+        assert int(np.count_nonzero(extract_bitplane(blank_frame.frame_pair.a, 0))) == 0
 
     runtime_first = as_frame_pair(sequence.provider.initial_pair())
     runtime_second = as_frame_pair(sequence.provider.next_pair())

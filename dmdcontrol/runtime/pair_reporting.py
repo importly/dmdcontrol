@@ -99,7 +99,8 @@ def _dry_run_timing(args: argparse.Namespace, pair_config: PairConfig) -> int:
             f"blank_after_each_count={count_config.count_blank_between_frames}, "
             f"per-count exposure={args.exposure_us or timing['exposure_us']}us, "
             f"payload_vsyncs={count_config.frame_count}, "
-            f"blank_lut_entries_per_vsync={count_config.blank_lut_entries_per_frame}; "
+            f"blank_lut_entries_per_vsync={count_config.blank_lut_entries_per_frame}, "
+            f"blank_source_frames={count_config.count_total if count_config.count_blank_between_frames else 0}; "
             f"B={args.test_b or 'dot'} static.")
         if sequence.startup_policy.mode == "prime_first_frame":
             logger.info(

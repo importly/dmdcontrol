@@ -10,10 +10,9 @@ The paired pipeline intentionally has one ownership point for timing now:
    and renders a sequence-backed cursor for prebuilt modes, so displayed frames
    and LUT timing cannot drift into separate interpretations.
 
-For count/blank mode, one source RGB frame contains a blank guard in bitplane 0
-and `count:N` in bitplane 1. After the first guard trigger is skipped, the LUT
-timeline is `1, blank, 2, blank, ...` without placing changing count pixels in
-the first post-VSYNC slot.
+For count/blank mode, each count and each blank gets its own source RGB frame
+and one LUT entry. The timeline is `1, blank, 2, blank, ...` without relying on
+multiple selected bitplanes from the same live RGB frame.
 """
 
 from __future__ import annotations
@@ -370,25 +369,39 @@ def build_count_static_sequence(
     )
     frames: list[TimedFramePair] = []
     counts = tuple(range(args.count_start, args.count_end + 1))
-    for source_frame_index, (frame_a, offset) in enumerate(
-        zip(frames_a, range(0, len(counts), args.count_slots_per_frame))
-    ):
-        labels = _count_slot_labels(
-            counts[offset:offset + args.count_slots_per_frame],
-            blank_after_each_count=args.count_blank_between_frames,
-        )
-        frames.append(
-            TimedFramePair(
-                frame_pair=FramePair(a=frame_a, b=frame_b),
-                lut_slots=_slots_with_labels(base_slots, labels),
-                source_frame_index=source_frame_index,
-                semantic_labels=tuple(label for label in labels if label != "blank"),
-            ))
-    startup_policy = (
-        StartupPolicy("prime_first_frame", 0)
-        if args.count_blank_between_frames else
-        StartupPolicy("blank_leader", args.paired_startup_leader_vsyncs)
-    )
+    if args.count_blank_between_frames:
+        if len(base_slots) != 1:
+            raise ValueError("count blank insertion expects one LUT slot per source frame")
+        base_slot = base_slots[0]
+        for source_frame_index, frame_a in enumerate(frames_a):
+            if source_frame_index % 2 == 0:
+                count = counts[source_frame_index // 2]
+                labels = [f"count:{count}"]
+            else:
+                labels = ["blank"]
+            frames.append(
+                TimedFramePair(
+                    frame_pair=FramePair(a=frame_a, b=frame_b),
+                    lut_slots=_slots_with_labels((base_slot,), labels),
+                    source_frame_index=source_frame_index,
+                    semantic_labels=tuple(labels),
+                ))
+    else:
+        for source_frame_index, (frame_a, offset) in enumerate(
+            zip(frames_a, range(0, len(counts), args.count_slots_per_frame))
+        ):
+            labels = _count_slot_labels(
+                counts[offset:offset + args.count_slots_per_frame],
+                blank_after_each_count=False,
+            )
+            frames.append(
+                TimedFramePair(
+                    frame_pair=FramePair(a=frame_a, b=frame_b),
+                    lut_slots=_slots_with_labels(base_slots, labels),
+                    source_frame_index=source_frame_index,
+                    semantic_labels=tuple(label for label in labels if label != "blank"),
+                ))
+    startup_policy = StartupPolicy("blank_leader", args.paired_startup_leader_vsyncs)
     frame_tuple = tuple(frames)
     return PairedDisplaySequence(
         frames=frame_tuple,
@@ -630,9 +643,9 @@ def _slots_with_labels(slots: tuple[LutSlot, ...], labels: list[str]) -> tuple[L
 def _count_slot_labels(counts: Iterable[int], *, blank_after_each_count: bool) -> list[str]:
     labels: list[str] = []
     for count in counts:
+        labels.append(f"count:{count}")
         if blank_after_each_count:
             labels.append("blank")
-        labels.append(f"count:{count}")
     return labels
 
 

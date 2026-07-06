@@ -45,9 +45,9 @@ class CountSequenceConfig:
     """Semantic count recipe before it is packed into RGB bitplanes.
 
     The semantic display order is count, optional blank, count, optional blank,
-    ... after any pre-semantic phase guard triggers are skipped. In the packed
-    source frame, count/blank mode puts each blank before its count so changing
-    count pixels do not occupy the first post-VSYNC LUT slot.
+    ... after any pre-semantic startup triggers are skipped. Count/blank mode
+    intentionally uses one semantic item per RGB source frame so it does not
+    rely on multiple DLPC900 bitplanes from the same live video frame.
     """
 
     count_start: int
@@ -111,6 +111,8 @@ class CountSequenceConfig:
 
     @property
     def frame_count(self) -> int:
+        if self.count_blank_between_frames:
+            return self.count_total * 2
         return self.count_total // self.count_slots_per_frame
 
     @property
@@ -119,19 +121,23 @@ class CountSequenceConfig:
 
     @property
     def blank_lut_entries_per_frame(self) -> int:
-        return self.count_slots_per_frame if self.count_blank_between_frames else 0
+        return 0
 
     def validate_shape(self, *, max_frames: int = MAX_COUNT_SEQUENCE_FRAMES) -> None:
         if self.count_start > self.count_end:
             raise ValueError("--count-start must be <= --count-end")
         if self.count_slots_per_frame <= 0 or self.count_slots_per_frame > BITPLANES:
             raise ValueError(f"--count-slots-per-frame must be in the range 1..{BITPLANES}")
+        if self.count_blank_between_frames and self.count_slots_per_frame != 1:
+            raise ValueError(
+                "--count-blank-after-each-count requires --count-slots-per-frame 1 "
+                "so each count and blank uses its own RGB source frame.")
         if self.lut_entries_per_frame > BITPLANES:
             raise ValueError(
                 f"--count-slots-per-frame {self.count_slots_per_frame} with "
                 f"--count-blank-after-each-count needs {self.lut_entries_per_frame} "
                 f"LUT entries; max is {BITPLANES}")
-        if self.count_total % self.count_slots_per_frame != 0:
+        if not self.count_blank_between_frames and self.count_total % self.count_slots_per_frame != 0:
             raise ValueError("count range length must be divisible by --count-slots-per-frame")
         if self.frame_count > max_frames:
             raise ValueError(f"a-count-b-static can span at most {max_frames} VSYNC frames")
@@ -200,13 +206,18 @@ def validate_count_lut_sequence_does_not_repeat(
         dark_time_us=dark_time_us,
     )
     if timing["total_sequence_us"] * 2 <= timing["frame_period_us"]:
+        if count_blank_between_frames:
+            raise ValueError(
+                "Count blank-after mode now uses one RGB source frame per count or blank. "
+                "The single-entry LUT sequence is short enough to repeat before the next VSYNC "
+                f"({timing['total_sequence_us']:.1f} us sequence in a "
+                f"{timing['frame_period_us']:.1f} us frame); use a longer exposure such as "
+                "--exposure-us 16000 at 60 Hz.")
         raise ValueError(
             "Count-mode LUT sequence is short enough to repeat before the next VSYNC "
             f"({timing['total_sequence_us']:.1f} us sequence in a "
             f"{timing['frame_period_us']:.1f} us frame). Increase "
-            "--count-slots-per-frame or omit it to use auto; for "
-            "--exposure-us 4000 with --count-blank-after-each-count, use "
-            "--count-slots-per-frame 2.")
+            "--count-slots-per-frame or omit it to use auto.")
     return timing
 
 
@@ -224,6 +235,22 @@ def resolve_count_slots_per_frame(
         raise ValueError("--count-start must be <= --count-end")
 
     count_total = count_end - count_start + 1
+    if count_blank_between_frames:
+        validate_count_lut_sequence_does_not_repeat(
+            count_slots_per_frame=1,
+            exposure_us=exposure_us,
+            dark_time_us=dark_time_us,
+            count_blank_between_frames=True,
+            target_hz=target_hz,
+            sequence_utilization=sequence_utilization,
+        )
+        if count_total * 2 > MAX_COUNT_SEQUENCE_FRAMES:
+            raise ValueError(
+                "No valid --count-slots-per-frame can display "
+                f"{count_start}..{count_end} with blank frames because it needs "
+                f"{count_total * 2} RGB source frames; max is {MAX_COUNT_SEQUENCE_FRAMES}.")
+        return 1
+
     min_slots = max(1, math.ceil(count_total / MAX_COUNT_SEQUENCE_FRAMES))
     utilization = (
         DEFAULT_SEQUENCE_UTILIZATION
