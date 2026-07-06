@@ -219,7 +219,7 @@ DMD launchers use the custom `1920x1080_60_RAW` modeline and fixed 60.000 Hz tim
 | `--wake-dp`                                                | flag                                                                                                                                                                                                 | off                | Send the DP-receiver wakeup packet from inside the runtime, in addition to the shell launcher wake step.                                 |
 | `--dual-pixel`                                             | flag                                                                                                                                                                                                 | off                | Force dual-pixel P1-P2 parallel input mode. Default is single-pixel P1.                                                                  |
 | `--seq-utilization`                                        | float in `(0, 1]`                                                                                                                                                                                    | `0.90`             | Fraction of the safe per-frame budget used by the LUT. Lower = more idle headroom = more robust against forced-swap aborts.              |
-| `--trig2-frame-zero`                                       | flag                                                                                                                                                                                                 | off                | Emit `TRIG_OUT_2` only on bitplane 0 (one pulse per frame). Default emits per bitplane. Not valid with `--count-blank-after-each-count`. |
+| `--trig2-frame-zero`                                       | flag                                                                                                                                                                                                 | off                | Emit `TRIG_OUT_2` only on bitplane 0 (one pulse per frame). Default emits per bitplane. In count/blank mode there is one LUT entry per source frame, so this still gives one pulse per source frame. |
 | `--paired-startup-leader-vsyncs`                           | int                                                                                                                                                                                                  | `16`               | Paired runtime only: blank source VSYNCs after both sequencers start before the first semantic frame. Camera artifacts skip these startup trigger pulses. |
 | `--abort-recover-cooldown`                                 | float seconds                                                                                                                                                                                        | `8.0`              | Minimum gap between automatic re-arm attempts when the watchdog sees a sequencer abort.                                                  |
 | `--no-auto-recover-abort`                                  | flag                                                                                                                                                                                                 | off                | Disable automatic re-arm. Watchdog will log the abort but not act.                                                                       |
@@ -260,20 +260,16 @@ example, count-mode camera checks should use `--count-blank-after-each-count` ra
 with `--dark-time-us`.
 
 For `a-count-b-static`, omit `--count-slots-per-frame` or pass `--count-slots-per-frame auto` to choose the fastest slot
-count that fits the LUT timing, evenly divides the count range, and stays within the 64-VSYNC count-sequence cap. Explicit
-integer overrides still work when you need a specific packing. Add `--count-blank-after-each-count` when each count should
-be followed by an all-black A LUT bitplane slot, for example `count 1`, `blank`, `count 2`, `blank` on consecutive
-`TRIG_OUT_2` pulses. B remains the configured static pattern, and the expected trigger count doubles because the blank
-bitplanes also consume LUT trigger slots. The older `--count-blank-between-frames` spelling is still accepted for
-existing scripts. Count/blank mode primes the first count/blank source frame before starting the DLPC sequencers and
-disables the normal blank startup-leader triggers for that run. In the packed video frame, each count's blank slot is
-placed before the changing count bitplane. The first blank trigger is recorded as a phase guard and skipped by camera
-artifact generation; after that pre-semantic guard, the trigger timeline is still `count 1`, `blank`, `count 2`, `blank`.
-This keeps changing count pixels out of the first post-VSYNC LUT slot, where Video Pattern Mode can otherwise expose the
-previous source frame for part of the slot.
+count that fits the LUT timing, evenly divides the count range, and stays within the 128-VSYNC count-sequence cap. Explicit
+integer overrides still work when you need a specific packed no-blank diagnostic. Add `--count-blank-after-each-count`
+when each displayed count should be followed by an all-black A source frame: `count 1`, `blank`, `count 2`, `blank`, and
+so on. This mode intentionally requires `--count-slots-per-frame 1`, uses one LUT entry per 60 Hz source frame, and gives
+a 30 Hz number cadence because every other source frame is blank. B remains the configured static pattern, and the expected
+trigger count doubles because the blank source frames also consume one LUT trigger each. The older
+`--count-blank-between-frames` spelling is still accepted for existing scripts.
 Paired modes are sequence-backed: the runtime builds one `PairedDisplaySequence` that owns the RGB source frames, the
 LUT slots that consume their bitplanes, startup policy, preview metadata, and camera metadata. For count/blank mode, each
-source frame explicitly pairs bitplane 0 with the blank phase guard and bitplane 1 with `count:N`, both using the requested exposure.
+source frame uses bitplane 0 for exactly one semantic item: either `count:N` or `blank`, both using the requested exposure.
 Dry-run logs include the source-frame count, LUT slots per source frame, startup policy, and startup leader trigger
 count. Live camera metadata also includes `display_sequence` and `startup_leader` so notebooks can see the exact
 frame/LUT pairing used during capture.

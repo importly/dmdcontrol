@@ -130,8 +130,9 @@ def _build_parser() -> argparse.ArgumentParser:
         type=count_slots_per_frame,
         default=None,
         help=(
-            "A-count paired recipe: count labels packed into bitplanes per VSYNC frame. "
-            "Use 'auto' or omit to choose the fastest timing-valid divisor."),
+            "A-count paired recipe: count labels packed into bitplanes per VSYNC frame "
+            "when blank-after mode is off. Use 'auto' or omit to choose the fastest "
+            "timing-valid divisor."),
     )
     parser.add_argument(
         "--count-blank-after-each-count",

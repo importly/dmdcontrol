@@ -42,7 +42,7 @@ class CountPairPreviewMetadata(TypedDict):
 
 @dataclass(frozen=True)
 class CountSequenceConfig:
-    """Semantic count recipe before it is packed into RGB bitplanes.
+    """Semantic count recipe before it is converted to source frames and LUT slots.
 
     The semantic display order is count, optional blank, count, optional blank,
     ... after any pre-semantic startup triggers are skipped. Count/blank mode
