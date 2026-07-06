@@ -3,12 +3,6 @@ import unittest
 from dmdcontrol.runtime.lifecycle import LutEntry, build_lut_entries, compute_trigger_out_2_timing
 
 
-class DryRunDLPC:
-
-    def get_display_dimensions(self):
-        return None
-
-
 class TriggerTimingTests(unittest.TestCase):
 
     def test_default_rising_delay_is_zero_microseconds(self):
@@ -22,7 +16,6 @@ class TriggerTimingTests(unittest.TestCase):
 
     def test_sixty_hz_full_bitplane_lut_runs_at_1440_triggers_per_second(self):
         entries, timing = build_lut_entries(
-            DryRunDLPC(),
             target_hz=60,
             trig2_frame_zero=False,
             entries_count=24,
@@ -33,9 +26,8 @@ class TriggerTimingTests(unittest.TestCase):
         self.assertEqual(timing["effective_binary_rate_hz"], 1440.0)
         self.assertEqual(timing["exposure_us"], 615)
 
-    def test_lut_entry_has_named_fields_and_legacy_tuple_shape(self):
+    def test_lut_entry_has_named_fields(self):
         entries, _timing = build_lut_entries(
-            DryRunDLPC(),
             target_hz=60,
             entries_count=1,
             per_entry_exposure_us=4000,
@@ -52,7 +44,6 @@ class TriggerTimingTests(unittest.TestCase):
         self.assertEqual(entry.dark_us, 0)
         self.assertEqual(entry.trig2_disabled, False)
         self.assertEqual(entry.bit_position, 0)
-        self.assertEqual(entry, (0, 4000, True, 1, 7, 0, False, 0))
 
     def test_falling_edge_preserves_minimum_twenty_us_pulse(self):
         timing = compute_trigger_out_2_timing(rising_delay_us=15)
@@ -81,7 +72,6 @@ class TriggerTimingTests(unittest.TestCase):
 
     def test_build_lut_entries_dark_time_reduces_exposure(self):
         entries, timing = build_lut_entries(
-            DryRunDLPC(),
             target_hz=60,
             dark_time_us=400,
         )
@@ -90,17 +80,15 @@ class TriggerTimingTests(unittest.TestCase):
         # With 400us dark time, exposure should be reduced by 400.
         self.assertLess(timing["exposure_us"], 615)
         self.assertAlmostEqual(timing["exposure_us"], 615 - 400, delta=10)
-        # Check that dark_time_us is embedded correctly into each LUT entry (index 5)
+        # Check that dark_time_us is embedded correctly into each LUT entry.
         for entry in entries:
-            self.assertEqual(entry[5], 400)
+            self.assertEqual(entry.dark_us, 400)
 
     def test_build_lut_entries_dark_time_zero_matches_default(self):
         entries_default, timing_default = build_lut_entries(
-            DryRunDLPC(),
             target_hz=60,
         )
         entries_zero, timing_zero = build_lut_entries(
-            DryRunDLPC(),
             target_hz=60,
             dark_time_us=0,
         )
@@ -110,14 +98,12 @@ class TriggerTimingTests(unittest.TestCase):
     def test_build_lut_entries_rejects_negative_dark_time(self):
         with self.assertRaisesRegex(ValueError, "dark_time_us must be non-negative"):
             build_lut_entries(
-                DryRunDLPC(),
                 target_hz=60,
                 dark_time_us=-1,
             )
 
     def test_build_lut_entries_custom_entries_count(self):
         entries, timing = build_lut_entries(
-            DryRunDLPC(),
             target_hz=60,
             entries_count=5,
         )
@@ -129,7 +115,6 @@ class TriggerTimingTests(unittest.TestCase):
 
     def test_build_lut_entries_direct_exposure_computes_entry_count_when_dynamic(self):
         entries, timing = build_lut_entries(
-            DryRunDLPC(),
             target_hz=60,
             per_entry_exposure_us=4000,
             dark_time_us=250,

@@ -438,33 +438,24 @@ class DLPC900:
     def set_pattern_lut_definition(self, entries):
         """0x1A34: Define pattern LUT entries (DLPU018J Table 2-143).
 
-        entry = (idx, exp_us, clear, depth, led, dark_us, trig2_disable, bit_pos)
-        optional 9th element: image_index (default 0, unused in Video Pattern Mode)
+        Entries are `LutEntry` objects from the runtime layer. Video Pattern Mode
+        always uses the current video frame, so the image-select bits stay zero.
         """
         for entry in entries:
-            if len(entry) == 8:
-                idx, exp_us, clear, depth, led, dark_us, trig2_disable, bit_pos = entry
-                image_index = 0
-            elif len(entry) == 9:
-                idx, exp_us, clear, depth, led, dark_us, trig2_disable, bit_pos, image_index = entry
-            else:
-                raise ValueError("Each LUT entry must have 8 or 9 elements")
-
-            idx = int(idx)
-            exp_us = int(exp_us)
-            dark_us = int(dark_us)
-            depth = int(depth)
-            led = int(led)
-            bit_pos = int(bit_pos)
-            image_index = int(image_index)
+            idx = int(entry.bitplane_index)
+            exp_us = int(entry.exposure_us)
+            dark_us = int(entry.dark_us)
+            depth = int(entry.bit_depth)
+            led = int(entry.led_select)
+            bit_pos = int(entry.bit_position)
 
             ext_depth = 1 if depth > 8 else 0
             depth_field = (depth - 1) & 0x07
             exp3 = struct.pack("<I", exp_us)[:3]
             dark3 = struct.pack("<I", dark_us)[:3]
-            b5 = (1 if clear else 0) | (depth_field << 1) | ((led & 0x07) << 4)
-            b9 = (1 if trig2_disable else 0) | ((ext_depth & 0x01) << 1)
-            b1011 = (image_index & 0x07FF) | ((bit_pos & 0x1F) << 11)
+            b5 = (1 if entry.clear_after else 0) | (depth_field << 1) | ((led & 0x07) << 4)
+            b9 = (1 if entry.trig2_disabled else 0) | ((ext_depth & 0x01) << 1)
+            b1011 = (bit_pos & 0x1F) << 11
 
             entry_payload = (
                 struct.pack("<H",

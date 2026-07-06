@@ -6,8 +6,8 @@ import io
 import json
 import threading
 import time
-from collections.abc import Sequence
-from typing import NamedTuple, TypedDict
+from collections.abc import Mapping, Sequence
+from typing import NamedTuple, TypedDict, cast
 from urllib import request
 
 import numpy as np
@@ -42,11 +42,10 @@ from dmdcontrol.patterns.paired import (
     generate_static_frame,
     pack_count_sequence_frames,
 )
-from dmdcontrol.runtime.lifecycle import LutEntry, LutEntryLike, coerce_lut_entry
+from dmdcontrol.runtime.lifecycle import LutEntry
 from dmdcontrol.support.constants import BITPLANES
 
 PreviewMetadata = dict[str, object]
-PreviewLutEntry = LutEntryLike
 ImageArray = RGBFrame | BinaryMask
 
 
@@ -65,7 +64,6 @@ class LutPreviewEntryMetadata(TypedDict):
     bit_depth: int
     led_select: int | None
     trig2_disabled: bool
-    image_index: int
 
 
 class LutPreviewMetadata(TypedDict):
@@ -95,15 +93,14 @@ def _json_safe_value(value: object) -> object:
 
 
 def build_lut_preview_metadata(
-    entries: Sequence[PreviewLutEntry],
-    timing: PreviewMetadata | None = None,
+    entries: Sequence[LutEntry],
+    timing: Mapping[str, object] | None = None,
 ) -> LutPreviewMetadata:
     """Describe a DLPC900 video-pattern LUT in preview-friendly JSON data."""
 
     preview_entries: list[LutPreviewEntryMetadata] = []
     cursor_us = 0
-    for index, raw_entry in enumerate(entries):
-        entry = coerce_lut_entry(raw_entry)
+    for index, entry in enumerate(entries):
         plane_index = int(entry.bitplane_index)
         exposure_us = int(entry.exposure_us)
         clear = bool(entry.clear_after)
@@ -111,7 +108,6 @@ def build_lut_preview_metadata(
         led_select = int(entry.led_select)
         dark_us = int(entry.dark_us)
         trig2_disabled = bool(entry.trig2_disabled)
-        image_index = int(raw_entry[8]) if not isinstance(raw_entry, LutEntry) and len(raw_entry) > 8 else 0
         label = BITPLANE_LABELS[plane_index] if 0 <= plane_index < len(
             BITPLANE_LABELS) else f"P{plane_index}"
         preview_entries.append(
@@ -130,14 +126,13 @@ def build_lut_preview_metadata(
                 "bit_depth": bit_depth,
                 "led_select": led_select,
                 "trig2_disabled": trig2_disabled,
-                "image_index": image_index,
             })
         cursor_us += exposure_us + dark_us
 
     return {
         "bitplane_order": list(BITPLANE_LABELS),
         "entries": preview_entries,
-        "timing": _json_safe_value(dict(timing or {})),
+        "timing": cast(PreviewMetadata, _json_safe_value(dict(timing or {}))),
     }
 
 

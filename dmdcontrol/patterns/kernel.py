@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import NamedTuple, Protocol, TypedDict
+from typing import Any, NamedTuple, TypedDict
 
 import numpy as np
 
@@ -15,14 +15,6 @@ from dmdcontrol.support.constants import (
     INTER_PATTERN_DARK_US,
     SAFE_MARGIN_US,
 )
-
-
-class KernelPackEngine(Protocol):
-    width: int
-    height: int
-
-    def pack_patterns(self, binary_images: Sequence[BinaryMaskArray]) -> RGBFrameArray:
-        ...
 
 
 class KernelLutOverride(NamedTuple):
@@ -53,6 +45,8 @@ def compute_kernel_lut_override(
 ) -> KernelLutOverride:
     if not enabled or exposure_us is None:
         return KernelLutOverride(None, None)
+    if target_hz is None or sequence_utilization is None:
+        raise ValueError("target_hz and sequence_utilization are required when kernel override is enabled")
     frame_period_us = 1_000_000.0 / target_hz
     usable_us = (frame_period_us - SAFE_MARGIN_US) * sequence_utilization
     actual_dark_us = INTER_PATTERN_DARK_US if dark_time_us is None else dark_time_us
@@ -88,7 +82,7 @@ def generate_kernel_masks(
 
 
 def pack_kernel_frames(
-    engine: KernelPackEngine,
+    engine: Any,
     masks: Sequence[BinaryMaskArray],
     slots_per_frame: int = BITPLANES,
     blank_end_frame: bool = False,
@@ -109,7 +103,7 @@ def pack_kernel_frames(
 
 
 def build_kernel_frames(
-    engine: KernelPackEngine,
+    engine: Any,
     kernel_px: int,
     slots_per_frame: int = BITPLANES,
     leader_frames: int = 3,

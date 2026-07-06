@@ -11,6 +11,7 @@ from dmdcontrol.patterns.paired import (
     as_frame_pair,
 )
 from dmdcontrol.runtime.pair import main
+from dmdcontrol.runtime.lifecycle import LutEntry
 
 
 class _FakeSequenceProvider:
@@ -439,9 +440,9 @@ def test_static_dot_dry_run_uses_generic_exposure_for_dynamic_entry_count(monkey
         captured["per_entry_exposure_us"] = kwargs["per_entry_exposure_us"]
         captured["dark_time_us"] = kwargs["dark_time_us"]
         return [
-            (0, 4000, False, 1, 7, 250, False, 0),
-            (1, 4000, False, 1, 7, 250, False, 1),
-            (2, 4000, True, 1, 7, 250, False, 2),
+            LutEntry(0, 4000, False, 1, 7, 250, False, 0),
+            LutEntry(1, 4000, False, 1, 7, 250, False, 1),
+            LutEntry(2, 4000, True, 1, 7, 250, False, 2),
         ], {
             "entries_count": 3,
             "trig2_mode": "per_bitplane",

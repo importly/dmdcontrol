@@ -11,6 +11,7 @@ from dmdcontrol.patterns.paired import (
     as_frame_pair,
 )
 from dmdcontrol.runtime import display_sequence
+from dmdcontrol.runtime.lifecycle import LutEntry
 
 
 def _assert_sequence_cursor(sequence):
@@ -64,8 +65,8 @@ def test_count_blank_sequence_pairs_each_frame_with_its_lut_slots():
     assert sequence.startup_policy.mode == "prime_first_frame"
     assert sequence.startup_leader_metadata()["trigger_count"] == 0
     assert sequence.lut_entries() == [
-        (0, 8000, False, 1, 7, 0, False, 0),
-        (1, 8000, True, 1, 7, 0, False, 1),
+        LutEntry(0, 8000, False, 1, 7, 0, False, 0),
+        LutEntry(1, 8000, True, 1, 7, 0, False, 1),
     ]
     assert sequence.expected_trigger_count() == 8
     assert sequence.timing["entries_count"] == 2
@@ -92,8 +93,8 @@ def test_exact_count_blank_sixty_sequence_keeps_frames_luts_and_provider_in_orde
     assert sequence.startup_policy.mode == "prime_first_frame"
     assert sequence.startup_leader_metadata()["trigger_count"] == 0
     assert sequence.lut_entries() == [
-        (0, 8000, False, 1, 7, 0, False, 0),
-        (1, 8000, True, 1, 7, 0, False, 1),
+        LutEntry(0, 8000, False, 1, 7, 0, False, 0),
+        LutEntry(1, 8000, True, 1, 7, 0, False, 1),
     ]
     assert sequence.expected_trigger_count() == 120
 
@@ -132,7 +133,7 @@ def test_count_without_blank_sequence_uses_blank_leader_policy():
     assert sequence.startup_policy.mode == "blank_leader"
     assert sequence.startup_policy.leader_vsyncs == 16
     assert sequence.startup_leader_metadata()["trigger_count"] == 16
-    assert sequence.lut_entries() == [(0, 16000, True, 1, 7, 0, False, 0)]
+    assert sequence.lut_entries() == [LutEntry(0, 16000, True, 1, 7, 0, False, 0)]
 
 
 def test_removed_numbers_sequence_mode_is_rejected():

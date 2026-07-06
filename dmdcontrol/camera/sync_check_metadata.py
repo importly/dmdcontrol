@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import argparse
 
-from dmdcontrol.camera.local_support_filter import event_noise_filter_metadata
+from dmdcontrol.camera.local_support_filter import (
+    LocalSupportFilterConfig,
+    event_noise_filter_metadata,
+)
 from dmdcontrol.camera.sync_check_runtime import (
     A_COUNT_B_STATIC_TEST,
     _requested_accumulation_window_us,
@@ -32,7 +35,7 @@ def _sync_check_test_metadata(args: argparse.Namespace, *, dry_run: bool) -> dic
 
 def sync_check_metadata(
     args: argparse.Namespace,
-    event_filter: object,
+    event_filter: LocalSupportFilterConfig,
     *,
     dry_run: bool,
     command: list[str],

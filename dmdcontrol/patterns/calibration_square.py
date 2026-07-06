@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import os
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 from os import PathLike
-from typing import NamedTuple, Protocol
+from typing import Any, NamedTuple
 
-from dmdcontrol.patterns.bitplanes import BinaryMaskArray, RGBFrameArray
+from dmdcontrol.patterns.bitplanes import RGBFrameArray
 from dmdcontrol.patterns.modes import (
     CalibrationSquareState,
     apply_calibration_square_commands,
@@ -26,15 +26,6 @@ from dmdcontrol.support.constants import BITPLANES
 from dmdcontrol.support.logging import logger
 
 VALID_CALIBRATION_COMMANDS = {"w", "a", "s", "d", "q", "e", "r", "f", "x"}
-
-
-class CalibrationSquareEngine(Protocol):
-    width: int
-    height: int
-    window: object
-
-    def pack_patterns(self, binary_images: Sequence[BinaryMaskArray]) -> RGBFrameArray:
-        ...
 
 
 FrameProvider = Callable[[], RGBFrameArray]
@@ -54,7 +45,7 @@ class CalibrationSquareProviderState:
 
 
 def build_calibration_square_frame(
-    engine: CalibrationSquareEngine,
+    engine: Any,
     state: CalibrationSquareState,
     bitplanes: int = BITPLANES,
 ) -> RGBFrameArray:
@@ -102,7 +93,7 @@ def read_calibration_square_control_file(
     return CalibrationControlRead(commands, offset)
 
 
-def calibration_square_key_commands(glfw: object) -> tuple[tuple[int, str], ...]:
+def calibration_square_key_commands(glfw: Any) -> tuple[tuple[int, str], ...]:
     return (
         (glfw.KEY_W,
          "w"),
@@ -124,7 +115,7 @@ def calibration_square_key_commands(glfw: object) -> tuple[tuple[int, str], ...]
 
 
 def make_calibration_square_frame_provider(
-    engine: CalibrationSquareEngine,
+    engine: Any,
     initial_frame: RGBFrameArray,
     control_file: str | PathLike[str] | None = None,
     initial_state: CalibrationSquareState | None = None,

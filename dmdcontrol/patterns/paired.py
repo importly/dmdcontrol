@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -56,7 +57,7 @@ FrameProvider = Callable[[], RGBFrame]
 
 @dataclass(frozen=True)
 class FramePair:
-    """Named A/B DMD frames while preserving legacy tuple unpacking."""
+    """Named A/B DMD frames with convenient tuple unpacking."""
 
     a: RGBFrame
     b: RGBFrame
@@ -650,7 +651,7 @@ def make_pair_frame_provider(
     raise ValueError(f"Unsupported paired test mode: {test}")
 
 
-def _load_gl_modules() -> tuple[object, object]:
+def _load_gl_modules() -> tuple[Any, Any]:
     import glfw
     import OpenGL.GL as gl
 

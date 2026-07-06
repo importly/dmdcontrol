@@ -30,11 +30,22 @@ from dmdcontrol.runtime.lifecycle import (
     warn_dark_time_video_pattern_mode as _warn_dark_time_video_pattern_mode,
 )
 from dmdcontrol.runtime.loop import run_render_loop, run_trigger_loop
-from dmdcontrol.support.argparse_types import trigger_out_rising_delay_us
+from dmdcontrol.support.argparse_types import (
+    nonnegative_int,
+    positive_float,
+    positive_int,
+    trigger_out_rising_delay_us,
+    unit_interval_float,
+)
 from dmdcontrol.support.constants import (
     BITPLANES,
+    DEFAULT_ABORT_RECOVER_COOLDOWN_S,
     DEFAULT_HZ,
+    DEFAULT_KERNEL_LEADER_FRAMES,
+    DEFAULT_KERNEL_PX,
+    DEFAULT_RUNTIME_SECONDS,
     DEFAULT_SEQUENCE_UTILIZATION,
+    DEFAULT_TRIGGER_OUT_2_RISING_DELAY_US,
     DMD_HEIGHT,
     DMD_WIDTH,
     SAFE_MARGIN_US,
@@ -61,8 +72,8 @@ def _build_parser():
     parser.add_argument("--trigger", action="store_true", help="Software Trigger Mode (Approach A)")
     parser.add_argument(
         "--runtime-seconds",
-        type=int,
-        default=60,
+        type=nonnegative_int,
+        default=DEFAULT_RUNTIME_SECONDS,
         help="Runtime for diagnostic patterns. Use 0 to run until ESC/window close.")
     parser.add_argument("--wake-dp", action="store_true", help="Wake DP receiver before runtime")
     parser.add_argument(
@@ -71,7 +82,7 @@ def _build_parser():
         help="Force dual-pixel P1-P2 mode for DLPC900 parallel input (default: single-pixel P1)")
     parser.add_argument(
         "--seq-utilization",
-        type=float,
+        type=unit_interval_float,
         default=DEFAULT_SEQUENCE_UTILIZATION,
         help="Fraction of safe frame budget allocated to LUT exposure timing (0<value<=1). "
         "Lower values increase idle headroom and improve robustness.")
@@ -83,13 +94,13 @@ def _build_parser():
     parser.add_argument(
         "--trigger-out-2-rising-delay-us",
         type=trigger_out_rising_delay_us,
-        default=0,
+        default=DEFAULT_TRIGGER_OUT_2_RISING_DELAY_US,
         help="TRIG_OUT_2 rising-edge delay in microseconds. Valid range: -20 to 19980. Default: 0.",
     )
     parser.add_argument(
         "--abort-recover-cooldown",
-        type=float,
-        default=8.0,
+        type=positive_float,
+        default=DEFAULT_ABORT_RECOVER_COOLDOWN_S,
         help=
         "Seconds between automatic abort recovery attempts while watchdog detects sequencer abort.")
     parser.add_argument(
@@ -108,8 +119,8 @@ def _build_parser():
         "This also inverts leader, pad, blank-end, and trigger black frames.")
     parser.add_argument(
         "--kernel-px",
-        type=int,
-        default=30,
+        type=positive_int,
+        default=DEFAULT_KERNEL_PX,
         help="Total kernel side length in pixels for --test kernel (must be a multiple of 3). "
         "Default 30 (3x3 cells of 10px). Use 999 for naked-eye visibility (3x3 cells of 333px).")
     parser.add_argument(
@@ -131,17 +142,17 @@ def _build_parser():
         help="Disable the all-black VSYNC frame normally appended to each kernel cycle.")
     parser.add_argument(
         "--kernel-leader-frames",
-        type=int,
-        default=3,
+        type=nonnegative_int,
+        default=DEFAULT_KERNEL_LEADER_FRAMES,
         help="Number of all-black VSYNC frames prepended to each kernel cycle as an acquisition "
         "leader marker. DAQ should ignore these initial trigger pulses. Default: 3.")
     parser.add_argument(
         "--exposure-us",
-        type=int,
+        type=positive_int,
         default=None,
         help="Generic per-entry LUT exposure time in microseconds for LUT-driven modes. "
         "Dynamic wall-clock display modes ignore this value.")
-    parser.add_argument("--dark-time-us", type=int, default=None)
+    parser.add_argument("--dark-time-us", type=nonnegative_int, default=None)
     parser.add_argument(
         "--calibr-square-control-file",
         default=None,
@@ -159,12 +170,6 @@ def _build_parser():
         help="Increase logging verbosity. Use -v for DEBUG logs and watchdog; -vv adds source paths "
         "and full board snapshots.")
     return parser
-
-
-class _DryRunDLPC:
-
-    def get_display_dimensions(self):
-        return None
 
 
 _EXPOSURE_IGNORED_DYNAMIC_KINDS = {"calibr-square", "snake", "clock"}
@@ -280,7 +285,6 @@ def _log_calibration_square_summary(args, timing, prefix="[TIMING]"):
 def _dry_run_timing(args):
     entries_count, exposure_us = _lut_timing_override(args, DEFAULT_HZ)
     entries, timing = build_lut_entries(
-        _DryRunDLPC(),
         DEFAULT_HZ,
         sequence_utilization=args.seq_utilization,
         trig2_frame_zero=args.trig2_frame_zero,

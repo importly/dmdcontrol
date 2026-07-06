@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import NamedTuple, Protocol
+from typing import Any, NamedTuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -45,18 +45,7 @@ class BuiltPattern(NamedTuple):
     dynamic_kind: str | None
 
 
-class PatternBuildEngine(Protocol):
-    width: int
-    height: int
-
-    def generate_checkerboard(self) -> list[BinaryMask]:
-        ...
-
-    def rgb_to_binary_patterns(self, rgb_array: RGBFrame) -> list[BinaryMask]:
-        ...
-
-
-PatternBuilder = Callable[[PatternBuildEngine], PatternBuildResult]
+PatternBuilder = Callable[[Any], PatternBuildResult]
 
 _DIGIT_SEGMENTS = {
     1: ("b",
@@ -391,12 +380,12 @@ def generate_decimal_number_rgb(
     return img
 
 
-def _grid(engine: PatternBuildEngine) -> PatternBuildResult:
+def _grid(engine: Any) -> PatternBuildResult:
     rgb = generate_coarse_grid_rgb(width=engine.width, height=engine.height)
     return PatternBuildResult(engine.rgb_to_binary_patterns(rgb), None)
 
 
-def _bands(engine: PatternBuildEngine) -> PatternBuildResult:
+def _bands(engine: Any) -> PatternBuildResult:
     rgb = generate_coarse_lines_rgb(width=engine.width, height=engine.height)
     return PatternBuildResult(engine.rgb_to_binary_patterns(rgb), None)
 
@@ -425,7 +414,7 @@ PATTERN_NAMES = list(PATTERN_MODES.keys())
 
 
 def build_patterns(
-    engine: PatternBuildEngine,
+    engine: Any,
     mode: str,
 ) -> BuiltPattern:
     """Returns (label, patterns_or_None, dynamic_kind) for the given mode name."""

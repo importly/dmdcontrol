@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from dmdcontrol.runtime import pair as main_pair
+from dmdcontrol.runtime.lifecycle import LutEntry
 from dmdcontrol.runtime.pair import resolve_pair_config
 
 
@@ -247,22 +248,10 @@ class MainPairConfigTests(unittest.TestCase):
             target_hz=60,
         )
         state = {
-            "entries": [(0,
-                         600,
-                         False,
-                         1,
-                         7,
-                         0,
-                         False,
-                         0),
-                        (8,
-                         600,
-                         True,
-                         1,
-                         7,
-                         0,
-                         False,
-                         8)],
+            "entries": [
+                LutEntry(0, 600, False, 1, 7, 0, False, 0),
+                LutEntry(8, 600, True, 1, 7, 0, False, 8),
+            ],
             "timing": {
                 "entries_count": 2,
                 "effective_frame_hz": 60.0,

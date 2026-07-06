@@ -1,20 +1,26 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any, cast
 
 from dmdcontrol.camera.capture import (
     AsyncCapture,
+    CameraReadyState,
+    CaptureResult,
     append_batch_records,
     flush_stale_batches,
     record_until_trigger_count,
 )
 from dmdcontrol.camera.command_artifacts import camera_command_argv, command_text
 from dmdcontrol.camera.local_support_filter import (
+    LocalSupportFilterConfig,
     add_event_noise_filter_arguments,
     event_noise_filter_config_from_args,
 )
 from dmdcontrol.camera.runs import (
+    CameraRunDirectory,
     create_run_directory,
     final_capture_artifacts,
     metadata_dict,
@@ -47,6 +53,20 @@ from dmdcontrol.support.argparse_types import (
     nonnegative_int,
     positive_int,
     trigger_out_rising_delay_us,
+    unit_interval_float,
+)
+from dmdcontrol.support.constants import (
+    DEFAULT_CAMERA_POST_TRIGGER_EVENT_BATCHES,
+    DEFAULT_COUNT_START,
+    DEFAULT_PAIRED_STARTUP_LEADER_VSYNCS,
+    DEFAULT_SYNC_CHECK_CAMERA_FLUSH_READS,
+    DEFAULT_SYNC_CHECK_COUNT_END,
+    DEFAULT_SYNC_CHECK_DOT_RADIUS_PX,
+    DEFAULT_SYNC_CHECK_NUMBER_SIZE_PX,
+    DEFAULT_SYNC_CHECK_RUNTIME_SECONDS,
+    DEFAULT_TRIGGER_OUT_2_RISING_DELAY_US,
+    DMD_CENTER_X,
+    DMD_CENTER_Y,
 )
 
 
@@ -95,8 +115,8 @@ def _validate_count_blank_between_frames_mode(args: argparse.Namespace) -> None:
 
 class SyncCheckArgumentParser(argparse.ArgumentParser):
 
-    def parse_args(self, args=None, namespace=None):
-        parsed = super().parse_args(args, namespace)
+    def parse_args(self, *args: Any, **kwargs: Any) -> argparse.Namespace:
+        parsed = cast(argparse.Namespace, super().parse_args(*args, **kwargs))
         try:
             _validate_count_blank_between_frames_mode(parsed)
             _validate_count_mode_args(parsed, require_resolved_slots=False)
@@ -122,7 +142,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the generated run directory name prefix.",
     )
     parser.add_argument("--timestamp", default=None, help=argparse.SUPPRESS)
-    parser.add_argument("--number-size-px", type=positive_int, default=100)
+    parser.add_argument(
+        "--number-size-px",
+        type=positive_int,
+        default=DEFAULT_SYNC_CHECK_NUMBER_SIZE_PX,
+    )
     parser.add_argument(
         "--exposure-us",
         type=positive_int,
@@ -130,8 +154,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional per-entry LUT exposure override in microseconds. "
         "Omit for the maximum safe exposure at the configured VSYNC.",
     )
-    parser.add_argument("--count-start", type=positive_int, default=1)
-    parser.add_argument("--count-end", type=positive_int, default=5)
+    parser.add_argument("--count-start", type=positive_int, default=DEFAULT_COUNT_START)
+    parser.add_argument("--count-end", type=positive_int, default=DEFAULT_SYNC_CHECK_COUNT_END)
     parser.add_argument("--count-slots-per-frame", type=count_slots_per_frame, default=None)
     parser.add_argument(
         "--count-blank-after-each-count",
@@ -148,19 +172,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--trigger-out-2-rising-delay-us",
         type=trigger_out_rising_delay_us,
-        default=0)
-    parser.add_argument("--runtime-seconds", type=int, default=0)
+        default=DEFAULT_TRIGGER_OUT_2_RISING_DELAY_US)
+    parser.add_argument(
+        "--runtime-seconds",
+        type=nonnegative_int,
+        default=DEFAULT_SYNC_CHECK_RUNTIME_SECONDS,
+    )
     parser.add_argument(
         "--paired-startup-leader-vsyncs",
         type=nonnegative_int,
-        default=16,
+        default=DEFAULT_PAIRED_STARTUP_LEADER_VSYNCS,
         help=(
             "Blank paired source VSYNCs after sequencer start before the first semantic frame. "
             "Forwarded to the paired DMD runtime and skipped in derived artifacts."),
     )
     parser.add_argument(
         "--seq-utilization",
-        type=float,
+        type=unit_interval_float,
         default=None,
         help="Optional paired-runtime LUT budget utilization override. "
         "Use 1.0 only when intentionally using nearly the full VSYNC budget.",
@@ -168,9 +196,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dmd-config", default=None)
     parser.add_argument("--test", default=A_COUNT_B_STATIC_TEST)
     parser.add_argument("--test-b", default="dot")
-    parser.add_argument("--b-dot-x", type=int, default=960)
-    parser.add_argument("--b-dot-y", type=int, default=540)
-    parser.add_argument("--b-dot-radius", type=positive_int, default=20)
+    parser.add_argument("--b-dot-x", type=int, default=DMD_CENTER_X)
+    parser.add_argument("--b-dot-y", type=int, default=DMD_CENTER_Y)
+    parser.add_argument("--b-dot-radius", type=positive_int, default=DEFAULT_SYNC_CHECK_DOT_RADIUS_PX)
     parser.add_argument(
         "--bias-sensitivity",
         default="default",
@@ -199,17 +227,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="Shift each accumulation window relative to its trigger timestamp.",
     )
-    parser.add_argument("--dark-time-us", type=int, default=None)
+    parser.add_argument("--dark-time-us", type=nonnegative_int, default=None)
     parser.add_argument(
         "--camera-flush-reads",
         type=nonnegative_int,
-        default=32,
+        default=DEFAULT_SYNC_CHECK_CAMERA_FLUSH_READS,
         help="Maximum stale event/trigger batch reads to discard before capture.",
     )
     parser.add_argument(
         "--camera-post-trigger-event-batches",
         type=nonnegative_int,
-        default=0,
+        default=DEFAULT_CAMERA_POST_TRIGGER_EVENT_BATCHES,
         help="Number of extra event batches to read after the expected trigger count is reached.",
     )
     parser.add_argument(
@@ -329,29 +357,29 @@ def _write_capture_artifacts_for_sync_check(
 @dataclass
 class SyncCheckCaptureSession:
     args: argparse.Namespace
-    run: object
+    run: CameraRunDirectory
     capture: object
     writer: object
-    ready: object
-    event_filter: object
+    ready: CameraReadyState
+    event_filter: LocalSupportFilterConfig
     command: list[str]
     metadata: dict[str, object]
     accumulation_window_us: int | None
     event_records: list = field(default_factory=list)
     trigger_records: list = field(default_factory=list)
     startup_leader_trigger_count: int = 0
-    recording: object | None = None
-    capture_result: object | None = None
+    recording: AsyncCapture | None = None
+    capture_result: CaptureResult | None = None
     artifact_summary: dict[str, object] | None = None
 
     @classmethod
     def create(
         cls,
         args: argparse.Namespace,
-        run,
-        capture,
-        writer,
-        ready,
+        run: CameraRunDirectory,
+        capture: object,
+        writer: object,
+        ready: CameraReadyState,
         command_argv: list[str] | None,
     ) -> "SyncCheckCaptureSession":
         event_filter = event_noise_filter_config_from_args(args)
@@ -380,7 +408,7 @@ class SyncCheckCaptureSession:
         self.run.command_path.write_text(command_text(self.command), encoding="utf-8")
         self.run.log_path.write_text("live\n", encoding="utf-8")
 
-    def before_pair_start(self, context) -> None:
+    def before_pair_start(self, context: Mapping[str, object]) -> None:
         self.accumulation_window_us = _update_before_start_metadata(
             self.metadata,
             self.ready,
@@ -388,6 +416,8 @@ class SyncCheckCaptureSession:
             self.accumulation_window_us,
         )
         startup_leader = context.get("startup_leader") or {}
+        if not isinstance(startup_leader, Mapping):
+            startup_leader = {}
         self.startup_leader_trigger_count = int(startup_leader.get("trigger_count") or 0)
         self.metadata["camera_pre_capture_flush"] = flush_stale_batches(
             self.capture,

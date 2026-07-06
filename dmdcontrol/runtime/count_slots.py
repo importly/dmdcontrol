@@ -4,7 +4,7 @@ import math
 from argparse import Namespace
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import TypedDict
+from typing import Literal, TypedDict, overload
 
 from dmdcontrol.patterns.paired import (
     MAX_COUNT_SEQUENCE_FRAMES,
@@ -56,6 +56,26 @@ class CountSequenceConfig:
     count_slots_per_frame: int
     count_blank_between_frames: bool = False
     count_slots_per_frame_mode: str = "explicit"
+
+    @classmethod
+    @overload
+    def from_args(
+        cls,
+        args: ArgsNamespace,
+        *,
+        require_resolved_slots: Literal[True] = True,
+    ) -> "CountSequenceConfig":
+        ...
+
+    @classmethod
+    @overload
+    def from_args(
+        cls,
+        args: ArgsNamespace,
+        *,
+        require_resolved_slots: Literal[False],
+    ) -> "CountSequenceConfig | None":
+        ...
 
     @classmethod
     def from_args(
@@ -157,12 +177,6 @@ class CountSequenceConfig:
         }
 
 
-class _DryRunDLPC:
-
-    def get_display_dimensions(self) -> None:
-        return None
-
-
 def validate_count_lut_sequence_does_not_repeat(
     *,
     count_slots_per_frame: int,
@@ -180,7 +194,6 @@ def validate_count_lut_sequence_does_not_repeat(
         count_blank_between_frames=count_blank_between_frames,
     )
     _entries, timing = build_lut_entries(
-        _DryRunDLPC(),
         target_hz,
         sequence_utilization=utilization,
         entries_count=entries_count,

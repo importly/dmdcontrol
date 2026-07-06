@@ -52,10 +52,8 @@ from dmdcontrol.patterns.paired import (
 from dmdcontrol.runtime.count_slots import CountSequenceConfig
 from dmdcontrol.runtime.lifecycle import (
     LutEntry,
-    LutEntryLike,
     LutTimingMetadata,
     build_lut_entries,
-    coerce_lut_entry,
 )
 from dmdcontrol.support.constants import DEFAULT_HZ, DMD_HEIGHT, DMD_WIDTH
 
@@ -272,12 +270,6 @@ class FrameSequenceProvider(PairFrameProvider):
         return self._frames[self.frame_index].frame_pair
 
 
-class _DryRunDLPC:
-
-    def get_display_dimensions(self) -> None:
-        return None
-
-
 def build_paired_display_sequence(
     args: ArgsNamespace,
     *,
@@ -328,7 +320,6 @@ def build_count_static_sequence(
 ) -> PairedDisplaySequence:
     count_config = CountSequenceConfig.from_args(args)
     entries, timing = build_lut_entries(
-        _DryRunDLPC(),
         target_hz,
         sequence_utilization=args.seq_utilization,
         trig2_frame_zero=args.trig2_frame_zero,
@@ -379,9 +370,9 @@ def build_count_static_sequence(
         if args.count_blank_between_frames else
         StartupPolicy("blank_leader", args.paired_startup_leader_vsyncs)
     )
-    frames = tuple(frames)
+    frame_tuple = tuple(frames)
     return PairedDisplaySequence(
-        frames=frames,
+        frames=frame_tuple,
         startup_policy=startup_policy,
         repeat=True,
         target_hz=target_hz,
@@ -392,7 +383,7 @@ def build_count_static_sequence(
                 "exposure_us": args.exposure_us,
             }
         },
-        provider=FrameSequenceProvider(frames, repeat=True),
+        provider=FrameSequenceProvider(frame_tuple, repeat=True),
     )
 
 
@@ -404,7 +395,6 @@ def build_provider_backed_sequence(
     height: int = DMD_HEIGHT,
 ) -> PairedDisplaySequence:
     entries, timing = build_lut_entries(
-        _DryRunDLPC(),
         target_hz,
         sequence_utilization=args.seq_utilization,
         trig2_frame_zero=args.trig2_frame_zero,
@@ -449,7 +439,6 @@ def build_kernel_static_sequence(
         dark_time_us=args.dark_time_us,
     )
     entries, timing = build_lut_entries(
-        _DryRunDLPC(),
         target_hz,
         sequence_utilization=args.seq_utilization,
         trig2_frame_zero=args.trig2_frame_zero,
@@ -523,7 +512,6 @@ def build_calibration_dot_sequence(
     height: int = DMD_HEIGHT,
 ) -> PairedDisplaySequence:
     entries, timing = build_lut_entries(
-        _DryRunDLPC(),
         target_hz,
         sequence_utilization=args.seq_utilization,
         trig2_frame_zero=args.trig2_frame_zero,
@@ -584,13 +572,12 @@ def build_calibration_dot_sequence(
 
 
 def _slots_from_lut_entries(
-    entries: Iterable[LutEntryLike],
+    entries: Iterable[LutEntry],
     *,
     semantic_role: str,
 ) -> tuple[LutSlot, ...]:
     slots: list[LutSlot] = []
-    for raw_entry in entries:
-        entry = coerce_lut_entry(raw_entry)
+    for entry in entries:
         slots.append(
             LutSlot(
                 bitplane_index=int(entry.bitplane_index),

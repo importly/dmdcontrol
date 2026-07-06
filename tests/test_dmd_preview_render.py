@@ -84,32 +84,12 @@ class DmdPreviewRenderTests(unittest.TestCase):
 
     def test_lut_preview_metadata_labels_entries_and_timing_windows(self):
         from dmdcontrol.preview.render import build_lut_preview_metadata
+        from dmdcontrol.runtime.lifecycle import LutEntry
 
         entries = [
-            (0,
-             600,
-             False,
-             1,
-             7,
-             10,
-             False,
-             0),
-            (8,
-             600,
-             False,
-             1,
-             7,
-             10,
-             False,
-             8),
-            (16,
-             600,
-             True,
-             1,
-             7,
-             10,
-             True,
-             16),
+            LutEntry(0, 600, False, 1, 7, 10, False, 0),
+            LutEntry(8, 600, False, 1, 7, 10, False, 8),
+            LutEntry(16, 600, True, 1, 7, 10, True, 16),
         ]
         timing = {
             "entries_count": 3,
@@ -126,7 +106,6 @@ class DmdPreviewRenderTests(unittest.TestCase):
         self.assertEqual(metadata["entries"][2]["plane_label"], "B0")
         self.assertEqual(metadata["entries"][1]["start_us"], 610)
         self.assertEqual(metadata["entries"][1]["end_us"], 1210)
-        self.assertEqual(metadata["entries"][1]["image_index"], 0)
         self.assertEqual(metadata["entries"][2]["segment_end_us"], 1830)
         self.assertTrue(metadata["entries"][2]["clear"])
         self.assertTrue(metadata["entries"][2]["trig2_disabled"])

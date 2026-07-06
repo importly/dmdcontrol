@@ -28,6 +28,26 @@ def nonnegative_int(value: str) -> int:
     return number
 
 
+def positive_float(value: str) -> float:
+    try:
+        number = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be positive") from exc
+    if number <= 0.0:
+        raise argparse.ArgumentTypeError("value must be positive")
+    return number
+
+
+def unit_interval_float(value: str) -> float:
+    try:
+        number = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be in the interval (0, 1]") from exc
+    if number <= 0.0 or number > 1.0:
+        raise argparse.ArgumentTypeError("value must be in the interval (0, 1]")
+    return number
+
+
 def count_slots_per_frame(value: str) -> int | None:
     if value.strip().lower() == "auto":
         return None

@@ -34,6 +34,19 @@ from dmdcontrol.support.argparse_types import (
     positive_int,
     trigger_out_rising_delay_us,
 )
+from dmdcontrol.support.constants import (
+    DEFAULT_CAMERA_POST_TRIGGER_EVENT_BATCHES,
+    DEFAULT_MAX_ACCUMULATION_TRIGGERS,
+    DEFAULT_PAIR_CAPTURE_CAMERA_FLUSH_READS,
+    DEFAULT_PAIR_CAPTURE_KERNEL_PX,
+    DEFAULT_PAIR_CAPTURE_RUNTIME_SECONDS,
+    DEFAULT_PAIRED_STARTUP_LEADER_VSYNCS,
+    DEFAULT_TRIGGER_OUT_2_RISING_DELAY_US,
+    DEFAULT_DOT_RADIUS_PX,
+    DMD_CENTER_X,
+    DMD_CENTER_Y,
+    KERNEL_VARIATION_COUNT,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -52,16 +65,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timestamp", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--test", default="a-kernel-b-static")
     parser.add_argument("--test-b", default="dot")
-    parser.add_argument("--b-dot-x", type=int, default=960)
-    parser.add_argument("--b-dot-y", type=int, default=540)
-    parser.add_argument("--b-dot-radius", type=positive_int, default=40)
-    parser.add_argument("--kernel-px", type=positive_int, default=129)
+    parser.add_argument("--b-dot-x", type=int, default=DMD_CENTER_X)
+    parser.add_argument("--b-dot-y", type=int, default=DMD_CENTER_Y)
+    parser.add_argument("--b-dot-radius", type=positive_int, default=DEFAULT_DOT_RADIUS_PX)
+    parser.add_argument("--kernel-px", type=positive_int, default=DEFAULT_PAIR_CAPTURE_KERNEL_PX)
     parser.add_argument("--exposure-us", type=positive_int, default=None)
-    parser.add_argument("--runtime-seconds", type=positive_int, default=999)
+    parser.add_argument("--runtime-seconds", type=positive_int, default=DEFAULT_PAIR_CAPTURE_RUNTIME_SECONDS)
     parser.add_argument(
         "--paired-startup-leader-vsyncs",
         type=nonnegative_int,
-        default=16,
+        default=DEFAULT_PAIRED_STARTUP_LEADER_VSYNCS,
         help=(
             "Blank paired source VSYNCs after sequencer start before the first semantic frame. "
             "Forwarded to the paired DMD runtime and skipped in derived artifacts."),
@@ -69,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--trigger-out-2-rising-delay-us",
         type=trigger_out_rising_delay_us,
-        default=0)
+        default=DEFAULT_TRIGGER_OUT_2_RISING_DELAY_US)
     parser.add_argument("--dmd-config", default=None)
     parser.add_argument(
         "--bias-sensitivity",
@@ -93,23 +106,23 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["positive",
                  "signed",
                  "ignore"])
-    parser.add_argument("--dark-time-us", type=int, default=None)
+    parser.add_argument("--dark-time-us", type=nonnegative_int, default=None)
     parser.add_argument(
         "--camera-flush-reads",
         type=nonnegative_int,
-        default=1,
+        default=DEFAULT_PAIR_CAPTURE_CAMERA_FLUSH_READS,
         help="Number of stale event/trigger batch reads to discard after opening the camera.",
     )
     parser.add_argument(
         "--camera-post-trigger-event-batches",
         type=nonnegative_int,
-        default=0,
+        default=DEFAULT_CAMERA_POST_TRIGGER_EVENT_BATCHES,
         help="Number of extra event batches to read after the expected trigger count is reached.",
     )
     parser.add_argument(
         "--max-accumulation-triggers",
         type=positive_int,
-        default=512,
+        default=DEFAULT_MAX_ACCUMULATION_TRIGGERS,
         help=
         "Maximum rising triggers used for derived accumulation artifacts. Raw AEDAT recording is unchanged.",
     )
@@ -120,7 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def expected_shape(args: argparse.Namespace) -> dict[str, int | None]:
     return {
-        "kernel_count": 512 if args.test == "a-kernel-b-static" else None,
+        "kernel_count": KERNEL_VARIATION_COUNT if args.test == "a-kernel-b-static" else None,
         "input_image_count": None,
     }
 
