@@ -253,6 +253,10 @@ def prepare_dlpc900_for_video_pattern(
     logger.debug("  - Entering Video Mode (0) with DisplayPort source...")
     dlpc.set_display_mode(0x00)
     dlpc.set_input_source(0, 1)
+    logger.debug("  - Setting input pixel format to RGB888 (0)...")
+    dlpc.set_input_pixel_format(0)
+    logger.debug("  - Setting EVM input channel swap ABC->BAC on Port 1...")
+    dlpc.set_data_channel_swap(0, 4)
     dlpc.toggle_dual_pixel_mode(bool(dual_pixel))
     logger.info(f"[+] Parallel input pixel mode: {'Dual P1-P2' if dual_pixel else 'Single P1'}")
 

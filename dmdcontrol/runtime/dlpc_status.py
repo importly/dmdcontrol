@@ -106,7 +106,9 @@ def log_board_snapshot(dlpc: "DLPC900", tag: str) -> None:
     if cs:
         logger.debug(
             f"Channel Swap:         {cs['swap_label']} (port {cs['port']}, raw {cs['raw']})")
-        if cs["swap_label"] != "ABC":
+        if cs["swap_label"] == "BAC":
+            logger.debug("  EVM RGB input swap ABC->BAC active; logical RGB maps to DLPC900 pins.")
+        elif cs["swap_label"] != "ABC":
             logger.debug(
                 f"  Note: non-default channel swap '{cs['swap_label']}' active. Affects RGB->bitplane pin mapping."
             )

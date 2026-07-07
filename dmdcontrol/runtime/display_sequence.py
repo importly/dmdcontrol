@@ -79,6 +79,7 @@ class LutSlotMetadata(TypedDict):
     clear_after: bool
     semantic_role: str
     semantic_label: str | None
+    wait_for_trigger: bool
 
 
 class TimedFramePairMetadata(TypedDict):
@@ -109,17 +110,27 @@ class LutSlot:
     clear_after: bool
     semantic_role: str
     semantic_label: str | None = None
+    wait_for_trigger: bool = False
 
-    def to_lut_entry(self) -> LutEntry:
+    def to_lut_entry(
+        self,
+        *,
+        pattern_index: int | None = None,
+        wait_for_trigger: bool | None = None,
+    ) -> LutEntry:
+        bit_position = int(self.bitplane_index)
+        frame_change = self.wait_for_trigger if wait_for_trigger is None else wait_for_trigger
         return LutEntry(
-            bitplane_index=int(self.bitplane_index),
+            pattern_index=bit_position if pattern_index is None else int(pattern_index),
             exposure_us=int(self.exposure_us),
             clear_after=bool(self.clear_after),
             bit_depth=1,
             led_select=7,
             dark_us=int(self.dark_us),
             trig2_disabled=not bool(self.trig2_enabled),
-            bit_position=int(self.bitplane_index),
+            bit_position=bit_position,
+            image_pattern_index=0,
+            wait_for_trigger=bool(frame_change),
         )
 
 
@@ -168,7 +179,10 @@ class PairedDisplaySequence:
         return self.frames[0].lut_slots
 
     def lut_entries(self) -> list[LutEntry]:
-        return [slot.to_lut_entry() for slot in self.lut_slots]
+        return [
+            slot.to_lut_entry(pattern_index=index)
+            for index, slot in enumerate(self.lut_slots)
+        ]
 
     def startup_leader_metadata(self) -> StartupLeaderMetadata:
         entries_count = len(self.lut_slots)
@@ -231,6 +245,7 @@ class PairedDisplaySequence:
                             "clear_after": bool(slot.clear_after),
                             "semantic_role": slot.semantic_role,
                             "semantic_label": slot.semantic_label,
+                            "wait_for_trigger": bool(slot.wait_for_trigger),
                         } for slot in frame.lut_slots
                     ],
                 } for frame in self.frames
@@ -612,12 +627,13 @@ def _slots_from_lut_entries(
     for entry in entries:
         slots.append(
             LutSlot(
-                bitplane_index=int(entry.bitplane_index),
+                bitplane_index=int(entry.bit_position),
                 exposure_us=int(entry.exposure_us),
                 dark_us=int(entry.dark_us),
                 trig2_enabled=not bool(entry.trig2_disabled),
                 clear_after=bool(entry.clear_after),
                 semantic_role=semantic_role,
+                wait_for_trigger=bool(entry.wait_for_trigger),
             ))
     return tuple(slots)
 
@@ -636,6 +652,7 @@ def _slots_with_labels(slots: tuple[LutSlot, ...], labels: list[str]) -> tuple[L
                 clear_after=slot.clear_after,
                 semantic_role="blank" if label == "blank" else slot.semantic_role,
                 semantic_label=label,
+                wait_for_trigger=bool(slot.wait_for_trigger),
             ))
     return tuple(labeled)
 

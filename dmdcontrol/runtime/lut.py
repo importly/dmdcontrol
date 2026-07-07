@@ -24,7 +24,7 @@ from dmdcontrol.support.logging import logger
 
 @dataclass(frozen=True)
 class LutEntry:
-    bitplane_index: int
+    pattern_index: int
     exposure_us: int
     clear_after: bool
     bit_depth: int
@@ -32,6 +32,13 @@ class LutEntry:
     dark_us: int
     trig2_disabled: bool
     bit_position: int
+    image_pattern_index: int = 0
+    wait_for_trigger: bool = False
+
+    @property
+    def bitplane_index(self) -> int:
+        """Selected video bit/frame position; kept as a compatibility alias."""
+        return self.bit_position
 
 
 class TriggerOutTiming(TypedDict):
@@ -192,7 +199,7 @@ def build_lut_entries(
         trig2_disable = (bit_pos != 0) if trig2_frame_zero else False
         entries.append(
             LutEntry(
-                bitplane_index=bit_pos,
+                pattern_index=bit_pos,
                 exposure_us=exposure_us,
                 clear_after=clear_flag,
                 bit_depth=1,
@@ -200,6 +207,8 @@ def build_lut_entries(
                 dark_us=actual_dark_us,
                 trig2_disabled=trig2_disable,
                 bit_position=bit_pos,
+                image_pattern_index=0,
+                wait_for_trigger=(bit_pos == 0),
             ))
 
     timing: LutTimingMetadata = {

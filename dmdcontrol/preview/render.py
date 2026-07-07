@@ -51,6 +51,7 @@ ImageArray = RGBFrame | BinaryMask
 
 class LutPreviewEntryMetadata(TypedDict):
     index: int
+    pattern_index: int
     plane_index: int
     plane_label: str
     channel: str
@@ -64,6 +65,8 @@ class LutPreviewEntryMetadata(TypedDict):
     bit_depth: int
     led_select: int | None
     trig2_disabled: bool
+    wait_for_trigger: bool
+    frame_change: bool
 
 
 class LutPreviewMetadata(TypedDict):
@@ -101,18 +104,21 @@ def build_lut_preview_metadata(
     preview_entries: list[LutPreviewEntryMetadata] = []
     cursor_us = 0
     for index, entry in enumerate(entries):
-        plane_index = int(entry.bitplane_index)
+        pattern_index = int(entry.pattern_index)
+        plane_index = int(entry.bit_position)
         exposure_us = int(entry.exposure_us)
         clear = bool(entry.clear_after)
         bit_depth = int(entry.bit_depth)
         led_select = int(entry.led_select)
         dark_us = int(entry.dark_us)
         trig2_disabled = bool(entry.trig2_disabled)
+        wait_for_trigger = bool(getattr(entry, "wait_for_trigger", False))
         label = BITPLANE_LABELS[plane_index] if 0 <= plane_index < len(
             BITPLANE_LABELS) else f"P{plane_index}"
         preview_entries.append(
             {
                 "index": int(index),
+                "pattern_index": pattern_index,
                 "plane_index": plane_index,
                 "plane_label": label,
                 "channel": label[0],
@@ -126,6 +132,8 @@ def build_lut_preview_metadata(
                 "bit_depth": bit_depth,
                 "led_select": led_select,
                 "trig2_disabled": trig2_disabled,
+                "wait_for_trigger": wait_for_trigger,
+                "frame_change": wait_for_trigger,
             })
         cursor_us += exposure_us + dark_us
 

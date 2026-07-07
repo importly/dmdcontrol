@@ -350,6 +350,11 @@ class DLPC900:
         val = (source & 0x07) | ((bit_depth_sel & 0x03) << 3)
         self._write(0x1A00, struct.pack("<B", val))
 
+    def set_data_channel_swap(self, port=0, swap=4):
+        """0x1A37: Set input channel swap. swap=4 is ABC->BAC for the 6500/9000 EVM."""
+        val = (port & 0x01) | ((swap & 0x07) << 1)
+        self._write(0x1A37, struct.pack("<B", val))
+
     def set_port_config(self, pixel_mode=2, pixel_clock=0, data_enable=0, sync_select=0):
         val = (
             (pixel_mode & 0x03)
@@ -438,30 +443,33 @@ class DLPC900:
     def set_pattern_lut_definition(self, entries):
         """0x1A34: Define pattern LUT entries (DLPU018J Table 2-143).
 
-        Entries are `LutEntry` objects from the runtime layer. Video Pattern Mode
-        always uses the current video frame, so the image-select bits stay zero.
+        Entries are `LutEntry` objects from the runtime layer. In streaming
+        Video Pattern Mode the image pattern index is normally zero, but the
+        selected video bit/frame position remains meaningful.
         """
         for entry in entries:
-            idx = int(entry.bitplane_index)
+            pattern_index = int(entry.pattern_index)
             exp_us = int(entry.exposure_us)
             dark_us = int(entry.dark_us)
             depth = int(entry.bit_depth)
             led = int(entry.led_select)
             bit_pos = int(entry.bit_position)
+            image_pattern_index = int(entry.image_pattern_index)
+            wait_for_trigger = bool(getattr(entry, "wait_for_trigger", False))
 
             ext_depth = 1 if depth > 8 else 0
             depth_field = (depth - 1) & 0x07
             exp3 = struct.pack("<I", exp_us)[:3]
             dark3 = struct.pack("<I", dark_us)[:3]
-            b5 = (1 if entry.clear_after else 0) | (depth_field << 1) | ((led & 0x07) << 4)
+            b5 = ((0x80 if wait_for_trigger else 0) | (1 if entry.clear_after else 0) | (depth_field << 1) | ((led & 0x07) << 4))
             b9 = (1 if entry.trig2_disabled else 0) | ((ext_depth & 0x01) << 1)
-            b1011 = (bit_pos & 0x1F) << 11
+            b1011 = ((bit_pos & 0x1F) << 11) | (image_pattern_index & 0x07FF)
 
             entry_payload = (
                 struct.pack("<H",
-                            idx) + exp3 + struct.pack("<B",
-                                                      b5) + dark3 + struct.pack("<B",
-                                                                                b9) +
+                            pattern_index) + exp3 + struct.pack("<B",
+                                                                b5) + dark3 + struct.pack("<B",
+                                                                                          b9) +
                 struct.pack("<H",
                             b1011))
             self._write(0x1A34, entry_payload)

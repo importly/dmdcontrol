@@ -379,7 +379,7 @@ def test_pair_runtime_explicit_count_slots_override_is_preserved():
     assert args.count_slots_per_frame_mode == "explicit"
 
 
-def test_pair_runtime_rejects_blank_after_count_sequences_that_repeat_before_vsync():
+def test_pair_runtime_allows_short_blank_after_count_sequences_with_frame_change():
     from dmdcontrol.runtime import pair
 
     args = pair._build_parser().parse_args(
@@ -400,9 +400,10 @@ def test_pair_runtime_rejects_blank_after_count_sequences_that_repeat_before_vsy
             "--count-blank-between-frames",
         ])
 
-    with pytest.raises(SystemExit, match="use a longer exposure such as --exposure-us 16000"):
-        pair._validate_pair_args(args)
+    pair._validate_pair_args(args)
 
+    assert args.count_slots_per_frame == 1
+    assert args.count_slots_per_frame_mode == "explicit"
 
 def test_pair_runtime_rejects_packed_count_slots_with_blank_after_each_count():
     from dmdcontrol.runtime import pair
@@ -429,7 +430,7 @@ def test_pair_runtime_rejects_packed_count_slots_with_blank_after_each_count():
         pair._validate_pair_args(args)
 
 
-def test_pair_runtime_auto_count_slots_rejects_ranges_without_valid_divisor():
+def test_pair_runtime_auto_count_slots_allows_frame_change_gated_short_groups():
     from dmdcontrol.runtime import pair
 
     args = pair._build_parser().parse_args(
@@ -445,6 +446,33 @@ def test_pair_runtime_auto_count_slots_rejects_ranges_without_valid_divisor():
             "4000",
             "--dark-time-us",
             "1000",
+            "--seq-utilization",
+            "1.0",
+        ])
+
+    pair._validate_pair_args(args)
+
+    assert args.count_slots_per_frame == 3
+    assert args.count_slots_per_frame_mode == "auto"
+
+def test_pair_runtime_auto_count_slots_rejects_ranges_without_valid_divisor():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args(
+        [
+            "--dry-run-timing",
+            "--test",
+            A_COUNT_B_STATIC_PAIR_TEST,
+            "--count-start",
+            "1",
+            "--count-end",
+            "131",
+            "--exposure-us",
+            "4000",
+            "--dark-time-us",
+            "1000",
+            "--seq-utilization",
+            "1.0",
         ])
 
     with pytest.raises(SystemExit, match="No valid --count-slots-per-frame"):
