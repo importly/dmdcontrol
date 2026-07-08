@@ -1,0 +1,25 @@
+[
+  {
+    "label": "pytest camera live plumbing",
+    "adapter": "Debugpy",
+    "request": "launch",
+    "module": "pytest",
+    "args": [
+      "tests/test_camera_live_plumbing.py",
+      "-q"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "pytest paired LUT runtime",
+    "adapter": "Debugpy",
+    "request": "launch",
+    "module": "pytest",
+    "args": [
+      "tests/test_pair_lut_override.py",
+      "tests/test_kernel_runtime.py",
+      "-q"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT"
+  }
+]

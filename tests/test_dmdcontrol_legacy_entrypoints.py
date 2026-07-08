@@ -1,11 +1,8 @@
-from unittest import mock
-
 from dmdcontrol.runtime import single as main
 
 
-def test_main_accepts_argv_and_returns_zero_for_dry_run_timing():
-    with mock.patch.object(main, "_dry_run_timing") as dry_run_timing:
-        result = main.main(["--dry-run-timing", "--test", "checkerboard"])
+def test_main_parser_accepts_argv_for_live_runtime_options():
+    args = main._build_parser().parse_args(["--test", "checkerboard", "--runtime-seconds", "1"])
 
-    assert result == 0
-    dry_run_timing.assert_called_once()
+    assert args.test == "checkerboard"
+    assert args.runtime_seconds == 1

@@ -4,13 +4,14 @@ from dmdcontrol.camera.command_artifacts import camera_command_argv, command_tex
 
 
 def test_camera_command_argv_wraps_explicit_cli_args():
-    assert camera_command_argv("pair-capture", ["--dry-run-timing", "-v"]) == [
+    assert camera_command_argv("pair-capture", ["--runtime-seconds", "1", "-v"]) == [
         "python",
         "-m",
         "dmdcontrol",
         "camera",
         "pair-capture",
-        "--dry-run-timing",
+        "--runtime-seconds",
+        "1",
         "-v",
     ]
 
@@ -22,7 +23,8 @@ def test_camera_command_argv_uses_current_process_when_args_are_implicit(monkeyp
         "dmdcontrol",
         "camera",
         "sync-check",
-        "--dry-run",
+        "--runtime-seconds",
+        "1",
     ]
     monkeypatch.setattr(sys, "argv", current_argv)
 

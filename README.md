@@ -46,12 +46,11 @@ X-stage script is the generic `scripts/dmd_xinit_client.sh`.
 ./run_dmd_pair_calibr_square.sh [flags]
 ```
 
-The package CLI is the direct command surface for dry-run/dev/runtime intent. Use it on a dev host for commands that do
-not need X11/USB, or inside an already prepared X session when driving hardware directly:
+For local development on Windows or any host without DMD hardware, debug the fake-backed pytest targets. Use the package CLI inside an already prepared Linux X session when driving hardware directly:
 
 ```bash
-python -m dmdcontrol single run --dry-run-timing --test kernel --exposure-us 3000
-python -m dmdcontrol pair run --dry-run-timing --mode snake
+python -m pytest tests/test_camera_live_plumbing.py -q
+python -m pytest tests/test_pair_lut_override.py -q
 python -m dmdcontrol preview serve --host 127.0.0.1 --port 8080
 python -m dmdcontrol usb discover
 python -m dmdcontrol usb wake
@@ -134,7 +133,6 @@ This mapping is by labeled USB and DisplayPort ports, not by board serial number
 Paired mode is intentionally separate from the single-DMD flow:
 
 ```bash
-python -m dmdcontrol pair run --dry-run-timing --mode snake
 ./run_dmd_pair.sh --test grid --runtime-seconds 300
 ./run_dmd_pair.sh --test bands --runtime-seconds 300
 ./run_dmd_pair.sh --test checkerboard --test-a checkerboard --test-b grid
@@ -201,8 +199,8 @@ laser path.
 # Same, fast (full 1440 Hz binary rate, 24 bitplanes per VSYNC)
 ./run_dmd.sh --test kernel --kernel-px 900 --runtime-seconds 60
 
-# Plan kernel timing and DAQ trigger mapping without opening hardware
-python -m dmdcontrol single run --dry-run-timing --test kernel --exposure-us 3000
+# Local timing and LUT checks without hardware
+python -m pytest tests/test_kernel_runtime.py tests/test_pair_lut_override.py -q
 ```
 
 ## Flags
@@ -232,7 +230,6 @@ DMD launchers use the custom `1920x1080_60_RAW` modeline and fixed 60.000 Hz tim
 | `--kernel-leader-frames`                                   | int                                                                                                                                                                                                  | `3`                | Prepend all-black VSYNC frames to each kernel cycle. DAQ should ignore these leader trigger pulses before kernel index 0.                |
 | `--exposure-us`                                            | int µs                                                                                                                                                                                               | auto               | Generic DLPC900 LUT-entry exposure. With `--dark-time-us`, controls how many entries fit per 60 Hz VSYNC and therefore the effective pattern rate. Ignored by dynamic wall-clock modes that do not use LUT exposure timing. |
 | `--dark-time-us`                                           | int µs                                                                                                                                                                                               | `0`                | Unreliable for visible off-time in DLPC900 Video Pattern Mode. Prefer explicit blank frames or blank bitplanes.                            |
-| `--dry-run-timing`                                         | flag                                                                                                                                                                                                 | off                | Print LUT timing, cycle length, and trigger-to-kernel mapping without opening OpenGL or USB hardware.                                    |
 | `-v`, `--verbose`                                          | repeatable                                                                                                                                                                                           | basic              | Logging level: basic = INFO, `-v` = DEBUG + 2s watchdog, `-vv` = DEBUG with source paths + 1s watchdog + full board snapshots.           |
 
 ## Test modes
@@ -274,13 +271,10 @@ trigger each. The older `--count-blank-between-frames` spelling is still accepte
 Paired modes are sequence-backed: the runtime builds one `PairedDisplaySequence` that owns the RGB source frames, the
 LUT slots that consume their bitplanes, startup policy, preview metadata, and camera metadata. For count/blank mode, each
 source frame uses bitplane 0 for exactly one semantic item: either `count:N` or `blank`, both using the requested exposure.
-Dry-run logs include the source-frame count, LUT slots per source frame, startup policy, and startup leader trigger
-count. Live camera metadata also includes `display_sequence` and `startup_leader` so notebooks can see the exact
-frame/LUT pairing used during capture.
+Live camera metadata includes `display_sequence` and `startup_leader` so notebooks can see the exact frame/LUT pairing
+used during capture. Local fake-backed tests assert the same metadata without opening camera, X11, or USB hardware.
 
-`camera sync-check --dry-run` validates the paired runtime LUT budget before writing run artifacts. This catches commands
-that would later fail during live DLPC900 preparation, for example five numbers at `--exposure-us 4000 --dark-time-us 1000`
-on the fixed 60 Hz source.
+For local camera-flow debugging without hardware, run `python -m pytest tests/test_camera_live_plumbing.py -q`. Those tests use fake camera/runtime objects while still exercising the live metadata, timing, trigger, and artifact plumbing paths.
 
 Paired camera runs use one continuous OpenGL render coordinator through startup: blank frames are displayed before DLPC
 sequencer start, remain blank for `--paired-startup-leader-vsyncs` source VSYNCs after sequencer start, and only then
@@ -305,9 +299,8 @@ blank-end, and trigger-idle frames output as full-white frames.
 
 Kernel mode prepends `--kernel-leader-frames` all-black VSYNC frames to every cycle. With default fast timing, `3`
 leader frames × `24` LUT entries means the first `72` `TRIG_OUT_2` pulses after kernel-cycle start are leader pulses;
-kernel index 0 starts after that. These leader pulses are black normally and white with `--invert-dmd`. Use
-`--dry-run-timing` to print the exact mapping for any exposure. If DAQ starts before or during DLPC arming, extra marker
-pulses can occur before this cycle map begins.
+kernel index 0 starts after that. These leader pulses are black normally and white with `--invert-dmd`. Local timing
+coverage lives in `tests/test_kernel_runtime.py`; live runtime logs print the active timing summary once hardware setup starts.
 
 ## Standalone tools
 

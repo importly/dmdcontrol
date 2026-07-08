@@ -15,19 +15,19 @@ from dmdcontrol.camera.sync_check_runtime import (
 from dmdcontrol.runtime.count_slots import CountSequenceConfig
 
 
-def _sync_check_test_metadata(args: argparse.Namespace, *, dry_run: bool) -> dict[str, object]:
+def _sync_check_test_metadata(args: argparse.Namespace) -> dict[str, object]:
     if args.test == A_COUNT_B_STATIC_TEST:
         config = CountSequenceConfig.from_args(args)
         metadata = {
             **config.to_metadata(),
             "exposure_us": args.exposure_us,
         }
-        if dry_run:
-            metadata.update(
-                {
-                    "accumulation_window_us": _requested_accumulation_window_us(args),
-                    "bitplane_count": metadata["count_lut_entries_per_frame"],
-                })
+        metadata.update(
+            {
+                "accumulation_window_us": _requested_accumulation_window_us(args),
+                "bitplane_count": metadata["count_lut_entries_per_frame"],
+            }
+        )
         return metadata
 
     raise ValueError(f"Unsupported sync-check test mode: {args.test}")
@@ -37,12 +37,10 @@ def sync_check_metadata(
     args: argparse.Namespace,
     event_filter: LocalSupportFilterConfig,
     *,
-    dry_run: bool,
     command: list[str],
 ) -> dict[str, object]:
     metadata = {
         "mode": "sync-check",
-        "dry_run": dry_run,
         "test": args.test,
         "test_b": args.test_b,
         "command": command,
@@ -65,7 +63,5 @@ def sync_check_metadata(
         "event_noise_filter": event_noise_filter_metadata(event_filter),
         "save_filtered_events": args.save_filtered_events,
     }
-    if dry_run:
-        metadata["trigger_mode"] = "per_bitplane"
-    metadata.update(_sync_check_test_metadata(args, dry_run=dry_run))
+    metadata.update(_sync_check_test_metadata(args))
     return metadata
