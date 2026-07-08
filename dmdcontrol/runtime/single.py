@@ -308,8 +308,7 @@ def _make_frame_provider(
     args=None,
     kernel_frames=None,
     calibration_square_state=None,
-    invert_dmd=False,
-):
+    invert_dmd=False,):
     """Returns callable() -> frame. Hides per-mode frame regeneration from loop."""
 
     def _wrap(provider):

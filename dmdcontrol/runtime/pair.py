@@ -99,8 +99,7 @@ BeforeStartCallback = Callable[[BeforeStartContext], None]
 def _run_prepared_pair(
     args: argparse.Namespace,
     pair_config: PairConfig,
-    before_sequencer_start: BeforeStartCallback | None = None,
-) -> int:
+    before_sequencer_start: BeforeStartCallback | None = None,) -> int:
     from dmdcontrol.hardware.dlpc900 import DLPC900
     from dmdcontrol.patterns.paired import PairedPatternEngine
 
@@ -258,8 +257,7 @@ def _run_prepared_pair(
 
 def _run_namespace(
     args: argparse.Namespace,
-    before_start: BeforeStartCallback | None = None,
-) -> int:
+    before_start: BeforeStartCallback | None = None,) -> int:
     setup_logger(verbosity=args.verbose)
     pair_config = resolve_pair_config(args.dmd_config)
     _validate_pair_args(args, target_hz=pair_config.target_hz)
@@ -277,8 +275,7 @@ def run_with_before_start_callback(argv: list[str] | None, before_start: BeforeS
 
 def run_with_before_start_namespace(
     args: argparse.Namespace,
-    before_start: BeforeStartCallback,
-) -> int:
+    before_start: BeforeStartCallback,) -> int:
     return _run_namespace(args, before_start)
 
 

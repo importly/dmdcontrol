@@ -62,8 +62,7 @@ class CountSequenceConfig:
         cls,
         args: ArgsNamespace,
         *,
-        require_resolved_slots: Literal[True] = True,
-    ) -> "CountSequenceConfig":
+        require_resolved_slots: Literal[True] = True,) -> "CountSequenceConfig":
         ...
 
     @classmethod
@@ -72,8 +71,7 @@ class CountSequenceConfig:
         cls,
         args: ArgsNamespace,
         *,
-        require_resolved_slots: Literal[False],
-    ) -> "CountSequenceConfig | None":
+        require_resolved_slots: Literal[False],) -> "CountSequenceConfig | None":
         ...
 
     @classmethod
@@ -81,8 +79,7 @@ class CountSequenceConfig:
         cls,
         args: ArgsNamespace,
         *,
-        require_resolved_slots: bool = True,
-    ) -> "CountSequenceConfig | None":
+        require_resolved_slots: bool = True,) -> "CountSequenceConfig | None":
         slots = getattr(args, "count_slots_per_frame", None)
         if slots is None:
             if require_resolved_slots:
@@ -148,8 +145,7 @@ class CountSequenceConfig:
         exposure_us: int | None,
         dark_time_us: int | None,
         target_hz: float = DEFAULT_HZ,
-        sequence_utilization: float | None = DEFAULT_SEQUENCE_UTILIZATION,
-    ) -> LutTimingMetadata:
+        sequence_utilization: float | None = DEFAULT_SEQUENCE_UTILIZATION,) -> LutTimingMetadata:
         return validate_count_lut_sequence_timing(
             count_slots_per_frame=self.count_slots_per_frame,
             exposure_us=exposure_us,
@@ -189,8 +185,7 @@ def validate_count_lut_sequence_timing(
     dark_time_us: int | None,
     count_blank_between_frames: bool = False,
     target_hz: float = DEFAULT_HZ,
-    sequence_utilization: float | None = DEFAULT_SEQUENCE_UTILIZATION,
-) -> LutTimingMetadata:
+    sequence_utilization: float | None = DEFAULT_SEQUENCE_UTILIZATION,) -> LutTimingMetadata:
     utilization = (
         DEFAULT_SEQUENCE_UTILIZATION
         if sequence_utilization is None else sequence_utilization)
@@ -216,8 +211,7 @@ def resolve_count_slots_per_frame(
     dark_time_us: int | None,
     count_blank_between_frames: bool = False,
     target_hz: float = DEFAULT_HZ,
-    sequence_utilization: float | None = DEFAULT_SEQUENCE_UTILIZATION,
-) -> int:
+    sequence_utilization: float | None = DEFAULT_SEQUENCE_UTILIZATION,) -> int:
     if count_start > count_end:
         raise ValueError("--count-start must be <= --count-end")
 

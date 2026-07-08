@@ -193,8 +193,7 @@ def pair_runtime_request_from_args(args: argparse.Namespace) -> PairRuntimeReque
 def _argv_options(
     pairs: Iterable[tuple[str, object | None]],
     *,
-    skip_none: bool = False,
-) -> list[str]:
+    skip_none: bool = False,) -> list[str]:
     return [
         item
         for flag, value in pairs

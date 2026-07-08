@@ -24,8 +24,7 @@ def _metadata_int(metadata: Mapping[str, object], key: str, default: int) -> int
 
 def _live_preview_metadata_for_frame(
     base_metadata: dict[str, object] | None,
-    provider: PairFrameProvider,
-) -> dict[str, object]:
+    provider: PairFrameProvider,) -> dict[str, object]:
     metadata = dict(base_metadata or {})
     frame_index = getattr(provider, "frame_index", None)
     if frame_index is not None:
@@ -39,8 +38,7 @@ def _build_live_preview_metadata(
     state_a: PreparedSequenceState | None,
     state_b: PreparedSequenceState | None,
     *,
-    sequence: PairedDisplaySequence | None = None,
-) -> dict[str, object]:
+    sequence: PairedDisplaySequence | None = None,) -> dict[str, object]:
     lut_state = state_a or state_b
     metadata = {
         "layout": "pair",

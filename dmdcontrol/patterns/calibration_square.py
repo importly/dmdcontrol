@@ -47,8 +47,7 @@ class CalibrationSquareProviderState:
 def build_calibration_square_frame(
     engine: Any,
     state: CalibrationSquareState,
-    bitplanes: int = BITPLANES,
-) -> RGBFrameArray:
+    bitplanes: int = BITPLANES,) -> RGBFrameArray:
     mask = generate_calibration_square_mask(
         width=engine.width,
         height=engine.height,
@@ -63,8 +62,7 @@ def build_calibration_square_frame(
 def format_calibration_square_state(
     state: CalibrationSquareState,
     width: int,
-    height: int,
-) -> str:
+    height: int,) -> str:
     left, top, right, bottom = calibration_square_bounds(state, width, height)
     return (
         f"center=({state.x:.0f},{state.y:.0f}) px, "
@@ -74,8 +72,7 @@ def format_calibration_square_state(
 
 def read_calibration_square_control_file(
     path: str | PathLike[str] | None,
-    offset: int,
-) -> CalibrationControlRead:
+    offset: int,) -> CalibrationControlRead:
     if not path:
         return CalibrationControlRead("", offset)
     try:
@@ -118,8 +115,7 @@ def make_calibration_square_frame_provider(
     engine: Any,
     initial_frame: RGBFrameArray,
     control_file: str | PathLike[str] | None = None,
-    initial_state: CalibrationSquareState | None = None,
-) -> FrameProvider:
+    initial_state: CalibrationSquareState | None = None,) -> FrameProvider:
     import glfw
 
     key_commands = calibration_square_key_commands(glfw)

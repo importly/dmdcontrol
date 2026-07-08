@@ -60,8 +60,7 @@ def load_pattern_sequence(dlpc: "DLPC900", entries: Sequence[LutEntry]) -> None:
 
 def start_loaded_pattern_sequence(
     dlpc: "DLPC900",
-    post_start_delay_s: float = 0.2,
-) -> None:
+    post_start_delay_s: float = 0.2,) -> None:
     dlpc.start_pattern_display(2)
     if post_start_delay_s > 0:
         time.sleep(post_start_delay_s)
@@ -71,8 +70,7 @@ def start_loaded_pattern_sequences(
     dlpc_a: "DLPC900",
     dlpc_b: "DLPC900",
     post_start_delay_s: float = 0.2,
-    verify: bool = False,
-) -> None:
+    verify: bool = False,) -> None:
     barrier = threading.Barrier(3)
     errors: list[tuple[str, BaseException]] = []
 
@@ -114,8 +112,7 @@ def start_loaded_pattern_sequences(
 
 def verify_started_pattern_sequence(
     dlpc: "DLPC900",
-    label: str = "DLPC900",
-) -> int | None:
+    label: str = "DLPC900",) -> int | None:
     if not ensure_video_pattern_mode(dlpc, retries=2, poll_timeout_s=1.0):
         mode, _ = dlpc.get_display_mode()
         ms = dlpc.get_main_status() or {}
@@ -145,8 +142,7 @@ def verify_started_pattern_sequence(
 def apply_pattern_sequence(
     dlpc: "DLPC900",
     entries: Sequence[LutEntry],
-    frame_pump: Callable[[], None] | None = None,
-) -> None:
+    frame_pump: Callable[[], None] | None = None,) -> None:
     load_pattern_sequence(dlpc, entries)
 
     if frame_pump is not None:
@@ -213,8 +209,7 @@ def prepare_dlpc900_for_video_pattern(
     entries_count: int | None = None,
     per_entry_exposure_us: int | None = None,
     trigger_out_2_rising_delay_us: int = 0,
-    dark_time_us: int | None = None,
-) -> PreparedSequenceState:
+    dark_time_us: int | None = None,) -> PreparedSequenceState:
     actual_entries = entries_count if entries_count is not None else BITPLANES
     logger.info(
         f"[+] Configuring DLPC900 for {DMD_WIDTH}x{DMD_HEIGHT} @ {target_hz}Hz Video Pattern Mode "
@@ -391,8 +386,7 @@ def configure_dlpc900_for_video_pattern(
     entries_count: int | None = None,
     per_entry_exposure_us: int | None = None,
     trigger_out_2_rising_delay_us: int = 0,
-    dark_time_us: int | None = None,
-) -> PreparedSequenceState:
+    dark_time_us: int | None = None,) -> PreparedSequenceState:
     sequence_state = prepare_dlpc900_for_video_pattern(
         dlpc,
         target_hz=target_hz,

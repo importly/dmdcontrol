@@ -84,8 +84,7 @@ def build_lut_entries(
     entries_count: int | None = None,
     per_entry_exposure_us: int | None = None,
     dark_time_us: int | None = None,
-    display_dimensions: DisplayDimensions | None = None,
-) -> tuple[list[LutEntry], LutTimingMetadata]:
+    display_dimensions: DisplayDimensions | None = None,) -> tuple[list[LutEntry], LutTimingMetadata]:
     if target_hz <= 0:
         raise ValueError("target_hz must be positive")
     if sequence_utilization <= 0.0 or sequence_utilization > 1.0:
@@ -234,8 +233,7 @@ def build_lut_entries(
 
 def compute_trigger_out_2_timing(
     rising_delay_us: int = 0,
-    pulse_width_us: int = TRIGGER_OUT_PULSE_WIDTH_US,
-) -> TriggerOutTiming:
+    pulse_width_us: int = TRIGGER_OUT_PULSE_WIDTH_US,) -> TriggerOutTiming:
     if not isinstance(rising_delay_us, int):
         raise ValueError("rising_delay_us must be an integer")
     if not isinstance(pulse_width_us, int):

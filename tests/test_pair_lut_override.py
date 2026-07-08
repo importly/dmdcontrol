@@ -34,8 +34,7 @@ class _FakeDisplaySequence:
         entries=None,
         exposure_us=8000,
         startup_mode="blank_leader",
-        leader_vsyncs=16,
-    ):
+        leader_vsyncs=16,):
         self.provider = _FakeSequenceProvider()
         self._entries = entries or [
             (0, exposure_us, False, 1, 7, 0, False, 0),

@@ -274,8 +274,7 @@ def _start_recording(
     writer,
     event_records,
     trigger_records,
-    accumulation_window_us,
-):
+    accumulation_window_us,):
     recording = AsyncCapture(
         capture,
         writer,
@@ -323,8 +322,7 @@ def _write_capture_artifacts_for_sync_check(
     trigger_records,
     event_filter,
     accumulation_window_us,
-    startup_leader_trigger_count=0,
-):
+    startup_leader_trigger_count=0,):
     return write_capture_artifacts(
         run,
         events=event_records,
@@ -368,8 +366,7 @@ class SyncCheckCaptureSession:
         capture: object,
         writer: object,
         ready: CameraReadyState,
-        command_argv: list[str] | None,
-    ) -> "SyncCheckCaptureSession":
+        command_argv: list[str] | None,) -> "SyncCheckCaptureSession":
         event_filter = event_noise_filter_config_from_args(args)
         command = command_argv or camera_command_argv("sync-check", None)
         metadata = _sync_check_metadata(
@@ -470,8 +467,7 @@ def live_capture(
     capture,
     writer,
     ready,
-    command_argv: list[str] | None = None,
-) -> int:
+    command_argv: list[str] | None = None,) -> int:
     session = SyncCheckCaptureSession.create(args, run, capture, writer, ready, command_argv)
     try:
         session.write_initial_files()

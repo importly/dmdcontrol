@@ -152,8 +152,7 @@ def _bit6_is_cosmetic(dlpc: "DLPC900", hw: int | None) -> bool:
 def ensure_video_pattern_mode(
     dlpc: "DLPC900",
     retries: int = 3,
-    poll_timeout_s: float = 1.2,
-) -> bool:
+    poll_timeout_s: float = 1.2,) -> bool:
     mode, _ = dlpc.get_display_mode()
     if mode == 2:
         return True

@@ -116,8 +116,7 @@ class LutSlot:
         self,
         *,
         pattern_index: int | None = None,
-        wait_for_trigger: bool | None = None,
-    ) -> LutEntry:
+        wait_for_trigger: bool | None = None,) -> LutEntry:
         bit_position = int(self.bitplane_index)
         frame_change = self.wait_for_trigger if wait_for_trigger is None else wait_for_trigger
         return LutEntry(
@@ -273,8 +272,7 @@ class FrameSequenceProvider(PairFrameProvider):
         frames: tuple[TimedFramePair, ...],
         *,
         repeat: bool,
-        terminal_pair: FramePair | None = None,
-    ) -> None:
+        terminal_pair: FramePair | None = None,) -> None:
         if not frames:
             raise ValueError("FrameSequenceProvider requires at least one frame")
         self._frames = tuple(frames)
@@ -309,8 +307,7 @@ def build_paired_display_sequence(
     target_hz: float = DEFAULT_HZ,
     engine: object | None = None,
     width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-) -> PairedDisplaySequence:
+    height: int = DMD_HEIGHT,) -> PairedDisplaySequence:
     if args.test == A_COUNT_B_STATIC_PAIR_TEST:
         return build_count_static_sequence(
             args,
@@ -349,8 +346,7 @@ def build_count_static_sequence(
     *,
     target_hz: float,
     width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-) -> PairedDisplaySequence:
+    height: int = DMD_HEIGHT,) -> PairedDisplaySequence:
     count_config = CountSequenceConfig.from_args(args)
     entries, timing = build_lut_entries(
         target_hz,
@@ -439,8 +435,7 @@ def build_provider_backed_sequence(
     *,
     target_hz: float,
     width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-) -> PairedDisplaySequence:
+    height: int = DMD_HEIGHT,) -> PairedDisplaySequence:
     entries, timing = build_lut_entries(
         target_hz,
         sequence_utilization=args.seq_utilization,
@@ -476,8 +471,7 @@ def build_kernel_static_sequence(
     target_hz: float,
     engine: object | None = None,
     width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-) -> PairedDisplaySequence:
+    height: int = DMD_HEIGHT,) -> PairedDisplaySequence:
     entries_count, exposure_us = compute_kernel_lut_override(
         enabled=True,
         exposure_us=args.exposure_us,
@@ -556,8 +550,7 @@ def build_calibration_dot_sequence(
     target_hz: float,
     engine: object | None = None,
     width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-) -> PairedDisplaySequence:
+    height: int = DMD_HEIGHT,) -> PairedDisplaySequence:
     entries, timing = build_lut_entries(
         target_hz,
         sequence_utilization=args.seq_utilization,
@@ -621,8 +614,7 @@ def build_calibration_dot_sequence(
 def _slots_from_lut_entries(
     entries: Iterable[LutEntry],
     *,
-    semantic_role: str,
-) -> tuple[LutSlot, ...]:
+    semantic_role: str,) -> tuple[LutSlot, ...]:
     slots: list[LutSlot] = []
     for entry in entries:
         slots.append(

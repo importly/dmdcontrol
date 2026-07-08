@@ -37,8 +37,7 @@ def sync_check_metadata(
     args: argparse.Namespace,
     event_filter: LocalSupportFilterConfig,
     *,
-    command: list[str],
-) -> dict[str, object]:
+    command: list[str],) -> dict[str, object]:
     metadata = {
         "mode": "sync-check",
         "test": args.test,
