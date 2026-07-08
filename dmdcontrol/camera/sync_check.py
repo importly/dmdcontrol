@@ -484,6 +484,7 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
     writer = None
     try:
         capture, writer, ready = _open_ready_camera(run, args)
+        
         return live_capture(args, run, capture, writer, ready, command_argv=command_argv)
     finally:
         resources = {"writer": writer, "capture": capture}

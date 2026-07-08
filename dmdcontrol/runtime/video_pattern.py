@@ -214,13 +214,8 @@ def prepare_dlpc900_for_video_pattern(
     logger.info(
         f"[+] Configuring DLPC900 for {DMD_WIDTH}x{DMD_HEIGHT} @ {target_hz}Hz Video Pattern Mode "
         f"({actual_entries} LUT entr{'y' if actual_entries == 1 else 'ies'} per VSYNC)...")
-    logger.debug("Following TI documentation sequence (DLPU018J Section 5.1)...")
 
-    # First-touch hw status. NOTE: hw bit 6 ("ABORT" per DLPU018J Table 2-21)
-    # is verified empirically to double as a "no clean active pattern sequence"
-    # state flag. It persists across barrel power cycles and is set whenever
-    # Pattern Display Mode (2) is not running cleanly. Treat as informational
-    # unless paired with sequencer_running=False or forced_swap=True.
+
     hw_first = dlpc.get_hardware_status()
     err0_code = dlpc.get_last_error()
     err0_desc = dlpc.get_error_description()
