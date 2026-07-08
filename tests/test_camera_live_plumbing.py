@@ -254,9 +254,53 @@ def test_pair_capture_live_writes_capture_artifacts_with_event_filter(monkeypatc
     assert artifact_call["event_noise_filter"].threshold == 2
     assert artifact_call["event_noise_filter"].polarity == "same"
     metadata = json.loads((tmp_path / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["mode"] == "pair-capture"
+    assert metadata["dmd"] == {
+        "test": "checkerboard",
+        "test_b": "dot",
+        "b_dot_x": 960,
+        "b_dot_y": 540,
+        "b_dot_radius": 40,
+        "kernel_px": 129,
+        "exposure_us": 600,
+        "runtime_seconds": 1,
+        "paired_startup_leader_vsyncs": 16,
+        "dmd_config": None,
+    }
+    assert metadata["requested_command_shape"] == [
+        "--test",
+        "checkerboard",
+        "--test-b",
+        "dot",
+        "--b-dot-x",
+        "960",
+        "--b-dot-y",
+        "540",
+        "--b-dot-radius",
+        "40",
+        "--kernel-px",
+        "129",
+        "--exposure-us",
+        "600",
+        "--runtime-seconds",
+        "1",
+        "--paired-startup-leader-vsyncs",
+        "16",
+    ]
+    assert metadata["expected_shape"] == {
+        "kernel_count": None,
+        "input_image_count": None,
+    }
+    assert metadata["trigger_policy"] == {
+        "channel": "TRIG_OUT_2",
+        "edge": "rising",
+        "rising_delay_us": 0,
+        "falling_delay_us": 20,
+    }
+    assert metadata["event_noise_filter"]["enabled"] is True
+    assert metadata["event_noise_filter"]["delta_t_us"] == 50000
     assert metadata["startup_leader"] == startup_leader
     assert metadata["display_sequence"] == display_sequence
-
 
 def test_pair_capture_live_limits_in_memory_artifact_batches(monkeypatch, tmp_path):
     from dmdcontrol.camera import pair_capture
@@ -704,9 +748,28 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
     assert artifact_call["event_noise_filter"].threshold == 2
     assert artifact_call["event_noise_filter"].polarity == "same"
     metadata = json.loads((tmp_path / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["mode"] == "sync-check"
+    assert metadata["test"] == "a-count-b-static"
+    assert metadata["test_b"] == "dot"
+    assert metadata["count_start"] == 1
+    assert metadata["count_end"] == 24
+    assert metadata["count_slots_per_frame"] == 24
+    assert metadata["count_slots_per_frame_mode"] == "auto"
+    assert metadata["count_blank_between_frames"] is False
+    assert metadata["exposure_us"] == 600
+    assert metadata["expected_trigger_count"] == 24
+    assert metadata["accumulation_window_us"] == 600
+    assert metadata["bitplane_count"] == 24
+    assert metadata["trigger_policy"] == {
+        "channel": "TRIG_OUT_2",
+        "edge": "rising",
+        "rising_delay_us": 0,
+        "falling_delay_us": 20,
+    }
+    assert metadata["event_noise_filter"]["enabled"] is True
+    assert metadata["event_noise_filter"]["delta_t_us"] == 50000
     assert metadata["startup_leader"] == startup_leader
     assert metadata["display_sequence"] == display_sequence
-
 
 def test_sync_check_live_capture_flushes_stale_batches_immediately_before_recording(
         monkeypatch,
