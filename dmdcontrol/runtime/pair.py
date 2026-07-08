@@ -65,8 +65,6 @@ __all__ = [
     "_metadata_int",
     "_resolve_count_recipe_args",
     "_run",
-    "_run_namespace",
-    "_run_prepared_pair",
     "_start_pair_render_coordinator",
     "_validate_count_recipe_args",
     "_validate_pair_args",
@@ -76,9 +74,6 @@ __all__ = [
     "main",
     "prepare_dlpc900_for_video_pattern",
     "resolve_pair_config",
-    "run_namespace",
-    "run_with_before_start_callback",
-    "run_with_before_start_namespace",
     "start_loaded_pattern_sequences",
 ]
 
@@ -96,12 +91,19 @@ class BeforeStartContext(TypedDict):
 BeforeStartCallback = Callable[[BeforeStartContext], None]
 
 
-def _run_prepared_pair(
+def _run(
     args: argparse.Namespace,
-    pair_config: PairConfig,
-    before_sequencer_start: BeforeStartCallback | None = None,) -> int:
+    *,
+    pair_config: PairConfig | None = None,
+    before_start: BeforeStartCallback | None = None,) -> int:
     from dmdcontrol.hardware.dlpc900 import DLPC900
     from dmdcontrol.patterns.paired import PairedPatternEngine
+
+    if pair_config is None:
+        setup_logger(verbosity=args.verbose)
+        pair_config = resolve_pair_config(args.dmd_config)
+        _validate_pair_args(args, target_hz=pair_config.target_hz)
+        _warn_dark_time_video_pattern_mode(args)
 
     logger.info(
         f"[+] Paired DMD layout: B {pair_config.dmd_b.xrandr_output} left +0+0, "
@@ -200,7 +202,7 @@ def _run_prepared_pair(
         render_coordinator.preview_poster = preview_poster
         render_coordinator.preview_metadata = live_preview_metadata
 
-        if before_sequencer_start is not None:
+        if before_start is not None:
             before_start_context: BeforeStartContext = {
                 "args": args,
                 "pair_config": pair_config,
@@ -210,7 +212,7 @@ def _run_prepared_pair(
                 "startup_leader": startup_leader,
                 "display_sequence": sequence.metadata(),
             }
-            before_sequencer_start(before_start_context)
+            before_start(before_start_context)
 
         if prime_first_semantic:
             logger.info(
@@ -255,36 +257,9 @@ def _run_prepared_pair(
             engine.cleanup()
 
 
-def _run_namespace(
-    args: argparse.Namespace,
-    before_start: BeforeStartCallback | None = None,) -> int:
-    setup_logger(verbosity=args.verbose)
-    pair_config = resolve_pair_config(args.dmd_config)
-    _validate_pair_args(args, target_hz=pair_config.target_hz)
-    _warn_dark_time_video_pattern_mode(args)
-    return _run_prepared_pair(args, pair_config, before_sequencer_start=before_start)
-
-
-def _run(argv: list[str] | None, before_start: BeforeStartCallback | None = None) -> int:
-    return _run_namespace(_build_parser().parse_args(argv), before_start)
-
-
-def run_with_before_start_callback(argv: list[str] | None, before_start: BeforeStartCallback) -> int:
-    return _run(argv, before_start)
-
-
-def run_with_before_start_namespace(
-    args: argparse.Namespace,
-    before_start: BeforeStartCallback,) -> int:
-    return _run_namespace(args, before_start)
-
-
-def run_namespace(args: argparse.Namespace) -> int:
-    return _run_namespace(args)
-
 
 def main(argv: list[str] | None = None) -> int:
-    return _run(argv)
+    return _run(_build_parser().parse_args(argv))
 
 
 if __name__ == "__main__":

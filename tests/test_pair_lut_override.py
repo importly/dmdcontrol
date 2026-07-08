@@ -756,7 +756,7 @@ def test_pair_runtime_rejects_count_sequence_when_dark_time_exceeds_budget():
             ])
 
 
-def test_run_prepared_pair_starts_render_coordinator_without_post_start_sleep(monkeypatch):
+def test_run_starts_render_coordinator_without_post_start_sleep(monkeypatch):
     import dmdcontrol.hardware.dlpc900 as dlpc_module
     import dmdcontrol.patterns.paired as paired_module
     from dmdcontrol.runtime import pair
@@ -865,7 +865,7 @@ def test_run_prepared_pair_starts_render_coordinator_without_post_start_sleep(mo
         runtime_seconds=1,
     )
 
-    assert pair._run_prepared_pair(args, pair_config) == 0
+    assert pair._run(args, pair_config=pair_config) == 0
     assert calls["post_start_delay_s"] == 0.0
     assert calls["verify"] is False
     assert calls["startup_leader_vsyncs"] == 16
@@ -878,7 +878,7 @@ def test_run_prepared_pair_starts_render_coordinator_without_post_start_sleep(mo
     assert [dlpc.closed for dlpc in dlpcs] == [True, True]
 
 
-def test_run_prepared_pair_uses_single_render_coordinator_without_pump_handoff(monkeypatch):
+def test_run_uses_single_render_coordinator_without_pump_handoff(monkeypatch):
     import dmdcontrol.hardware.dlpc900 as dlpc_module
     import dmdcontrol.patterns.paired as paired_module
     from dmdcontrol.runtime import pair
@@ -1003,10 +1003,10 @@ def test_run_prepared_pair_uses_single_render_coordinator_without_pump_handoff(m
         runtime_seconds=1,
     )
 
-    assert pair._run_prepared_pair(
+    assert pair._run(
         args,
-        pair_config,
-        before_sequencer_start=fake_before_start,
+        pair_config=pair_config,
+        before_start=fake_before_start,
     ) == 0
 
     assert ("start_render_coordinator", 12) in calls
@@ -1024,7 +1024,7 @@ def test_run_prepared_pair_uses_single_render_coordinator_without_pump_handoff(m
     }
 
 
-def test_run_prepared_pair_primes_count_blank_frame_before_sequencer_start(monkeypatch):
+def test_run_primes_count_blank_frame_before_start(monkeypatch):
     import dmdcontrol.hardware.dlpc900 as dlpc_module
     import dmdcontrol.patterns.paired as paired_module
     from dmdcontrol.patterns.paired import A_COUNT_B_STATIC_PAIR_TEST
@@ -1146,10 +1146,10 @@ def test_run_prepared_pair_primes_count_blank_frame_before_sequencer_start(monke
         count_blank_between_frames=True,
     )
 
-    assert pair._run_prepared_pair(
+    assert pair._run(
         args,
-        pair_config,
-        before_sequencer_start=fake_before_start,
+        pair_config=pair_config,
+        before_start=fake_before_start,
     ) == 0
 
     assert ("start_render_coordinator", 0) in calls
@@ -1166,7 +1166,7 @@ def test_run_prepared_pair_primes_count_blank_frame_before_sequencer_start(monke
     }
 
 
-def test_run_prepared_pair_uses_display_sequence_instead_of_lut_override(monkeypatch):
+def test_run_uses_display_sequence_instead_of_lut_override(monkeypatch):
     import dmdcontrol.hardware.dlpc900 as dlpc_module
     import dmdcontrol.patterns.paired as paired_module
     from dmdcontrol.patterns.paired import FramePair
@@ -1293,7 +1293,7 @@ def test_run_prepared_pair_uses_display_sequence_instead_of_lut_override(monkeyp
         runtime_seconds=1,
     )
 
-    assert pair._run_prepared_pair(args, pair_config) == 0
+    assert pair._run(args, pair_config=pair_config) == 0
     assert ("load", [(0, 8000, True, 1, 7, 0, False, 0)]) in calls
 
 

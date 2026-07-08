@@ -252,7 +252,7 @@ def build_parser() -> argparse.ArgumentParser:
 def _run_pair_with_callback(pair_request, before_start):
     from dmdcontrol.runtime import pair as pair_module
 
-    return pair_module.run_with_before_start_namespace(pair_request.to_namespace(), before_start)
+    return pair_module._run(pair_request.to_namespace(), before_start=before_start)
 
 
 
