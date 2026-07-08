@@ -1,5 +1,4 @@
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -67,13 +66,9 @@ class MainPairConfigTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 resolve_pair_config(config_path)
 
-    def test_dry_run_accepts_essential_calibration_dot_command_without_hardware_imports(self):
-        for module_name in ("glfw", "OpenGL.GL", "dlpc900_hid"):
-            sys.modules.pop(module_name, None)
-
-        rc = main_pair.main(
+    def test_calibration_dot_recipe_accepts_essential_command_shape(self):
+        args = main_pair._build_parser().parse_args(
             [
-                "--dry-run-timing",
                 "--test",
                 "a-calibr-square-b-dot",
                 "--b-dot-x",
@@ -90,33 +85,35 @@ class MainPairConfigTests(unittest.TestCase):
                 "0",
             ])
 
-        self.assertEqual(rc, 0)
-        self.assertFalse({"glfw", "OpenGL.GL", "dlpc900_hid"} & set(sys.modules))
+        main_pair._validate_pair_args(args)
+
+        self.assertEqual(args.test, "a-calibr-square-b-dot")
+        self.assertEqual(args.b_dot_x, 960)
+        self.assertEqual(args.b_dot_y, 540)
+        self.assertEqual(args.b_dot_radius, 40)
+        self.assertEqual(args.preview_fps, 1)
 
     def test_calibration_dot_recipe_rejects_static_pair_overrides(self):
-        with self.assertRaises(SystemExit):
-            main_pair.main(
-                [
-                    "--dry-run-timing",
-                    "--test",
-                    "a-calibr-square-b-dot",
-                    "--test-a",
-                    "grid",
-                    "--b-dot-x",
-                    "960",
-                    "--b-dot-y",
-                    "540",
-                    "--b-dot-radius",
-                    "40",
-                ])
-
-    def test_dry_run_accepts_kernel_static_recipe_without_hardware_imports(self):
-        for module_name in ("glfw", "OpenGL.GL", "dlpc900_hid"):
-            sys.modules.pop(module_name, None)
-
-        rc = main_pair.main(
+        args = main_pair._build_parser().parse_args(
             [
-                "--dry-run-timing",
+                "--test",
+                "a-calibr-square-b-dot",
+                "--test-a",
+                "grid",
+                "--b-dot-x",
+                "960",
+                "--b-dot-y",
+                "540",
+                "--b-dot-radius",
+                "40",
+            ])
+
+        with self.assertRaises(SystemExit):
+            main_pair._validate_pair_args(args)
+
+    def test_kernel_static_recipe_accepts_generic_exposure_command_shape(self):
+        args = main_pair._build_parser().parse_args(
+            [
                 "--test",
                 "a-kernel-b-static",
                 "--test-b",
@@ -130,13 +127,18 @@ class MainPairConfigTests(unittest.TestCase):
                 "--no-kernel-blank-end-frame",
             ])
 
-        self.assertEqual(rc, 0)
-        self.assertFalse({"glfw", "OpenGL.GL", "dlpc900_hid"} & set(sys.modules))
+        main_pair._validate_pair_args(args)
 
-    def test_dry_run_accepts_essential_kernel_static_dot_command(self):
-        rc = main_pair.main(
+        self.assertEqual(args.test, "a-kernel-b-static")
+        self.assertEqual(args.test_b, "grid")
+        self.assertEqual(args.kernel_px, 30)
+        self.assertEqual(args.exposure_us, 3000)
+        self.assertEqual(args.kernel_leader_frames, 0)
+        self.assertFalse(args.kernel_blank_end_frame)
+
+    def test_kernel_static_recipe_accepts_essential_kernel_static_dot_command(self):
+        args = main_pair._build_parser().parse_args(
             [
-                "--dry-run-timing",
                 "--test",
                 "a-kernel-b-static",
                 "--test-b",
@@ -153,37 +155,34 @@ class MainPairConfigTests(unittest.TestCase):
                 "999",
             ])
 
-        self.assertEqual(rc, 0)
+        main_pair._validate_pair_args(args)
+
+        self.assertEqual(args.test_b, "dot")
+        self.assertEqual(args.kernel_px, 201)
+        self.assertEqual(args.runtime_seconds, 999)
 
     def test_kernel_static_recipe_rejects_test_a_override(self):
+        args = main_pair._build_parser().parse_args(
+            [
+                "--test",
+                "a-kernel-b-static",
+                "--test-a",
+                "grid",
+            ])
+
         with self.assertRaises(SystemExit):
-            main_pair.main(
-                [
-                    "--dry-run-timing",
-                    "--test",
-                    "a-kernel-b-static",
-                    "--test-a",
-                    "grid",
-                ])
+            main_pair._validate_pair_args(args)
 
-    def test_dry_run_accepts_human_visible_pair_modes_without_hardware_imports(self):
-        for module_name in ("glfw", "OpenGL.GL", "dlpc900_hid"):
-            sys.modules.pop(module_name, None)
-
+    def test_parser_accepts_human_visible_pair_modes(self):
         for mode in ("grid", "bands"):
             with self.subTest(mode=mode):
-                rc = main_pair.main(["--dry-run-timing", "--test", mode])
+                args = main_pair._build_parser().parse_args(["--test", mode])
+                main_pair._validate_pair_args(args)
+                self.assertEqual(args.test, mode)
 
-                self.assertEqual(rc, 0)
-                self.assertFalse({"glfw", "OpenGL.GL", "dlpc900_hid"} & set(sys.modules))
-
-    def test_dry_run_accepts_preview_args_without_hardware_imports(self):
-        for module_name in ("glfw", "OpenGL.GL", "dlpc900_hid"):
-            sys.modules.pop(module_name, None)
-
-        rc = main_pair.main(
+    def test_preview_args_validate_without_runtime_launch(self):
+        args = main_pair._build_parser().parse_args(
             [
-                "--dry-run-timing",
                 "--test",
                 "grid",
                 "--preview-url",
@@ -192,8 +191,10 @@ class MainPairConfigTests(unittest.TestCase):
                 "1",
             ])
 
-        self.assertEqual(rc, 0)
-        self.assertFalse({"glfw", "OpenGL.GL", "dlpc900_hid"} & set(sys.modules))
+        main_pair._validate_pair_args(args)
+
+        self.assertEqual(args.preview_url, "http://127.0.0.1:8080/api/live-frame")
+        self.assertEqual(args.preview_fps, 1)
 
     def test_calibration_dot_recipe_flickers_a_square_only(self):
         from dmdcontrol.runtime import display_sequence

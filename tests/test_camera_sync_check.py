@@ -1,15 +1,12 @@
 import importlib
-import json
-import shlex
 
 import pytest
 
 from dmdcontrol.camera.sync_check import (
-    _sync_check_test_metadata,
     build_parser,
-    dry_run,
     expected_trigger_count,
 )
+from dmdcontrol.camera.sync_check_metadata import _sync_check_test_metadata
 from dmdcontrol.camera.sync_check_runtime import (
     PairRuntimeRequest,
     pair_runtime_request_from_args,
@@ -34,59 +31,8 @@ def _count_args(*args):
     return build_parser().parse_args(["--test", "a-count-b-static", *args])
 
 
-def _exact_count_sync_check_argv(output_root, *, timestamp="20260629-120100"):
-    return [
-        "--dry-run",
-        "--output-root",
-        str(output_root),
-        "--timestamp",
-        timestamp,
-        "--test",
-        "a-count-b-static",
-        "--test-b",
-        "dot",
-        "--count-start",
-        "1",
-        "--count-end",
-        "60",
-        "--count-slots-per-frame",
-        "1",
-        "--count-blank-between-frames",
-        "--number-size-px",
-        "400",
-        "--b-dot-x",
-        "960",
-        "--b-dot-y",
-        "540",
-        "--b-dot-radius",
-        "30",
-        "--exposure-us",
-        "16000",
-        "--seq-utilization",
-        "1.0",
-        "--trigger-out-2-rising-delay-us",
-        "0",
-        "--accumulation-start-offset-us",
-        "-250",
-        "--camera-flush-reads",
-        "0",
-        "--camera-post-trigger-event-batches",
-        "0",
-        "--polarity-mode",
-        "ignore",
-        "--event-noise-filter",
-        "none",
-        "--runtime-seconds",
-        "5",
-        "--save-filtered-events",
-        "--accumulation-cycles",
-        "1",
-        "-v",
-    ]
-
-
 def test_sync_check_parser_defaults_to_count_recipe():
-    args = build_parser().parse_args(["--dry-run"])
+    args = build_parser().parse_args([])
 
     assert args.test == "a-count-b-static"
     assert args.test_b == "dot"
@@ -101,8 +47,13 @@ def test_sync_check_parser_defaults_to_count_recipe():
     assert args.paired_startup_leader_vsyncs == 16
 
 
+def test_sync_check_parser_rejects_removed_dry_run_flag():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--dry-run"])
+
+
 def test_sync_check_count_mode_does_not_limit_accumulation_cycles_by_default():
-    args = build_parser().parse_args(["--dry-run"])
+    args = build_parser().parse_args([])
 
     assert args.requested_accumulation_cycles is None
 
@@ -110,7 +61,6 @@ def test_sync_check_count_mode_does_not_limit_accumulation_cycles_by_default():
 def test_sync_check_parser_accepts_accumulation_cycle_options():
     args = build_parser().parse_args(
         [
-            "--dry-run",
             "--accumulation-cycles",
             "2",
             "--accumulation-start-offset-us",
@@ -125,41 +75,40 @@ def test_sync_check_parser_accepts_accumulation_cycle_options():
 @pytest.mark.parametrize("flag", ["--trigger-cluster-us", "--cycle-selection"])
 def test_sync_check_parser_rejects_removed_trigger_selection_options(flag):
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["--dry-run", flag, "1"])
+        build_parser().parse_args([flag, "1"])
 
 
 def test_sync_check_parser_rejects_removed_camera_open_method_flag():
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["--dry-run", "--camera-open-method", "modern"])
+        build_parser().parse_args(["--camera-open-method", "modern"])
 
 
 @pytest.mark.parametrize("flag", ["--numbers", "--numbers-bitplane-order"])
 def test_sync_check_parser_rejects_removed_numbers_flags(flag):
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["--dry-run", flag, "1,2,3"])
+        build_parser().parse_args([flag, "1,2,3"])
 
 
 @pytest.mark.parametrize("flag", ["--number-size-px", "--exposure-us"])
 def test_sync_check_positive_numeric_options_are_validated(flag):
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["--dry-run", flag, "0"])
+        build_parser().parse_args([flag, "0"])
 
 
 @pytest.mark.parametrize("flag", ["--numbers-exposure-us", "--count-exposure-us"])
 def test_sync_check_parser_rejects_removed_exposure_flags(flag):
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["--dry-run", flag, "600"])
+        build_parser().parse_args([flag, "600"])
 
 
 def test_sync_check_parser_defaults_trigger_rising_delay_to_zero():
-    args = build_parser().parse_args(["--dry-run"])
+    args = build_parser().parse_args([])
 
     assert args.trigger_out_2_rising_delay_us == 0
 
 
 def test_sync_check_parser_accepts_negative_trigger_rising_delay():
-    args = build_parser().parse_args(
-        ["--dry-run", "--trigger-out-2-rising-delay-us", "-20"])
+    args = build_parser().parse_args(["--trigger-out-2-rising-delay-us", "-20"])
 
     assert args.trigger_out_2_rising_delay_us == -20
 
@@ -167,14 +116,12 @@ def test_sync_check_parser_accepts_negative_trigger_rising_delay():
 @pytest.mark.parametrize("value", ["-21", "19981"])
 def test_sync_check_parser_rejects_trigger_rising_delay_outside_effective_range(value):
     with pytest.raises(SystemExit):
-        build_parser().parse_args(
-            ["--dry-run", "--trigger-out-2-rising-delay-us", value])
+        build_parser().parse_args(["--trigger-out-2-rising-delay-us", value])
 
 
 def test_sync_check_parser_rejects_removed_trigger_delay_fraction_flag():
     with pytest.raises(SystemExit):
-        build_parser().parse_args(
-            ["--dry-run", "--trigger-out-2-delay-fraction", "0.05"])
+        build_parser().parse_args(["--trigger-out-2-delay-fraction", "0.05"])
 
 
 def test_sync_check_runtime_args_use_default_count_recipe():
@@ -250,7 +197,6 @@ def test_sync_check_runtime_args_forward_paired_startup_leader_vsyncs():
 
 def test_sync_check_parser_accepts_count_mode_options():
     args = _count_args(
-        "--dry-run",
         "--count-start",
         "1",
         "--count-end",
@@ -285,7 +231,7 @@ def test_sync_check_parser_accepts_count_mode_options():
 )
 def test_sync_check_parser_rejects_invalid_count_mode_options(argv):
     with pytest.raises(SystemExit):
-        _count_args("--dry-run", *argv)
+        _count_args(*argv)
 
 
 def test_sync_check_count_mode_expects_one_trigger_per_count():
@@ -426,7 +372,6 @@ def test_sync_check_pair_runtime_request_keeps_auto_count_slots_for_internal_run
 def test_sync_check_parser_accepts_event_noise_filter_options():
     args = build_parser().parse_args(
         [
-            "--dry-run",
             "--event-noise-filter",
             "local-support",
             "--event-filter-delta-us",
@@ -451,22 +396,22 @@ def test_sync_check_parser_accepts_event_noise_filter_options():
 @pytest.mark.parametrize("flag", ["--camera-usb-reset", "--no-camera-usb-reset"])
 def test_sync_check_parser_rejects_removed_usb_reset_flags(flag):
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["--dry-run", flag])
+        build_parser().parse_args([flag])
 
 
 def test_sync_check_parser_rejects_removed_hz_flag():
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["--dry-run", "--hz", "120"])
+        build_parser().parse_args(["--hz", "120"])
 
 
 @pytest.mark.parametrize("flag", ["--camera-stream-rearm", "--camera-shutdown-streams"])
 def test_sync_check_parser_rejects_removed_camera_lifecycle_flags(flag):
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["--dry-run", flag])
+        build_parser().parse_args([flag])
 
 
 def test_sync_check_parser_uses_mentor_style_camera_lifecycle_by_default():
-    args = build_parser().parse_args(["--dry-run"])
+    args = build_parser().parse_args([])
 
     assert args.camera_flush_reads == 32
     assert args.camera_post_trigger_event_batches == 0
@@ -474,263 +419,11 @@ def test_sync_check_parser_uses_mentor_style_camera_lifecycle_by_default():
 
 def test_sync_check_parser_accepts_name_override_alias():
     args = build_parser().parse_args([
-        "--dry-run",
         "--name-override",
         "first-run",
     ])
 
     assert args.timestamp == "first-run"
-
-
-def test_sync_check_dry_run_creates_run_artifacts(tmp_path):
-    argv = [
-        "--dry-run",
-        "--output-root",
-        str(tmp_path),
-        "--timestamp",
-        "20260527-120102",
-        "--number-size-px",
-        "420",
-        "--trigger-out-2-rising-delay-us",
-        "-20",
-        "--accumulation-start-offset-us",
-        "-250",
-    ]
-    command_argv = ["python", "-m", "dmdcontrol", "camera", "sync-check", *argv]
-    args = build_parser().parse_args(argv)
-
-    run = dry_run(args, command_argv=command_argv)
-
-    assert run.path == tmp_path / "20260527-120102-sync-check"
-    metadata = json.loads(run.metadata_path.read_text(encoding="utf-8"))
-    timing = json.loads(run.timing_path.read_text(encoding="utf-8"))
-    command = run.command_path.read_text(encoding="utf-8")
-    log = run.log_path.read_text(encoding="utf-8")
-
-    assert metadata["mode"] == "sync-check"
-    assert metadata["dry_run"] is True
-    assert metadata["test"] == "a-count-b-static"
-    assert metadata["count_start"] == 1
-    assert metadata["count_end"] == 5
-    assert metadata["count_slots_per_frame"] == 5
-    assert metadata["number_size_px"] == 420
-    assert metadata["b_dot_radius"] == 20
-    assert metadata["exposure_us"] is None
-    assert metadata["expected_trigger_count"] == 5
-    assert metadata["trigger_policy"] == {
-        "channel": "TRIG_OUT_2",
-        "edge": "rising",
-        "rising_delay_us": -20,
-        "falling_delay_us": 0,
-    }
-    assert metadata["artifacts"] == ["metadata.json", "timing.json", "command.txt", "run.log"]
-    assert metadata["command"] == command_argv
-    assert timing == metadata["trigger_policy"]
-    assert "--number-size-px 420" in command
-    assert "--accumulation-start-offset-us -250" in command
-    assert "dry-run" in log
-
-
-@pytest.mark.parametrize(
-    ("name_override", "accumulation_cycles"),
-    [
-        ("count5_one_cycle_pretrigger250_onwindow", 1),
-        ("count5_six_cycles_pretrigger250_onwindow", 6),
-    ],
-)
-def test_sync_check_dry_run_accepts_selected_five_count_commands(
-    tmp_path,
-    name_override,
-    accumulation_cycles,
-):
-    argv = shlex.split(
-        f"--dry-run --output-root {tmp_path.as_posix()} "
-        f"--name-override {name_override} --test a-count-b-static --test-b dot "
-        "--count-start 1 --count-end 5 --count-slots-per-frame 5 --number-size-px 100 "
-        "--b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 "
-        "--exposure-us 1900 --dark-time-us 1000 "
-        "--trigger-out-2-rising-delay-us 0 --accumulation-start-offset-us -250 "
-        "--runtime-seconds 1 --camera-flush-reads 0 "
-        "--camera-post-trigger-event-batches 0 --polarity-mode ignore "
-        f"--event-noise-filter none --save-filtered-events "
-        f"--accumulation-cycles {accumulation_cycles} -v")
-    command_argv = ["python", "-m", "dmdcontrol", "camera", "sync-check", *argv]
-
-    run = dry_run(build_parser().parse_args(argv), command_argv=command_argv)
-
-    assert run.path == tmp_path / f"{name_override}-sync-check"
-    metadata = json.loads(run.metadata_path.read_text(encoding="utf-8"))
-    timing = json.loads(run.timing_path.read_text(encoding="utf-8"))
-    command = run.command_path.read_text(encoding="utf-8")
-
-    expected_metadata = {
-        "dry_run": True,
-        "test": "a-count-b-static",
-        "count_start": 1,
-        "count_end": 5,
-        "count_slots_per_frame": 5,
-        "number_size_px": 100,
-        "b_dot_x": 960,
-        "b_dot_y": 540,
-        "b_dot_radius": 40,
-        "exposure_us": 1900,
-        "dark_time_us": 1000,
-        "expected_trigger_count": 5,
-        "accumulation_cycles": accumulation_cycles,
-        "accumulation_start_offset_us": -250,
-        "camera_flush_reads": 0,
-        "camera_post_trigger_event_batches": 0,
-        "polarity_mode": "ignore",
-        "save_filtered_events": True,
-    }
-    assert {key: metadata[key] for key in expected_metadata} == expected_metadata
-    assert metadata["event_noise_filter"]["algorithm"] == "none"
-    assert metadata["event_noise_filter"]["enabled"] is False
-    assert timing == {
-        "channel": "TRIG_OUT_2",
-        "edge": "rising",
-        "rising_delay_us": 0,
-        "falling_delay_us": 20,
-    }
-    assert f"--name-override {name_override}" in command
-    assert f"--accumulation-cycles {accumulation_cycles}" in command
-    assert "--accumulation-start-offset-us -250" in command
-    assert run.log_path.read_text(encoding="utf-8") == "dry-run\n"
-
-
-def test_sync_check_dry_run_rejects_invalid_paired_lut_timing(tmp_path):
-    argv = shlex.split(
-        f"--dry-run --output-root {tmp_path.as_posix()} "
-        "--test a-count-b-static --test-b dot "
-        "--count-start 1 --count-end 5 --count-slots-per-frame 5 "
-        "--exposure-us 4000 --dark-time-us 1000 "
-        "--runtime-seconds 1")
-
-    with pytest.raises(SystemExit, match="need .* usable"):
-        dry_run(build_parser().parse_args(argv))
-
-    assert list(tmp_path.iterdir()) == []
-
-
-def test_sync_check_dry_run_records_event_filter_config(tmp_path):
-    args = build_parser().parse_args(
-        [
-            "--dry-run",
-            "--output-root",
-            str(tmp_path),
-            "--timestamp",
-            "20260527-120107",
-            "--event-noise-filter",
-            "local-support",
-            "--event-filter-delta-us",
-            "50000",
-            "--event-filter-window-px",
-            "3",
-            "--event-filter-threshold",
-            "2",
-            "--event-filter-polarity",
-            "same",
-        ])
-
-    run = dry_run(args)
-
-    metadata = json.loads(run.metadata_path.read_text(encoding="utf-8"))
-    assert metadata["event_noise_filter"] == {
-        "algorithm":
-        "centered-local-support",
-        "delta_t_us":
-        50000,
-        "enabled":
-        True,
-        "note": (
-            "Practical notebook-validated local support filter; "
-            "not a source-faithful DV Runtime YNoise implementation."),
-        "polarity":
-        "same",
-        "threshold":
-        2,
-        "window_px":
-        3,
-    }
-
-
-def test_sync_check_count_mode_dry_run_records_count_metadata(tmp_path):
-    args = _count_args(
-        "--dry-run",
-        "--output-root",
-        str(tmp_path),
-        "--timestamp",
-        "20260602-120100",
-        "--count-start",
-        "1",
-        "--count-end",
-        "100",
-        "--exposure-us",
-        "4000",
-        "--dark-time-us",
-        "1000",
-    )
-
-    run = dry_run(args)
-
-    metadata = json.loads(run.metadata_path.read_text(encoding="utf-8"))
-    assert metadata["test"] == "a-count-b-static"
-    assert metadata["count_start"] == 1
-    assert metadata["count_end"] == 100
-    assert metadata["count_slots_per_frame"] == 2
-    assert metadata["count_slots_per_frame_mode"] == "auto"
-    assert metadata["count_blank_between_frames"] is False
-    assert metadata["exposure_us"] == 4000
-    assert metadata["expected_trigger_count"] == 100
-    assert metadata["accumulation_window_us"] == 4000
-    assert metadata["bitplane_count"] == 2
-
-
-def test_sync_check_exact_count_blank_command_dry_run_metadata(tmp_path):
-    args = build_parser().parse_args(_exact_count_sync_check_argv(tmp_path))
-
-    run = dry_run(args)
-
-    metadata = json.loads(run.metadata_path.read_text(encoding="utf-8"))
-    assert metadata["test"] == "a-count-b-static"
-    assert metadata["test_b"] == "dot"
-    assert metadata["count_start"] == 1
-    assert metadata["count_end"] == 60
-    assert metadata["count_slots_per_frame"] == 1
-    assert metadata["count_blank_between_frames"] is True
-    assert metadata["count_blank_after_each_count"] is True
-    assert metadata["count_lut_entries_per_frame"] == 1
-    assert metadata["number_size_px"] == 400
-    assert metadata["b_dot_radius"] == 30
-    assert metadata["exposure_us"] == 16000
-    assert metadata["expected_trigger_count"] == 120
-    assert metadata["accumulation_start_offset_us"] == -250
-    assert metadata["accumulation_cycles"] == 1
-    assert metadata["camera_flush_reads"] == 0
-    assert metadata["camera_post_trigger_event_batches"] == 0
-    assert metadata["polarity_mode"] == "ignore"
-    assert metadata["save_filtered_events"] is True
-
-
-def test_camera_sync_check_cli_dry_run_creates_artifacts(tmp_path):
-    from dmdcontrol.cli.main import main
-
-    assert main(
-        [
-            "camera",
-            "sync-check",
-            "--dry-run",
-            "--output-root",
-            str(tmp_path),
-            "--timestamp",
-            "20260527-120103",
-        ]) == 0
-
-    metadata = json.loads(
-        (tmp_path / "20260527-120103-sync-check" / "metadata.json").read_text(encoding="utf-8"))
-    assert metadata["test"] == "a-count-b-static"
-    assert metadata["count_start"] == 1
-    assert metadata["count_end"] == 5
 
 
 def test_live_capture_flushes_queued_triggers_before_recording(monkeypatch, tmp_path):

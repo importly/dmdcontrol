@@ -212,11 +212,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional override for INTER_PATTERN_DARK_US",
     )
     parser.add_argument(
-        "--dry-run-timing",
-        action="store_true",
-        help="Print paired mapping and LUT timing without importing OpenGL or USB hardware",
-    )
-    parser.add_argument(
         "--preview-url",
         default=None,
         help="Optional live-preview POST endpoint, for example http://127.0.0.1:8080/api/live-frame",

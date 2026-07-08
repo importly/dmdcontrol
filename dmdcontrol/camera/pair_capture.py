@@ -54,7 +54,6 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python -m dmdcontrol camera pair-capture",
         description="Capture paired camera data while running DMD pair patterns.",
     )
-    parser.add_argument("--dry-run-timing", action="store_true")
     parser.add_argument("--output-root", default=None)
     parser.add_argument(
         "--name-override",
@@ -186,45 +185,6 @@ def trigger_policy(args: argparse.Namespace) -> dict[str, str | int]:
     }
 
 
-def dry_run(args: argparse.Namespace, command_argv: list[str] | None = None):
-    run = create_run_directory("pair-capture", args.output_root, timestamp=args.timestamp)
-    policy = trigger_policy(args)
-    event_filter = event_noise_filter_config_from_args(args)
-    command = command_argv or camera_command_argv("pair-capture", None)
-    metadata = {
-        "mode": "pair-capture",
-        "dry_run": True,
-        "command": command,
-        "dmd": dmd_config(args),
-        "requested_command_shape": requested_command_shape(args),
-        "expected_shape": expected_shape(args),
-        "trigger_policy": policy,
-        "bias_sensitivity": args.bias_sensitivity,
-        "efps": args.efps,
-        "polarity_mode": args.polarity_mode,
-        "dark_time_us": args.dark_time_us,
-        "camera_flush_reads": args.camera_flush_reads,
-        "camera_post_trigger_event_batches": args.camera_post_trigger_event_batches,
-        "max_accumulation_triggers": args.max_accumulation_triggers,
-        "event_noise_filter": event_noise_filter_metadata(event_filter),
-        "save_filtered_events": args.save_filtered_events,
-    }
-    write_json(run.timing_path, policy)
-    write_run_metadata(
-        run,
-        metadata,
-        artifacts=["metadata.json",
-                   "timing.json",
-                   "command.txt",
-                   "run.log"],
-    )
-    run.command_path.write_text(
-        command_text(command),
-        encoding="utf-8",
-    )
-    run.log_path.write_text("dry-run\n", encoding="utf-8")
-    return run
-
 
 def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
     return PairRuntimeRequest.from_pair_capture_args(args).to_argv()
@@ -256,7 +216,6 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
     )
     metadata = {
         "mode": "pair-capture",
-        "dry_run": False,
         "command": command_argv or camera_command_argv("pair-capture", None),
         "dmd": dmd_config(args),
         "requested_command_shape": requested_command_shape(args),
@@ -370,7 +329,4 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     command_argv = camera_command_argv("pair-capture", argv)
-    if args.dry_run_timing:
-        dry_run(args, command_argv=command_argv)
-        return 0
     return live(args, command_argv=command_argv)

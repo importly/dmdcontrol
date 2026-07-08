@@ -40,7 +40,6 @@ from dmdcontrol.runtime.pair_render import (
 )
 from dmdcontrol.runtime.pair_reporting import (
     _build_live_preview_metadata,
-    _dry_run_timing,
     _live_preview_metadata_for_frame,
     _metadata_int,
 )
@@ -61,7 +60,6 @@ __all__ = [
     "_build_live_preview_metadata",
     "_build_parser",
     "_display_frame_pair",
-    "_dry_run_timing",
     "_is_count_recipe",
     "_live_preview_metadata_for_frame",
     "_metadata_int",
@@ -266,9 +264,6 @@ def _run_namespace(
     pair_config = resolve_pair_config(args.dmd_config)
     _validate_pair_args(args, target_hz=pair_config.target_hz)
     _warn_dark_time_video_pattern_mode(args)
-    if args.dry_run_timing:
-        _dry_run_timing(args, pair_config)
-        return 0
     return _run_prepared_pair(args, pair_config, before_sequencer_start=before_start)
 
 

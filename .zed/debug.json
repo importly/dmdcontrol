@@ -1,0 +1,34 @@
+[
+  {
+    "label": "pytest camera live plumbing",
+    "adapter": "Debugpy",
+    "request": "launch",
+    "module": "pytest",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "env": {
+      "PYTHONUNBUFFERED": "1",
+      "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"
+    },
+    "args": [
+      "tests/test_camera_live_plumbing.py",
+      "-q"
+    ],
+    "justMyCode": false
+  },
+  {
+    "label": "pytest paired LUT runtime",
+    "adapter": "Debugpy",
+    "request": "launch",
+    "module": "pytest",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "env": {
+      "PYTHONUNBUFFERED": "1",
+      "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"
+    },
+    "args": [
+      "tests/test_pair_lut_override.py",
+      "-q"
+    ],
+    "justMyCode": false
+  }
+]

@@ -35,7 +35,11 @@ class KernelRuntimeTests(unittest.TestCase):
 
     def test_single_runtime_parser_rejects_removed_hz_flag(self):
         with self.assertRaises(SystemExit):
-            single_runtime._build_parser().parse_args(["--dry-run-timing", "--hz", "120"])
+            single_runtime._build_parser().parse_args(["--hz", "120"])
+
+    def test_single_runtime_parser_rejects_removed_dry_run_timing_flag(self):
+        with self.assertRaises(SystemExit):
+            single_runtime._build_parser().parse_args(["--dry-run-timing"])
 
     def test_compute_kernel_lut_override_clamps_to_bitplane_count(self):
         override = compute_kernel_lut_override(
@@ -135,7 +139,7 @@ class KernelRuntimeTests(unittest.TestCase):
 @pytest.mark.parametrize("flag", ["--kernel-exposure-us", "--numbers-exposure-us"])
 def test_single_runtime_parser_rejects_removed_exposure_flags(flag):
     with pytest.raises(SystemExit):
-        single_runtime._build_parser().parse_args(["--dry-run-timing", flag, "3000"])
+        single_runtime._build_parser().parse_args([flag, "3000"])
 
 
 def test_single_runtime_kernel_uses_generic_exposure_for_lut_timing():
@@ -145,54 +149,14 @@ def test_single_runtime_kernel_uses_generic_exposure_for_lut_timing():
             "kernel",
             "--exposure-us",
             "3000",
-            "--dry-run-timing",
         ])
 
     assert single_runtime._compute_kernel_lut_override(args, target_hz=60) == (4, 3000)
 
 
-def test_single_runtime_static_dry_run_forwards_generic_exposure(monkeypatch):
-    captured = {}
-
-    def fake_build_lut_entries(*_args, **kwargs):
-        captured["entries_count"] = kwargs["entries_count"]
-        captured["per_entry_exposure_us"] = kwargs["per_entry_exposure_us"]
-        captured["dark_time_us"] = kwargs["dark_time_us"]
-        return [(0, 4000, False, 1, 7, 250, False, 0)] * 3, {
-            "exposure_us": 4000,
-            "dark_us": 250,
-            "total_sequence_us": 12750.0,
-            "usable_frame_period_us": 14775.0,
-            "idle_headroom_us": 3916.7,
-            "trig2_mode": "per_bitplane",
-            "effective_frame_hz": 60.0,
-            "effective_binary_rate_hz": 180.0,
-        }
-
-    monkeypatch.setattr(single_runtime, "build_lut_entries", fake_build_lut_entries)
-    args = single_runtime._build_parser().parse_args(
-        [
-            "--test",
-            "checkerboard",
-            "--exposure-us",
-            "4000",
-            "--dark-time-us",
-            "250",
-            "--dry-run-timing",
-        ])
-
-    single_runtime._dry_run_timing(args)
-
-    assert captured == {
-        "entries_count": None,
-        "per_entry_exposure_us": 4000,
-        "dark_time_us": 250,
-    }
-
-
 def test_single_runtime_warns_that_dark_time_is_unreliable_in_video_pattern_mode(caplog):
     args = single_runtime._build_parser().parse_args(
-        ["--test", "checkerboard", "--dark-time-us", "250", "--dry-run-timing"])
+        ["--test", "checkerboard", "--dark-time-us", "250"])
 
     single_runtime._warn_dark_time_video_pattern_mode(args)
 
@@ -208,7 +172,6 @@ def test_single_runtime_rejects_removed_numbers_mode():
                 "numbers",
                 "--exposure-us",
                 "3000",
-                "--dry-run-timing",
             ])
 
 
