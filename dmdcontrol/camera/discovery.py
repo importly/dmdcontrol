@@ -148,6 +148,7 @@ def configure_rising_edge_triggers(capture):
 
 
 def configure_camera_performance(capture, bias_sensitivity=None, efps=None):
+    _call_if_available(capture, "setGlobalHold", False)
     if bias_sensitivity is not None and bias_sensitivity != "default":
         _configure_dvxplorer_contrast_thresholds(capture, bias_sensitivity)
 
