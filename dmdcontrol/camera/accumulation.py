@@ -39,8 +39,7 @@ def accumulate_events_for_triggers(
     resolution,
     window_us,
     polarity_mode,
-    window_start_offset_us=0,
-):
+    window_start_offset_us=0,):
     if window_us < 0:
         raise ValueError("window_us must be non-negative")
     window_start_offset_us = int(window_start_offset_us)

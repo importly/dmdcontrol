@@ -62,8 +62,7 @@ class CountSequenceConfig:
         cls,
         args: ArgsNamespace,
         *,
-        require_resolved_slots: Literal[True] = True,
-    ) -> "CountSequenceConfig":
+        require_resolved_slots: Literal[True] = True,) -> "CountSequenceConfig":
         ...
 
     @classmethod
@@ -72,8 +71,7 @@ class CountSequenceConfig:
         cls,
         args: ArgsNamespace,
         *,
-        require_resolved_slots: Literal[False],
-    ) -> "CountSequenceConfig | None":
+        require_resolved_slots: Literal[False],) -> "CountSequenceConfig | None":
         ...
 
     @classmethod
@@ -81,8 +79,7 @@ class CountSequenceConfig:
         cls,
         args: ArgsNamespace,
         *,
-        require_resolved_slots: bool = True,
-    ) -> "CountSequenceConfig | None":
+        require_resolved_slots: bool = True,) -> "CountSequenceConfig | None":
         slots = getattr(args, "count_slots_per_frame", None)
         if slots is None:
             if require_resolved_slots:
@@ -148,9 +145,8 @@ class CountSequenceConfig:
         exposure_us: int | None,
         dark_time_us: int | None,
         target_hz: float = DEFAULT_HZ,
-        sequence_utilization: float | None = DEFAULT_SEQUENCE_UTILIZATION,
-    ) -> LutTimingMetadata:
-        return validate_count_lut_sequence_does_not_repeat(
+        sequence_utilization: float | None = DEFAULT_SEQUENCE_UTILIZATION,) -> LutTimingMetadata:
+        return validate_count_lut_sequence_timing(
             count_slots_per_frame=self.count_slots_per_frame,
             exposure_us=exposure_us,
             dark_time_us=dark_time_us,
@@ -182,15 +178,14 @@ class CountSequenceConfig:
         }
 
 
-def validate_count_lut_sequence_does_not_repeat(
+def validate_count_lut_sequence_timing(
     *,
     count_slots_per_frame: int,
     exposure_us: int | None,
     dark_time_us: int | None,
     count_blank_between_frames: bool = False,
     target_hz: float = DEFAULT_HZ,
-    sequence_utilization: float | None = DEFAULT_SEQUENCE_UTILIZATION,
-) -> LutTimingMetadata:
+    sequence_utilization: float | None = DEFAULT_SEQUENCE_UTILIZATION,) -> LutTimingMetadata:
     utilization = (
         DEFAULT_SEQUENCE_UTILIZATION
         if sequence_utilization is None else sequence_utilization)
@@ -205,19 +200,6 @@ def validate_count_lut_sequence_does_not_repeat(
         per_entry_exposure_us=exposure_us,
         dark_time_us=dark_time_us,
     )
-    if timing["total_sequence_us"] * 2 <= timing["frame_period_us"]:
-        if count_blank_between_frames:
-            raise ValueError(
-                "Count blank-after mode now uses one RGB source frame per count or blank. "
-                "The single-entry LUT sequence is short enough to repeat before the next VSYNC "
-                f"({timing['total_sequence_us']:.1f} us sequence in a "
-                f"{timing['frame_period_us']:.1f} us frame); use a longer exposure such as "
-                "--exposure-us 16000 at 60 Hz.")
-        raise ValueError(
-            "Count-mode LUT sequence is short enough to repeat before the next VSYNC "
-            f"({timing['total_sequence_us']:.1f} us sequence in a "
-            f"{timing['frame_period_us']:.1f} us frame). Increase "
-            "--count-slots-per-frame or omit it to use auto.")
     return timing
 
 
@@ -229,14 +211,13 @@ def resolve_count_slots_per_frame(
     dark_time_us: int | None,
     count_blank_between_frames: bool = False,
     target_hz: float = DEFAULT_HZ,
-    sequence_utilization: float | None = DEFAULT_SEQUENCE_UTILIZATION,
-) -> int:
+    sequence_utilization: float | None = DEFAULT_SEQUENCE_UTILIZATION,) -> int:
     if count_start > count_end:
         raise ValueError("--count-start must be <= --count-end")
 
     count_total = count_end - count_start + 1
     if count_blank_between_frames:
-        validate_count_lut_sequence_does_not_repeat(
+        validate_count_lut_sequence_timing(
             count_slots_per_frame=1,
             exposure_us=exposure_us,
             dark_time_us=dark_time_us,
@@ -266,7 +247,7 @@ def resolve_count_slots_per_frame(
         if entries_count > BITPLANES:
             continue
         try:
-            validate_count_lut_sequence_does_not_repeat(
+            validate_count_lut_sequence_timing(
                 count_slots_per_frame=slots,
                 exposure_us=exposure_us,
                 dark_time_us=dark_time_us,

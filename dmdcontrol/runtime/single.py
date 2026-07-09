@@ -20,7 +20,6 @@ from dmdcontrol.patterns.modes import (
     default_calibration_square_state,
 )
 from dmdcontrol.runtime.lifecycle import (
-    build_lut_entries,
     compute_trigger_out_2_timing,
     configure_dlpc900_for_video_pattern,
     log_board_snapshot,
@@ -159,10 +158,6 @@ def _build_parser():
         help="Calibration-square only: read single-character controls from this file. "
         "Used by run_calibr_square.sh; normal run_dmd.sh behavior is unchanged.")
     parser.add_argument(
-        "--dry-run-timing",
-        action="store_true",
-        help="Print LUT, trigger, and kernel-cycle timing without opening OpenGL or USB hardware.")
-    parser.add_argument(
         "-v",
         "--verbose",
         action="count",
@@ -282,42 +277,6 @@ def _log_calibration_square_summary(args, timing, prefix="[TIMING]"):
         "Mode sequence, not keyboard edits or square edges. TRIG_OUT_1 is advisory only.")
 
 
-def _dry_run_timing(args):
-    entries_count, exposure_us = _lut_timing_override(args, DEFAULT_HZ)
-    entries, timing = build_lut_entries(
-        DEFAULT_HZ,
-        sequence_utilization=args.seq_utilization,
-        trig2_frame_zero=args.trig2_frame_zero,
-        entries_count=entries_count,
-        per_entry_exposure_us=exposure_us,
-        dark_time_us=args.dark_time_us,
-    )
-    logger.info(
-        "[DRY RUN] Hardware was not opened. Timing uses target Hz, not measured DLPC900 timing.")
-    logger.info(
-        f"[DRY RUN] Pattern LUT: {len(entries)} entries, exposure={timing['exposure_us']}us, "
-        f"dark={timing['dark_us']}us, sequence={timing['total_sequence_us']:.1f}/"
-        f"{timing['usable_frame_period_us']:.1f}us usable, idle headroom={timing['idle_headroom_us']:.1f}us."
-    )
-    logger.info(
-        f"[DRY RUN] TRIG_OUT_2 mode: {timing['trig2_mode']}; expected pulses/s="
-        f"{timing['effective_frame_hz'] if args.trig2_frame_zero else timing['effective_binary_rate_hz']:.1f}."
-    )
-    trigger_timing = compute_trigger_out_2_timing(
-        rising_delay_us=args.trigger_out_2_rising_delay_us,
-    )
-    timing["trigger_out_2"] = trigger_timing
-    logger.info(
-        f"[DRY RUN] TRIG_OUT_2 rising edge delay={trigger_timing['rising_delay_us']}us, "
-        f"falling={trigger_timing['falling_delay_us']}us "
-        f"(pulse width {trigger_timing['pulse_width_us']}us).")
-    if args.test == "kernel":
-        _log_kernel_timing_summary(args, timing, prefix="[DRY RUN]")
-    elif args.test == "calibr-square":
-        _log_calibration_square_summary(args, timing, prefix="[DRY RUN]")
-    if _ignores_lut_exposure(args):
-        logger.info("[DRY RUN] --exposure-us ignored for dynamic wall-clock display mode.")
-
 
 def _open_video_writer(path, target_hz):
     if cv2 is None:
@@ -349,8 +308,7 @@ def _make_frame_provider(
     args=None,
     kernel_frames=None,
     calibration_square_state=None,
-    invert_dmd=False,
-):
+    invert_dmd=False,):
     """Returns callable() -> frame. Hides per-mode frame regeneration from loop."""
 
     def _wrap(provider):
@@ -428,9 +386,6 @@ def main(argv=None):
 
     _warn_dark_time_video_pattern_mode(args)
 
-    if args.dry_run_timing:
-        _dry_run_timing(args)
-        return 0
 
     target_hz = DEFAULT_HZ
     dmd_mapping = resolve_dmd_mapping(args.dmd, args.dmd_config) if args.dmd else None

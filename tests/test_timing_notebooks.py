@@ -68,8 +68,7 @@ def _exec_trim_cell_tail_without_resolution_global(notebook):
         selected_triggers,
         resolution,
         source_aedat4_path,
-        buffer_us=2000,
-    ):
+        buffer_us=2000,):
         captured["output_path"] = str(output_path)
         captured["metadata_path"] = str(metadata_path)
         captured["resolution"] = resolution

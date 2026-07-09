@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import json
 from dataclasses import is_dataclass, replace
 
 from dmdcontrol.camera.capture import flush_stale_batches, validate_camera_ready
@@ -52,6 +53,35 @@ def open_camera_writer(run, capture):
     return dv.io.MonoCameraWriter(str(run.raw_recording_path), capture)
 
 
+def _print_camera_configuration(capture, args):
+    readback = {}
+    for method_name in sorted(dir(capture)):
+        if not method_name.startswith(("get", "is")) or method_name.startswith("getNext"):
+            continue
+        try:
+            method = getattr(capture, method_name)
+            if not callable(method):
+                continue
+            readback[method_name] = method()
+        except TypeError:
+            # Getter requires arguments, so it cannot be safely included automatically.
+            continue
+        except Exception as exc:
+            readback[method_name] = f"<{type(exc).__name__}: {exc}>"
+
+    print("=== Camera configuration (temporary diagnostic) ===")
+    print(
+        json.dumps(
+            {
+                "requested": vars(args),
+                "readback": readback,
+            },
+            indent=2,
+            sort_keys=True,
+            default=str,
+        ))
+
+
 def open_ready_camera(run, args):
     capture = None
     writer = None
@@ -60,6 +90,7 @@ def open_ready_camera(run, args):
         writer = open_camera_writer(run, capture)
         initial_flush = flush_stale_batches(capture, reads=args.camera_flush_reads)
         ready = _ready_with_initial_flush(ready, initial_flush)
+        # _print_camera_configuration(capture, args)
     except Exception:
         if writer is not None:
             del writer

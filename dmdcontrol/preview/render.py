@@ -51,6 +51,7 @@ ImageArray = RGBFrame | BinaryMask
 
 class LutPreviewEntryMetadata(TypedDict):
     index: int
+    pattern_index: int
     plane_index: int
     plane_label: str
     channel: str
@@ -64,6 +65,8 @@ class LutPreviewEntryMetadata(TypedDict):
     bit_depth: int
     led_select: int | None
     trig2_disabled: bool
+    wait_for_trigger: bool
+    frame_change: bool
 
 
 class LutPreviewMetadata(TypedDict):
@@ -94,25 +97,27 @@ def _json_safe_value(value: object) -> object:
 
 def build_lut_preview_metadata(
     entries: Sequence[LutEntry],
-    timing: Mapping[str, object] | None = None,
-) -> LutPreviewMetadata:
+    timing: Mapping[str, object] | None = None,) -> LutPreviewMetadata:
     """Describe a DLPC900 video-pattern LUT in preview-friendly JSON data."""
 
     preview_entries: list[LutPreviewEntryMetadata] = []
     cursor_us = 0
     for index, entry in enumerate(entries):
-        plane_index = int(entry.bitplane_index)
+        pattern_index = int(entry.pattern_index)
+        plane_index = int(entry.bit_position)
         exposure_us = int(entry.exposure_us)
         clear = bool(entry.clear_after)
         bit_depth = int(entry.bit_depth)
         led_select = int(entry.led_select)
         dark_us = int(entry.dark_us)
         trig2_disabled = bool(entry.trig2_disabled)
+        wait_for_trigger = bool(getattr(entry, "wait_for_trigger", False))
         label = BITPLANE_LABELS[plane_index] if 0 <= plane_index < len(
             BITPLANE_LABELS) else f"P{plane_index}"
         preview_entries.append(
             {
                 "index": int(index),
+                "pattern_index": pattern_index,
                 "plane_index": plane_index,
                 "plane_label": label,
                 "channel": label[0],
@@ -126,6 +131,8 @@ def build_lut_preview_metadata(
                 "bit_depth": bit_depth,
                 "led_select": led_select,
                 "trig2_disabled": trig2_disabled,
+                "wait_for_trigger": wait_for_trigger,
+                "frame_change": wait_for_trigger,
             })
         cursor_us += exposure_us + dark_us
 
@@ -159,8 +166,7 @@ class PreviewEngine:
         self,
         frame_index: int = 0,
         grid_w: int = 24,
-        grid_h: int = 13,
-    ) -> RGBFrame:
+        grid_h: int = 13,) -> RGBFrame:
         grid = np.zeros((grid_h, grid_w), dtype=np.uint8)
         path_len = grid_w * grid_h
         head = frame_index % path_len
@@ -194,8 +200,7 @@ def render_single_frame(
     test: str = "grid",
     frame_index: int = 0,
     width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-) -> RGBFrame:
+    height: int = DMD_HEIGHT,) -> RGBFrame:
     if test not in PATTERN_NAMES:
         raise ValueError(f"unsupported single-DMD test: {test}")
     engine = PreviewEngine(width=width, height=height)
@@ -224,8 +229,7 @@ def render_pair_frame(
     test: str = "grid",
     test_a: str | None = None,
     test_b: str | None = None,
-    frame_index: int = 0,
-) -> RGBFrame:
+    frame_index: int = 0,) -> RGBFrame:
     if test not in PAIR_TESTS:
         raise ValueError(f"unsupported paired test: {test}")
 
@@ -268,8 +272,7 @@ def render_offline_frame(
     test: str = "grid",
     test_a: str | None = None,
     test_b: str | None = None,
-    frame_index: int = 0,
-) -> RGBFrame:
+    frame_index: int = 0,) -> RGBFrame:
     if layout == "pair":
         return render_pair_frame(test=test, test_a=test_a, test_b=test_b, frame_index=frame_index)
     if layout == "single":
@@ -284,8 +287,7 @@ def render_bitplane_image(packed_frame: RGBFrame, plane: int) -> BinaryMask:
 def render_view_image(
     packed_frame: RGBFrame,
     view: str = "packed",
-    plane: int = 0,
-) -> ImageArray:
+    plane: int = 0,) -> ImageArray:
     if view == "packed":
         return packed_frame
     if view == "bitplane":
@@ -306,8 +308,7 @@ def render_preview_png(
     test_b: str | None = None,
     frame_index: int = 0,
     view: str = "packed",
-    plane: int = 0,
-) -> bytes:
+    plane: int = 0,) -> bytes:
     packed = render_offline_frame(
         layout=layout,
         test=test,
@@ -365,8 +366,7 @@ class LivePreviewPoster:
         frame_a: RGBFrame,
         frame_b: RGBFrame,
         metadata: PreviewMetadata | None = None,
-        force: bool = False,
-    ) -> None:
+        force: bool = False,) -> None:
         post_metadata: PreviewMetadata = {"layout": "pair"}
         post_metadata.update(dict(metadata or {}))
         self.maybe_post(compose_pair_frame(frame_a, frame_b), post_metadata, force=force)
@@ -375,8 +375,7 @@ class LivePreviewPoster:
         self,
         packed_frame: RGBFrame,
         metadata: PreviewMetadata | None = None,
-        force: bool = False,
-    ) -> None:
+        force: bool = False,) -> None:
         now = time.monotonic()
         with self._lock:
             if not force and now - self._last_post_s < self.interval_s:

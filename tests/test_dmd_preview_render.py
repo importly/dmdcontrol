@@ -104,12 +104,37 @@ class DmdPreviewRenderTests(unittest.TestCase):
         self.assertEqual(metadata["entries"][0]["plane_label"], "G0")
         self.assertEqual(metadata["entries"][1]["plane_label"], "R0")
         self.assertEqual(metadata["entries"][2]["plane_label"], "B0")
+        self.assertEqual(metadata["entries"][1]["pattern_index"], 8)
+        self.assertEqual(metadata["entries"][1]["plane_index"], 8)
         self.assertEqual(metadata["entries"][1]["start_us"], 610)
         self.assertEqual(metadata["entries"][1]["end_us"], 1210)
         self.assertEqual(metadata["entries"][2]["segment_end_us"], 1830)
         self.assertTrue(metadata["entries"][2]["clear"])
         self.assertTrue(metadata["entries"][2]["trig2_disabled"])
         self.assertEqual(metadata["timing"]["effective_frame_hz"], 60.0)
+
+    def test_lut_preview_metadata_labels_selected_bit_position_not_pattern_index(self):
+        from dmdcontrol.preview.render import build_lut_preview_metadata
+        from dmdcontrol.runtime.lifecycle import LutEntry
+
+        metadata = build_lut_preview_metadata(
+            [
+                LutEntry(
+                    pattern_index=1,
+                    exposure_us=600,
+                    clear_after=False,
+                    bit_depth=1,
+                    led_select=7,
+                    dark_us=0,
+                    trig2_disabled=False,
+                    bit_position=8,
+                ),
+            ],
+        )
+
+        self.assertEqual(metadata["entries"][0]["pattern_index"], 1)
+        self.assertEqual(metadata["entries"][0]["plane_index"], 8)
+        self.assertEqual(metadata["entries"][0]["plane_label"], "R0")
 
     def test_png_render_outputs_png_bytes(self):
         from dmdcontrol.preview.render import render_png_bytes

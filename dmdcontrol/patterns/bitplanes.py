@@ -61,8 +61,7 @@ class BitplaneMask:
         *,
         width: int,
         height: int,
-        label: str = "mask",
-    ) -> BitplaneMask:
+        label: str = "mask",) -> BitplaneMask:
         mask = np.asarray(array)
         if mask.shape != (int(height), int(width)):
             raise ValueError(
@@ -95,8 +94,7 @@ class PackedRgbFrame:
         array: object,
         *,
         width: int | None = None,
-        height: int | None = None,
-    ) -> PackedRgbFrame:
+        height: int | None = None,) -> PackedRgbFrame:
         frame = np.asarray(array)
         if frame.ndim != 3 or frame.shape[2] != 3:
             raise ValueError(f"packed RGB frame must have shape HxWx3, got {frame.shape}")
@@ -132,8 +130,7 @@ class BitplaneStack:
         masks: Iterable[BitplaneMask | BinaryMaskArray],
         *,
         width: int,
-        height: int,
-    ) -> BitplaneStack:
+        height: int,) -> BitplaneStack:
         coerced = [
             _coerce_bitplane_mask(mask, width=int(width), height=int(height), label=f"mask {index}")
             for index, mask in enumerate(masks)
@@ -151,8 +148,7 @@ class BitplaneStack:
         *,
         bitplane_order: Sequence[int],
         width: int,
-        height: int,
-    ) -> BitplaneStack:
+        height: int,) -> BitplaneStack:
         display_masks = list(display_masks)
         order = tuple(int(index) for index in bitplane_order)
         if len(order) != len(display_masks):
@@ -172,8 +168,7 @@ class BitplaneStack:
         *,
         width: int,
         height: int,
-        blank_between_masks: bool = False,
-    ) -> BitplaneStack:
+        blank_between_masks: bool = False,) -> BitplaneStack:
         masks = list(masks)
         if not blank_between_masks:
             return cls.from_masks(masks, width=width, height=height)
@@ -201,8 +196,7 @@ def _coerce_bitplane_mask(
     *,
     width: int,
     height: int,
-    label: str,
-) -> BitplaneMask:
+    label: str,) -> BitplaneMask:
     if isinstance(mask, BitplaneMask):
         if mask.array.shape != (height, width):
             raise ValueError(
@@ -215,8 +209,7 @@ def _coerce_bitplane_mask(
 def pack_bitplanes_rgb(
     binary_images: Iterable[BitplaneMask | BinaryMaskArray],
     width: int,
-    height: int,
-) -> RGBFrameArray:
+    height: int,) -> RGBFrameArray:
     binary_images = list(binary_images)
     if len(binary_images) != BITPLANES:
         raise ValueError(f"expected {BITPLANES} binary images, got {len(binary_images)}")

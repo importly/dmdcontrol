@@ -60,8 +60,7 @@ def load_pattern_sequence(dlpc: "DLPC900", entries: Sequence[LutEntry]) -> None:
 
 def start_loaded_pattern_sequence(
     dlpc: "DLPC900",
-    post_start_delay_s: float = 0.2,
-) -> None:
+    post_start_delay_s: float = 0.2,) -> None:
     dlpc.start_pattern_display(2)
     if post_start_delay_s > 0:
         time.sleep(post_start_delay_s)
@@ -71,8 +70,7 @@ def start_loaded_pattern_sequences(
     dlpc_a: "DLPC900",
     dlpc_b: "DLPC900",
     post_start_delay_s: float = 0.2,
-    verify: bool = False,
-) -> None:
+    verify: bool = False,) -> None:
     barrier = threading.Barrier(3)
     errors: list[tuple[str, BaseException]] = []
 
@@ -114,8 +112,7 @@ def start_loaded_pattern_sequences(
 
 def verify_started_pattern_sequence(
     dlpc: "DLPC900",
-    label: str = "DLPC900",
-) -> int | None:
+    label: str = "DLPC900",) -> int | None:
     if not ensure_video_pattern_mode(dlpc, retries=2, poll_timeout_s=1.0):
         mode, _ = dlpc.get_display_mode()
         ms = dlpc.get_main_status() or {}
@@ -145,8 +142,7 @@ def verify_started_pattern_sequence(
 def apply_pattern_sequence(
     dlpc: "DLPC900",
     entries: Sequence[LutEntry],
-    frame_pump: Callable[[], None] | None = None,
-) -> None:
+    frame_pump: Callable[[], None] | None = None,) -> None:
     load_pattern_sequence(dlpc, entries)
 
     if frame_pump is not None:
@@ -213,19 +209,13 @@ def prepare_dlpc900_for_video_pattern(
     entries_count: int | None = None,
     per_entry_exposure_us: int | None = None,
     trigger_out_2_rising_delay_us: int = 0,
-    dark_time_us: int | None = None,
-) -> PreparedSequenceState:
+    dark_time_us: int | None = None,) -> PreparedSequenceState:
     actual_entries = entries_count if entries_count is not None else BITPLANES
     logger.info(
         f"[+] Configuring DLPC900 for {DMD_WIDTH}x{DMD_HEIGHT} @ {target_hz}Hz Video Pattern Mode "
         f"({actual_entries} LUT entr{'y' if actual_entries == 1 else 'ies'} per VSYNC)...")
-    logger.debug("Following TI documentation sequence (DLPU018J Section 5.1)...")
 
-    # First-touch hw status. NOTE: hw bit 6 ("ABORT" per DLPU018J Table 2-21)
-    # is verified empirically to double as a "no clean active pattern sequence"
-    # state flag. It persists across barrel power cycles and is set whenever
-    # Pattern Display Mode (2) is not running cleanly. Treat as informational
-    # unless paired with sequencer_running=False or forced_swap=True.
+
     hw_first = dlpc.get_hardware_status()
     err0_code = dlpc.get_last_error()
     err0_desc = dlpc.get_error_description()
@@ -253,6 +243,10 @@ def prepare_dlpc900_for_video_pattern(
     logger.debug("  - Entering Video Mode (0) with DisplayPort source...")
     dlpc.set_display_mode(0x00)
     dlpc.set_input_source(0, 1)
+    logger.debug("  - Setting input pixel format to RGB888 (0)...")
+    dlpc.set_input_pixel_format(0)
+    logger.debug("  - Setting EVM input channel swap ABC->BAC on Port 1...")
+    dlpc.set_data_channel_swap(0, 4)
     dlpc.toggle_dual_pixel_mode(bool(dual_pixel))
     logger.info(f"[+] Parallel input pixel mode: {'Dual P1-P2' if dual_pixel else 'Single P1'}")
 
@@ -387,8 +381,7 @@ def configure_dlpc900_for_video_pattern(
     entries_count: int | None = None,
     per_entry_exposure_us: int | None = None,
     trigger_out_2_rising_delay_us: int = 0,
-    dark_time_us: int | None = None,
-) -> PreparedSequenceState:
+    dark_time_us: int | None = None,) -> PreparedSequenceState:
     sequence_state = prepare_dlpc900_for_video_pattern(
         dlpc,
         target_hz=target_hz,

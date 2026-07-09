@@ -52,8 +52,7 @@ def generate_coarse_grid_rgb(
     spacing: int = DEFAULT_COARSE_GRID_SPACING,
     thickness: int = DEFAULT_COARSE_GRID_THICKNESS,
     offset_x: int = 0,
-    offset_y: int = 0,
-) -> RGBFrame:
+    offset_y: int = 0,) -> RGBFrame:
     """Return a binary RGB grid with human-scale spacing and thick strokes."""
     _validate_spacing(spacing, thickness)
     frame = _blank_rgb(width, height)
@@ -68,8 +67,7 @@ def generate_coarse_lines_rgb(
     spacing: int = DEFAULT_COARSE_LINE_SPACING,
     thickness: int = DEFAULT_COARSE_LINE_THICKNESS,
     orientation: str = "vertical",
-    offset: int = 0,
-) -> RGBFrame:
+    offset: int = 0,) -> RGBFrame:
     """Return thick vertical or horizontal bands instead of one-pixel lines."""
     _validate_spacing(spacing, thickness)
     frame = _blank_rgb(width, height)

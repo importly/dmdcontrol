@@ -24,7 +24,7 @@ from dmdcontrol.support.logging import logger
 
 @dataclass(frozen=True)
 class LutEntry:
-    bitplane_index: int
+    pattern_index: int
     exposure_us: int
     clear_after: bool
     bit_depth: int
@@ -32,6 +32,13 @@ class LutEntry:
     dark_us: int
     trig2_disabled: bool
     bit_position: int
+    image_pattern_index: int = 0
+    wait_for_trigger: bool = False
+
+    @property
+    def bitplane_index(self) -> int:
+        """Selected video bit/frame position; kept as a compatibility alias."""
+        return self.bit_position
 
 
 class TriggerOutTiming(TypedDict):
@@ -77,8 +84,7 @@ def build_lut_entries(
     entries_count: int | None = None,
     per_entry_exposure_us: int | None = None,
     dark_time_us: int | None = None,
-    display_dimensions: DisplayDimensions | None = None,
-) -> tuple[list[LutEntry], LutTimingMetadata]:
+    display_dimensions: DisplayDimensions | None = None,) -> tuple[list[LutEntry], LutTimingMetadata]:
     if target_hz <= 0:
         raise ValueError("target_hz must be positive")
     if sequence_utilization <= 0.0 or sequence_utilization > 1.0:
@@ -192,7 +198,7 @@ def build_lut_entries(
         trig2_disable = (bit_pos != 0) if trig2_frame_zero else False
         entries.append(
             LutEntry(
-                bitplane_index=bit_pos,
+                pattern_index=bit_pos,
                 exposure_us=exposure_us,
                 clear_after=clear_flag,
                 bit_depth=1,
@@ -200,6 +206,8 @@ def build_lut_entries(
                 dark_us=actual_dark_us,
                 trig2_disabled=trig2_disable,
                 bit_position=bit_pos,
+                image_pattern_index=0,
+                wait_for_trigger=(bit_pos == 0),
             ))
 
     timing: LutTimingMetadata = {
@@ -225,8 +233,7 @@ def build_lut_entries(
 
 def compute_trigger_out_2_timing(
     rising_delay_us: int = 0,
-    pulse_width_us: int = TRIGGER_OUT_PULSE_WIDTH_US,
-) -> TriggerOutTiming:
+    pulse_width_us: int = TRIGGER_OUT_PULSE_WIDTH_US,) -> TriggerOutTiming:
     if not isinstance(rising_delay_us, int):
         raise ValueError("rising_delay_us must be an integer")
     if not isinstance(pulse_width_us, int):

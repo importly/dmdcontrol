@@ -1,7 +1,7 @@
 #!/bin/bash
 # Generic client run by xinit for all hardware launchers.
 #
-# Public run_*.sh scripts do the visible orchestration: dry-run handling,
+# Public run_*.sh scripts do the visible orchestration:
 # DLPC900 DisplayPort wake, hotplug wait, and the exact Python command to run.
 # xinit still needs a client script inside the new X server; this file is that
 # single client. It prepares either the single-DMD or paired-DMD X layout, then

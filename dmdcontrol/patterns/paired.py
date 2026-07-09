@@ -109,8 +109,7 @@ def load_static_image_frame(
     path: str | PathLike[str],
     width: int = DMD_WIDTH,
     height: int = DMD_HEIGHT,
-    size_px: int = DMD_HEIGHT,
-) -> RGBFrame:
+    size_px: int = DMD_HEIGHT,) -> RGBFrame:
     """Load one RGBA/RGB image as a centered RGB frame on a black DMD canvas."""
     if width <= 0 or height <= 0:
         raise ValueError("width and height must be positive")
@@ -150,8 +149,7 @@ def _fill_rect_rgb(
     y0: int,
     x1: int,
     y1: int,
-    value: int = 255,
-) -> None:
+    value: int = 255,) -> None:
     height, width = frame.shape[:2]
     x0 = max(0, min(width, int(x0)))
     x1 = max(0, min(width, int(x1)))
@@ -225,8 +223,7 @@ def generate_dot_frame(
     y: float | None = None,
     radius: int = 40,
     shape: str = "circle",
-    invert: bool = False,
-) -> RGBFrame:
+    invert: bool = False,) -> RGBFrame:
     """Generate a static RGB dot mask/aperture frame."""
     if width <= 0 or height <= 0:
         raise ValueError("width and height must be positive")
@@ -283,8 +280,7 @@ def generate_static_frame(
     dot_y: float | None = None,
     dot_radius: int = 40,
     dot_shape: str = "circle",
-    dot_invert: bool = False,
-) -> RGBFrame:
+    dot_invert: bool = False,) -> RGBFrame:
     if mode == "checkerboard":
         frame = _checkerboard(width, height)
     elif mode == "dot":
@@ -325,8 +321,7 @@ def _static_frame(
     width: int,
     height: int,
     route_label: str,
-    dot_radius: int = 40,
-) -> RGBFrame:
+    dot_radius: int = 40,) -> RGBFrame:
     return generate_static_frame(
         mode,
         width,
@@ -423,8 +418,7 @@ class DynamicAStaticBPairFrameProvider(PairFrameProvider):
         self,
         frame_provider_a: FrameProvider,
         frame_b: RGBFrame,
-        initial_frame_a: RGBFrame | None = None,
-    ) -> None:
+        initial_frame_a: RGBFrame | None = None,) -> None:
         _validate_rgb_frame(frame_b, "frame_b")
         if initial_frame_a is not None:
             _validate_rgb_frame(initial_frame_a, "initial_frame_a")
@@ -461,8 +455,7 @@ class CalibrationSquareDotPairFrameProvider(DynamicAStaticBPairFrameProvider):
         frame_provider_a: FrameProvider,
         frame_b: RGBFrame,
         initial_frame_a: RGBFrame | None = None,
-        flicker_a: bool = False,
-    ) -> None:
+        flicker_a: bool = False,) -> None:
         super().__init__(frame_provider_a, frame_b, initial_frame_a=initial_frame_a)
         self.flicker_a = flicker_a
         self.frame_index = 0
@@ -495,8 +488,7 @@ class DynamicSnakePairFrameProvider(PairFrameProvider):
         width: int = DMD_WIDTH,
         height: int = DMD_HEIGHT,
         cells_x: int = 24,
-        cells_y: int = 13,
-    ) -> None:
+        cells_y: int = 13,) -> None:
         self.width = width
         self.height = height
         self.cells_x = cells_x
@@ -575,8 +567,7 @@ def pack_count_sequence_frames(
 
 def count_lut_entries_per_frame(
     count_slots_per_frame: int,
-    count_blank_between_frames: bool = False,
-) -> int:
+    count_blank_between_frames: bool = False,) -> int:
     if count_blank_between_frames:
         return 1
     return int(count_slots_per_frame)
@@ -618,8 +609,7 @@ def _decimal_number_display_masks(
     *,
     width: int,
     height: int,
-    size_px: int | None = None,
-) -> list[BinaryMask]:
+    size_px: int | None = None,) -> list[BinaryMask]:
     return [
         (
             generate_decimal_number_rgb(
@@ -639,8 +629,7 @@ def make_pair_frame_provider(
     static_image_a: str | PathLike[str] | None = None,
     static_image_b: str | PathLike[str] | None = None,
     static_image_size_px: int = DMD_HEIGHT,
-    dot_radius: int = 40,
-) -> PairFrameProvider:
+    dot_radius: int = 40,) -> PairFrameProvider:
     if test in STATIC_PAIR_TESTS:
         return StaticPairFrameProvider(
             mode_a=test_a or test,
@@ -679,8 +668,7 @@ class PairedPatternEngine:
         height: int = PAIR_HEIGHT,
         fps: float = TARGET_HZ,
         x: int = 0,
-        y: int = 0,
-    ) -> None:
+        y: int = 0,) -> None:
         self.width = width
         self.height = height
         self.fps = fps

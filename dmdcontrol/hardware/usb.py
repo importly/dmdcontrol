@@ -227,8 +227,7 @@ def select_pyusb_device_for_mapping(
     usb_id_path,
     usb_devpath_contains=None,
     candidates=None,
-    pyusb_devices=None,
-):
+    pyusb_devices=None,):
     devices = _load_pyusb_devices(pyusb_devices)
     try:
         candidate = resolve_usb_candidate(

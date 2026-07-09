@@ -34,8 +34,7 @@ class _FakeDisplaySequence:
         entries=None,
         exposure_us=8000,
         startup_mode="blank_leader",
-        leader_vsyncs=16,
-    ):
+        leader_vsyncs=16,):
         self.provider = _FakeSequenceProvider()
         self._entries = entries or [
             (0, exposure_us, False, 1, 7, 0, False, 0),
@@ -83,7 +82,7 @@ class _FakeDisplaySequence:
 def test_pair_runtime_parser_defaults_trigger_delay_to_zero():
     from dmdcontrol.runtime import pair
 
-    args = pair._build_parser().parse_args(["--dry-run-timing"])
+    args = pair._build_parser().parse_args([])
 
     assert args.trigger_out_2_rising_delay_us == 0
 
@@ -92,7 +91,7 @@ def test_pair_runtime_parser_accepts_negative_trigger_rising_delay():
     from dmdcontrol.runtime import pair
 
     args = pair._build_parser().parse_args(
-        ["--dry-run-timing", "--trigger-out-2-rising-delay-us", "-20"])
+        ["--trigger-out-2-rising-delay-us", "-20"])
 
     assert args.trigger_out_2_rising_delay_us == -20
 
@@ -103,7 +102,7 @@ def test_pair_runtime_parser_rejects_trigger_rising_delay_outside_effective_rang
 
     with pytest.raises(SystemExit):
         pair._build_parser().parse_args(
-            ["--dry-run-timing", "--trigger-out-2-rising-delay-us", value])
+            ["--trigger-out-2-rising-delay-us", value])
 
 
 def test_pair_runtime_parser_rejects_removed_trigger_delay_fraction_flag():
@@ -111,21 +110,21 @@ def test_pair_runtime_parser_rejects_removed_trigger_delay_fraction_flag():
 
     with pytest.raises(SystemExit):
         pair._build_parser().parse_args(
-            ["--dry-run-timing", "--trigger-out-2-delay-fraction", "0.05"])
+            ["--trigger-out-2-delay-fraction", "0.05"])
 
 
 def test_pair_runtime_parser_rejects_removed_hz_flag():
     from dmdcontrol.runtime import pair
 
     with pytest.raises(SystemExit):
-        pair._build_parser().parse_args(["--dry-run-timing", "--hz", "120"])
+        pair._build_parser().parse_args(["--hz", "120"])
 
 
 def test_pair_runtime_parser_accepts_generic_exposure_us():
     from dmdcontrol.runtime import pair
 
     args = pair._build_parser().parse_args(
-        ["--dry-run-timing", "--test", "dot", "--exposure-us", "4000"])
+        ["--test", "dot", "--exposure-us", "4000"])
 
     assert args.exposure_us == 4000
 
@@ -134,7 +133,6 @@ def test_pair_runtime_parser_accepts_static_images_options():
     from dmdcontrol.runtime import pair
 
     args = pair._build_parser().parse_args([
-        "--dry-run-timing",
         "--test",
         STATIC_IMAGES_PAIR_TEST,
         "--static-image-a",
@@ -154,7 +152,7 @@ def test_pair_runtime_parser_accepts_static_images_options():
 def test_pair_runtime_rejects_negative_dark_time():
     from dmdcontrol.runtime import pair
 
-    args = pair._build_parser().parse_args(["--dry-run-timing", "--dark-time-us", "-1"])
+    args = pair._build_parser().parse_args(["--dark-time-us", "-1"])
 
     with pytest.raises(SystemExit, match="--dark-time-us must be non-negative"):
         pair._validate_pair_args(args)
@@ -163,7 +161,7 @@ def test_pair_runtime_rejects_negative_dark_time():
 def test_pair_runtime_warns_that_dark_time_is_unreliable_in_video_pattern_mode(caplog):
     from dmdcontrol.runtime import pair
 
-    args = pair._build_parser().parse_args(["--dry-run-timing", "--dark-time-us", "100"])
+    args = pair._build_parser().parse_args(["--dark-time-us", "100"])
 
     pair._warn_dark_time_video_pattern_mode(args)
 
@@ -179,7 +177,7 @@ def test_pair_runtime_parser_rejects_removed_exposure_flags(flag):
     from dmdcontrol.runtime import pair
 
     with pytest.raises(SystemExit):
-        pair._build_parser().parse_args(["--dry-run-timing", flag, "4000"])
+        pair._build_parser().parse_args([flag, "4000"])
 
 
 def test_pair_runtime_parser_accepts_count_mode_options():
@@ -187,7 +185,6 @@ def test_pair_runtime_parser_accepts_count_mode_options():
 
     args = pair._build_parser().parse_args(
         [
-            "--dry-run-timing",
             "--test",
             A_COUNT_B_STATIC_PAIR_TEST,
             "--test-b",
@@ -215,7 +212,6 @@ def test_pair_runtime_parser_accepts_count_blank_after_each_count_alias():
 
     args = pair._build_parser().parse_args(
         [
-            "--dry-run-timing",
             "--test",
             A_COUNT_B_STATIC_PAIR_TEST,
             "--test-b",
@@ -239,7 +235,6 @@ def test_pair_runtime_allows_count_blank_with_frame_zero_trigger():
 
     args = pair._build_parser().parse_args(
         [
-            "--dry-run-timing",
             "--test",
             A_COUNT_B_STATIC_PAIR_TEST,
             "--count-end",
@@ -260,9 +255,9 @@ def test_pair_runtime_allows_count_blank_with_frame_zero_trigger():
 def test_pair_runtime_parser_accepts_paired_startup_leader_vsyncs():
     from dmdcontrol.runtime import pair
 
-    default_args = pair._build_parser().parse_args(["--dry-run-timing"])
+    default_args = pair._build_parser().parse_args([])
     explicit_args = pair._build_parser().parse_args(
-        ["--dry-run-timing", "--paired-startup-leader-vsyncs", "12"])
+        ["--paired-startup-leader-vsyncs", "12"])
 
     assert default_args.paired_startup_leader_vsyncs == 16
     assert explicit_args.paired_startup_leader_vsyncs == 12
@@ -273,7 +268,7 @@ def test_pair_runtime_parser_rejects_negative_paired_startup_leader_vsyncs():
 
     with pytest.raises(SystemExit):
         pair._build_parser().parse_args(
-            ["--dry-run-timing", "--paired-startup-leader-vsyncs", "-1"])
+            ["--paired-startup-leader-vsyncs", "-1"])
 
 
 def test_pair_runtime_auto_count_slots_uses_fastest_valid_timing():
@@ -281,7 +276,6 @@ def test_pair_runtime_auto_count_slots_uses_fastest_valid_timing():
 
     args = pair._build_parser().parse_args(
         [
-            "--dry-run-timing",
             "--test",
             A_COUNT_B_STATIC_PAIR_TEST,
             "--count-start",
@@ -306,7 +300,6 @@ def test_pair_runtime_auto_count_slots_uses_single_source_frame_blank_mode():
 
     args = pair._build_parser().parse_args(
         [
-            "--dry-run-timing",
             "--test",
             A_COUNT_B_STATIC_PAIR_TEST,
             "--count-start",
@@ -332,7 +325,6 @@ def test_pair_runtime_count_slots_accepts_auto_literal():
 
     args = pair._build_parser().parse_args(
         [
-            "--dry-run-timing",
             "--test",
             A_COUNT_B_STATIC_PAIR_TEST,
             "--count-start",
@@ -358,7 +350,6 @@ def test_pair_runtime_explicit_count_slots_override_is_preserved():
 
     args = pair._build_parser().parse_args(
         [
-            "--dry-run-timing",
             "--test",
             A_COUNT_B_STATIC_PAIR_TEST,
             "--count-start",
@@ -379,12 +370,11 @@ def test_pair_runtime_explicit_count_slots_override_is_preserved():
     assert args.count_slots_per_frame_mode == "explicit"
 
 
-def test_pair_runtime_rejects_blank_after_count_sequences_that_repeat_before_vsync():
+def test_pair_runtime_allows_short_blank_after_count_sequences_with_frame_change():
     from dmdcontrol.runtime import pair
 
     args = pair._build_parser().parse_args(
         [
-            "--dry-run-timing",
             "--test",
             A_COUNT_B_STATIC_PAIR_TEST,
             "--count-start",
@@ -400,16 +390,16 @@ def test_pair_runtime_rejects_blank_after_count_sequences_that_repeat_before_vsy
             "--count-blank-between-frames",
         ])
 
-    with pytest.raises(SystemExit, match="use a longer exposure such as --exposure-us 16000"):
-        pair._validate_pair_args(args)
+    pair._validate_pair_args(args)
 
+    assert args.count_slots_per_frame == 1
+    assert args.count_slots_per_frame_mode == "explicit"
 
 def test_pair_runtime_rejects_packed_count_slots_with_blank_after_each_count():
     from dmdcontrol.runtime import pair
 
     args = pair._build_parser().parse_args(
         [
-            "--dry-run-timing",
             "--test",
             A_COUNT_B_STATIC_PAIR_TEST,
             "--count-start",
@@ -429,12 +419,11 @@ def test_pair_runtime_rejects_packed_count_slots_with_blank_after_each_count():
         pair._validate_pair_args(args)
 
 
-def test_pair_runtime_auto_count_slots_rejects_ranges_without_valid_divisor():
+def test_pair_runtime_auto_count_slots_allows_frame_change_gated_short_groups():
     from dmdcontrol.runtime import pair
 
     args = pair._build_parser().parse_args(
         [
-            "--dry-run-timing",
             "--test",
             A_COUNT_B_STATIC_PAIR_TEST,
             "--count-start",
@@ -445,6 +434,32 @@ def test_pair_runtime_auto_count_slots_rejects_ranges_without_valid_divisor():
             "4000",
             "--dark-time-us",
             "1000",
+            "--seq-utilization",
+            "1.0",
+        ])
+
+    pair._validate_pair_args(args)
+
+    assert args.count_slots_per_frame == 3
+    assert args.count_slots_per_frame_mode == "auto"
+
+def test_pair_runtime_auto_count_slots_rejects_ranges_without_valid_divisor():
+    from dmdcontrol.runtime import pair
+
+    args = pair._build_parser().parse_args(
+        [
+            "--test",
+            A_COUNT_B_STATIC_PAIR_TEST,
+            "--count-start",
+            "1",
+            "--count-end",
+            "131",
+            "--exposure-us",
+            "4000",
+            "--dark-time-us",
+            "1000",
+            "--seq-utilization",
+            "1.0",
         ])
 
     with pytest.raises(SystemExit, match="No valid --count-slots-per-frame"):
@@ -455,9 +470,9 @@ def test_pair_runtime_parser_rejects_removed_numbers_recipe_and_flags():
     from dmdcontrol.runtime import pair
 
     for argv in (
-        ["--dry-run-timing", "--test", "a-numbers-b-static"],
-        ["--dry-run-timing", "--numbers", "1,2,3"],
-        ["--dry-run-timing", "--numbers-bitplane-order", "1,2,0"],
+        ["--test", "a-numbers-b-static"],
+        ["--numbers", "1,2,3"],
+        ["--numbers-bitplane-order", "1,2,0"],
     ):
         with pytest.raises(SystemExit):
             pair._build_parser().parse_args(argv)
@@ -468,7 +483,6 @@ def test_pair_runtime_parser_accepts_static_dot_radius():
 
     args = pair._build_parser().parse_args(
         [
-            "--dry-run-timing",
             "--test",
             "dot",
             "--dot-radius",
@@ -478,7 +492,7 @@ def test_pair_runtime_parser_accepts_static_dot_radius():
     assert args.dot_radius == 17
 
 
-def test_static_dot_dry_run_uses_generic_exposure_for_dynamic_entry_count(monkeypatch):
+def test_static_dot_sequence_uses_generic_exposure_for_dynamic_entry_count(monkeypatch):
     from dmdcontrol.runtime import display_sequence, pair
 
     captured = {}
@@ -504,24 +518,22 @@ def test_static_dot_dry_run_uses_generic_exposure_for_dynamic_entry_count(monkey
 
     monkeypatch.setattr(display_sequence, "build_lut_entries", fake_build_lut_entries)
 
-    args = pair._build_parser().parse_args(
-        [
-            "--dry-run-timing",
-            "--test",
-            "dot",
-            "--exposure-us",
-            "4000",
-            "--dark-time-us",
-            "250",
-        ])
-    pair_config = pair.PairConfig(
-        dmd_a=types.SimpleNamespace(xrandr_output="DP-2", usb_id_path="usb-a"),
-        dmd_b=types.SimpleNamespace(xrandr_output="DP-0", usb_id_path="usb-b"),
+    args = pair._build_parser().parse_args([
+        "--test",
+        "dot",
+        "--exposure-us",
+        "4000",
+        "--dark-time-us",
+        "250",
+    ])
+
+    sequence = display_sequence.build_paired_display_sequence(
+        args,
+        engine=types.SimpleNamespace(window=None),
         target_hz=60,
     )
 
-    pair._dry_run_timing(args, pair_config)
-
+    assert len(sequence.lut_entries()) == 3
     assert captured == {
         "entries_count": None,
         "per_entry_exposure_us": 4000,
@@ -725,11 +737,10 @@ def test_pair_live_preview_metadata_includes_count_mode():
     }
 
 
-def test_pair_dry_run_timing_rejects_count_sequence_when_dark_time_exceeds_budget():
+def test_pair_runtime_rejects_count_sequence_when_dark_time_exceeds_budget():
     with pytest.raises(SystemExit, match="need .* usable"):
         main(
             [
-                "--dry-run-timing",
                 "--test",
                 A_COUNT_B_STATIC_PAIR_TEST,
                 "--count-start",
@@ -745,7 +756,7 @@ def test_pair_dry_run_timing_rejects_count_sequence_when_dark_time_exceeds_budge
             ])
 
 
-def test_run_prepared_pair_starts_render_coordinator_without_post_start_sleep(monkeypatch):
+def test_run_starts_render_coordinator_without_post_start_sleep(monkeypatch):
     import dmdcontrol.hardware.dlpc900 as dlpc_module
     import dmdcontrol.patterns.paired as paired_module
     from dmdcontrol.runtime import pair
@@ -854,7 +865,7 @@ def test_run_prepared_pair_starts_render_coordinator_without_post_start_sleep(mo
         runtime_seconds=1,
     )
 
-    assert pair._run_prepared_pair(args, pair_config) == 0
+    assert pair._run(args, pair_config=pair_config) == 0
     assert calls["post_start_delay_s"] == 0.0
     assert calls["verify"] is False
     assert calls["startup_leader_vsyncs"] == 16
@@ -867,7 +878,7 @@ def test_run_prepared_pair_starts_render_coordinator_without_post_start_sleep(mo
     assert [dlpc.closed for dlpc in dlpcs] == [True, True]
 
 
-def test_run_prepared_pair_uses_single_render_coordinator_without_pump_handoff(monkeypatch):
+def test_run_uses_single_render_coordinator_without_pump_handoff(monkeypatch):
     import dmdcontrol.hardware.dlpc900 as dlpc_module
     import dmdcontrol.patterns.paired as paired_module
     from dmdcontrol.runtime import pair
@@ -992,10 +1003,10 @@ def test_run_prepared_pair_uses_single_render_coordinator_without_pump_handoff(m
         runtime_seconds=1,
     )
 
-    assert pair._run_prepared_pair(
+    assert pair._run(
         args,
-        pair_config,
-        before_sequencer_start=fake_before_start,
+        pair_config=pair_config,
+        before_start=fake_before_start,
     ) == 0
 
     assert ("start_render_coordinator", 12) in calls
@@ -1013,7 +1024,7 @@ def test_run_prepared_pair_uses_single_render_coordinator_without_pump_handoff(m
     }
 
 
-def test_run_prepared_pair_primes_count_blank_frame_before_sequencer_start(monkeypatch):
+def test_run_primes_count_blank_frame_before_start(monkeypatch):
     import dmdcontrol.hardware.dlpc900 as dlpc_module
     import dmdcontrol.patterns.paired as paired_module
     from dmdcontrol.patterns.paired import A_COUNT_B_STATIC_PAIR_TEST
@@ -1135,10 +1146,10 @@ def test_run_prepared_pair_primes_count_blank_frame_before_sequencer_start(monke
         count_blank_between_frames=True,
     )
 
-    assert pair._run_prepared_pair(
+    assert pair._run(
         args,
-        pair_config,
-        before_sequencer_start=fake_before_start,
+        pair_config=pair_config,
+        before_start=fake_before_start,
     ) == 0
 
     assert ("start_render_coordinator", 0) in calls
@@ -1155,7 +1166,7 @@ def test_run_prepared_pair_primes_count_blank_frame_before_sequencer_start(monke
     }
 
 
-def test_run_prepared_pair_uses_display_sequence_instead_of_lut_override(monkeypatch):
+def test_run_uses_display_sequence_instead_of_lut_override(monkeypatch):
     import dmdcontrol.hardware.dlpc900 as dlpc_module
     import dmdcontrol.patterns.paired as paired_module
     from dmdcontrol.patterns.paired import FramePair
@@ -1282,7 +1293,7 @@ def test_run_prepared_pair_uses_display_sequence_instead_of_lut_override(monkeyp
         runtime_seconds=1,
     )
 
-    assert pair._run_prepared_pair(args, pair_config) == 0
+    assert pair._run(args, pair_config=pair_config) == 0
     assert ("load", [(0, 8000, True, 1, 7, 0, False, 0)]) in calls
 
 
