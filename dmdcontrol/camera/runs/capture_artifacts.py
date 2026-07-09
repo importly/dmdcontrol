@@ -38,8 +38,7 @@ def write_capture_artifacts(
     trigger_cycle_length=None,
     accumulation_cycles=None,
     contact_sheet_columns=None,
-    startup_leader_trigger_count=0,
-):
+    startup_leader_trigger_count=0,):
     _validate_capture_artifact_options(
         max_accumulation_triggers=max_accumulation_triggers,
         trigger_cycle_length=trigger_cycle_length,
@@ -124,8 +123,7 @@ def _validate_capture_artifact_options(
     max_accumulation_triggers,
     trigger_cycle_length,
     accumulation_cycles,
-    startup_leader_trigger_count,
-):
+    startup_leader_trigger_count,):
     if max_accumulation_triggers is not None and max_accumulation_triggers <= 0:
         raise ValueError("max_accumulation_triggers must be positive")
     if trigger_cycle_length is not None and trigger_cycle_length <= 0:
@@ -253,8 +251,7 @@ def _capture_summary(
     rising_trigger_timestamps,
     rising_triggers,
     trigger_stages,
-    window_us,
-):
+    window_us,):
     summary = {
         "actual_trigger_count":
         len(rising_triggers),

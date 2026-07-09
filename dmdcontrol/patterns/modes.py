@@ -118,8 +118,7 @@ def _clamp(value: float, lo: float, hi: float) -> float:
 
 def default_calibration_square_state(
     width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-) -> CalibrationSquareState:
+    height: int = DMD_HEIGHT,) -> CalibrationSquareState:
     size = max(
         MIN_CALIBRATION_SQUARE_PX,
         min(width,
@@ -136,8 +135,7 @@ def default_calibration_square_state(
 def clamp_calibration_square_state(
     state: CalibrationSquareState,
     width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-) -> CalibrationSquareState:
+    height: int = DMD_HEIGHT,) -> CalibrationSquareState:
     max_size = max(MIN_CALIBRATION_SQUARE_PX, min(width, height))
     return CalibrationSquareState(
         x=float(_clamp(state.x,
@@ -158,8 +156,7 @@ def clamp_calibration_square_state(
 def calibration_square_bounds(
     state: CalibrationSquareState,
     width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-) -> tuple[int, int, int, int]:
+    height: int = DMD_HEIGHT,) -> tuple[int, int, int, int]:
     half = state.size / 2.0
     angle = np.deg2rad(state.angle_deg)
     cos_a = np.cos(angle)
@@ -201,8 +198,7 @@ def apply_calibration_square_commands(
     height: int = DMD_HEIGHT,
     move_px: int = 10,
     rotation_deg: float = 2,
-    size_step_px: int = 10,
-) -> CalibrationSquareState:
+    size_step_px: int = 10,) -> CalibrationSquareState:
     x = state.x
     y = state.y
     size = state.size
@@ -241,8 +237,7 @@ def generate_calibration_square_mask(
     center_x: float | None = None,
     center_y: float | None = None,
     size_px: float | None = None,
-    angle_deg: float = 0.0,
-) -> BinaryMask:
+    angle_deg: float = 0.0,) -> BinaryMask:
     if width <= 0 or height <= 0:
         raise ValueError("width and height must be positive")
     if center_x is None:
@@ -294,8 +289,7 @@ def _draw_digit_segments(
     y0: int,
     digit_w: int,
     digit_h: int,
-    min_stroke_px: int = 1,
-) -> None:
+    min_stroke_px: int = 1,) -> None:
     x1 = x0 + digit_w
     y1 = y0 + digit_h
     mid = (y0 + y1) // 2
@@ -340,8 +334,7 @@ def generate_decimal_number_rgb(
     number: int,
     width: int = DMD_WIDTH,
     height: int = DMD_HEIGHT,
-    size_px: int | None = None,
-) -> RGBFrame:
+    size_px: int | None = None,) -> RGBFrame:
     """Generate a binary RGB seven-segment decimal label frame."""
     if number < 0:
         raise ValueError("number must be non-negative")
@@ -415,8 +408,7 @@ PATTERN_NAMES = list(PATTERN_MODES.keys())
 
 def build_patterns(
     engine: Any,
-    mode: str,
-) -> BuiltPattern:
+    mode: str,) -> BuiltPattern:
     """Returns (label, patterns_or_None, dynamic_kind) for the given mode name."""
     pattern_mode = PATTERN_MODES[mode]
     result = pattern_mode.builder(engine)

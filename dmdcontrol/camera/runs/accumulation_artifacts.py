@@ -39,8 +39,7 @@ def _process_accumulation_triggers(
     max_accumulation_triggers,
     trigger_cycle_length,
     accumulation_cycles,
-    startup_leader_trigger_count=0,
-):
+    startup_leader_trigger_count=0,):
     raw = filter_rising_triggers(triggers)
     semantic_input, leader_skip_metadata = _skip_startup_leader_triggers(
         raw,
@@ -117,8 +116,7 @@ def _limit_trigger_cycles(
     triggers,
     *,
     trigger_cycle_length,
-    accumulation_cycles,
-):
+    accumulation_cycles,):
     available_full_cycles = (
         len(triggers) // int(trigger_cycle_length) if trigger_cycle_length is not None else 0)
     metadata = {

@@ -1,3 +1,4 @@
+import json
 import sys
 from types import SimpleNamespace
 
@@ -16,6 +17,18 @@ class FakeCapture:
 
     def getEventResolution(self):
         return (320, 240)
+
+    def getCameraName(self):
+        return "DVXplorer_TEST"
+
+    def getContrastThresholdOn(self):
+        return 3
+
+    def getContrastThresholdOff(self):
+        return 3
+
+    def getReadoutFPS(self):
+        return "VARIABLE_5000"
 
     def getNextEventBatch(self):
         self.event_reads += 1
@@ -43,7 +56,7 @@ def _args(**overrides):
     return SimpleNamespace(**values)
 
 
-def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
+def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path, capsys):
     from dmdcontrol.camera import session
 
     capture = FakeCapture()
@@ -96,6 +109,21 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
     assert opened_ready is ready
     assert capture.event_reads == 1
     assert capture.trigger_reads == 1
+    output = capsys.readouterr().out
+    heading, payload_text = output.split("\n", 1)
+    payload = json.loads(payload_text)
+    assert heading == "=== Camera configuration (temporary diagnostic) ==="
+    assert payload["requested"] == {
+        "bias_sensitivity": "low",
+        "camera_flush_reads": 2,
+        "efps": "variable_5000",
+    }
+    assert payload["readback"]["getCameraName"] == "DVXplorer_TEST"
+    assert payload["readback"]["getContrastThresholdOn"] == 3
+    assert payload["readback"]["getContrastThresholdOff"] == 3
+    assert payload["readback"]["getReadoutFPS"] == "VARIABLE_5000"
+    assert "getNextEventBatch" not in payload["readback"]
+    assert "getNextTriggerBatch" not in payload["readback"]
     assert calls == [
         "open",
         ("performance",

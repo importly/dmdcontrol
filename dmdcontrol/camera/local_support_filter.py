@@ -67,8 +67,7 @@ def centered_local_support_mask(
     p: np.ndarray,
     resolution: tuple[int,
                       int],
-    config: LocalSupportFilterConfig,
-) -> np.ndarray:
+    config: LocalSupportFilterConfig,) -> np.ndarray:
     """Return boolean keep mask for centered causal local-support event filtering.
 
     This is intentionally not the exact DV Runtime YNoise/Yang source behavior.
@@ -147,8 +146,7 @@ def apply_local_support_filter_arrays(
     p: np.ndarray,
     resolution: tuple[int,
                       int],
-    config: LocalSupportFilterConfig,
-) -> tuple[dict[str,
+    config: LocalSupportFilterConfig,) -> tuple[dict[str,
                 np.ndarray],
            np.ndarray,
            LocalSupportFilterStats]:
@@ -226,8 +224,7 @@ def event_noise_filter_config_from_args(args: argparse.Namespace) -> LocalSuppor
 
 def event_noise_filter_metadata(
     config: LocalSupportFilterConfig,
-    stats: LocalSupportFilterStats | None = None,
-) -> dict:
+    stats: LocalSupportFilterStats | None = None,) -> dict:
     metadata = config.to_metadata()
     if not config.enabled:
         metadata["algorithm"] = "none"

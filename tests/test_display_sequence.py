@@ -53,6 +53,26 @@ def _count_args(**overrides):
     return types.SimpleNamespace(**defaults)
 
 
+def test_lut_slot_to_entry_separates_pattern_index_from_selected_bit_position():
+    slot = display_sequence.LutSlot(
+        bitplane_index=3,
+        exposure_us=1000,
+        dark_us=50,
+        trig2_enabled=False,
+        clear_after=True,
+        semantic_role="count",
+        semantic_label="count:1",
+    )
+
+    entry = slot.to_lut_entry(pattern_index=1)
+
+    assert entry.pattern_index == 1
+    assert entry.bit_position == 3
+    assert entry.image_pattern_index == 0
+    assert entry.bitplane_index == 3
+    assert entry.trig2_disabled is True
+
+
 def test_count_blank_sequence_pairs_each_frame_with_its_lut_slots():
     sequence = display_sequence.build_paired_display_sequence(
         _count_args(exposure_us=16000),
@@ -65,7 +85,7 @@ def test_count_blank_sequence_pairs_each_frame_with_its_lut_slots():
     assert sequence.startup_policy.mode == "blank_leader"
     assert sequence.startup_leader_metadata()["trigger_count"] == 16
     assert sequence.lut_entries() == [
-        LutEntry(0, 16000, True, 1, 7, 0, False, 0),
+        LutEntry(0, 16000, True, 1, 7, 0, False, 0, wait_for_trigger=True),
     ]
     assert sequence.expected_trigger_count() == 8
     assert sequence.timing["entries_count"] == 1
@@ -125,7 +145,7 @@ def test_exact_count_blank_sixty_sequence_keeps_frames_luts_and_provider_in_orde
     assert sequence.startup_policy.mode == "blank_leader"
     assert sequence.startup_leader_metadata()["trigger_count"] == 16
     assert sequence.lut_entries() == [
-        LutEntry(0, 16000, True, 1, 7, 0, False, 0),
+        LutEntry(0, 16000, True, 1, 7, 0, False, 0, wait_for_trigger=True),
     ]
     assert sequence.expected_trigger_count() == 120
 
@@ -173,8 +193,50 @@ def test_count_without_blank_sequence_uses_blank_leader_policy():
     assert sequence.startup_policy.mode == "blank_leader"
     assert sequence.startup_policy.leader_vsyncs == 16
     assert sequence.startup_leader_metadata()["trigger_count"] == 16
-    assert sequence.lut_entries() == [LutEntry(0, 16000, True, 1, 7, 0, False, 0)]
+    assert sequence.lut_entries() == [
+        LutEntry(0, 16000, True, 1, 7, 0, False, 0, wait_for_trigger=True),
+    ]
 
+
+def test_packed_count_sequence_waits_for_frame_change_only_on_first_slot():
+    sequence = display_sequence.build_paired_display_sequence(
+        _count_args(
+            count_end=8,
+            count_blank_between_frames=False,
+            count_slots_per_frame=4,
+            exposure_us=3000,
+        ),
+        target_hz=60,
+        engine=types.SimpleNamespace(window=None),
+        width=120,
+        height=160,
+    )
+
+    entries = sequence.lut_entries()
+    metadata = sequence.metadata()
+
+    assert metadata["source_frame_count"] == 2
+    assert metadata["lut_slots_per_source_frame"] == 4
+    assert metadata["expected_trigger_count"] == 8
+    assert [entry.pattern_index for entry in entries] == [0, 1, 2, 3]
+    assert [entry.bit_position for entry in entries] == [0, 1, 2, 3]
+    assert [entry.wait_for_trigger for entry in entries] == [True, False, False, False]
+    assert [frame.semantic_labels for frame in sequence.frames] == [
+        ("count:1", "count:2", "count:3", "count:4"),
+        ("count:5", "count:6", "count:7", "count:8"),
+    ]
+    assert [[slot.bitplane_index for slot in frame.lut_slots] for frame in sequence.frames] == [
+        [0, 1, 2, 3],
+        [0, 1, 2, 3],
+    ]
+    assert [[slot.wait_for_trigger for slot in frame.lut_slots] for frame in sequence.frames] == [
+        [True, False, False, False],
+        [True, False, False, False],
+    ]
+    assert [
+        entry["plane_label"]
+        for entry in sequence.preview_metadata()["lut"]["entries"]
+    ] == ["G0", "G1", "G2", "G3"]
 
 def test_removed_numbers_sequence_mode_is_rejected():
     with np.testing.assert_raises(ValueError):

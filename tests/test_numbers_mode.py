@@ -75,12 +75,12 @@ class NumbersModeTests(unittest.TestCase):
             with self.subTest(removed_mode=removed_mode):
                 with self.assertRaises(SystemExit):
                     single._build_parser().parse_args(
-                        ["--dry-run-timing", "--test", removed_mode])
+                        ["--test", removed_mode])
 
     def test_single_runtime_rejects_removed_numbers_size_option(self):
         with self.assertRaises(SystemExit):
             single._build_parser().parse_args(
-                ["--dry-run-timing", "--test", "checkerboard", "--numbers-size-px", "80"])
+                ["--test", "checkerboard", "--numbers-size-px", "80"])
 
 
 if __name__ == "__main__":

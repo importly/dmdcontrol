@@ -41,8 +41,7 @@ def compute_kernel_lut_override(
     exposure_us: int | None = None,
     target_hz: float | None = None,
     sequence_utilization: float | None = None,
-    dark_time_us: int | None = None,
-) -> KernelLutOverride:
+    dark_time_us: int | None = None,) -> KernelLutOverride:
     if not enabled or exposure_us is None:
         return KernelLutOverride(None, None)
     if target_hz is None or sequence_utilization is None:
@@ -58,8 +57,7 @@ def compute_kernel_lut_override(
 def generate_kernel_masks(
     width: int = DMD_WIDTH,
     height: int = DMD_HEIGHT,
-    kernel_px: int = 30,
-) -> list[BinaryMaskArray]:
+    kernel_px: int = 30,) -> list[BinaryMaskArray]:
     """Generate 512 binary masks, one per 3x3 binary kernel variation."""
     if kernel_px % 3 != 0:
         raise ValueError(f"kernel_px ({kernel_px}) must be a multiple of 3")
@@ -85,8 +83,7 @@ def pack_kernel_frames(
     engine: Any,
     masks: Sequence[BinaryMaskArray],
     slots_per_frame: int = BITPLANES,
-    blank_end_frame: bool = False,
-) -> list[RGBFrameArray]:
+    blank_end_frame: bool = False,) -> list[RGBFrameArray]:
     """Pack kernel masks into DisplayPort RGB frames consumed by the LUT."""
     if slots_per_frame < 1 or slots_per_frame > BITPLANES:
         raise ValueError(f"slots_per_frame ({slots_per_frame}) must be in [1, {BITPLANES}].")
@@ -107,8 +104,7 @@ def build_kernel_frames(
     kernel_px: int,
     slots_per_frame: int = BITPLANES,
     leader_frames: int = 3,
-    blank_end_frame: bool = True,
-) -> KernelFrameBuild:
+    blank_end_frame: bool = True,) -> KernelFrameBuild:
     if leader_frames < 0:
         raise ValueError("leader_frames must be non-negative")
     kernel_masks = generate_kernel_masks(engine.width, engine.height, kernel_px)
@@ -142,8 +138,7 @@ class KernelFrameProvider:
         self,
         frames: Sequence[RGBFrameArray],
         black_frame: RGBFrameArray,
-        single_shot: bool = False,
-    ) -> None:
+        single_shot: bool = False,) -> None:
         if not frames:
             raise ValueError("frames must not be empty")
         self._frames = frames

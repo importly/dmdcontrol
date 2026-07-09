@@ -31,9 +31,6 @@ from dmdcontrol.camera.runs import (
 from dmdcontrol.camera.session import close_camera_resources
 from dmdcontrol.camera.session import open_ready_camera as _open_ready_camera
 from dmdcontrol.camera.sync_check_metadata import (
-    _sync_check_test_metadata as _sync_check_test_metadata,
-)
-from dmdcontrol.camera.sync_check_metadata import (
     sync_check_metadata as _sync_check_metadata,
 )
 from dmdcontrol.camera.sync_check_runtime import (
@@ -133,7 +130,6 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python -m dmdcontrol camera sync-check",
         description="Paired DMD + DVXplorer sync check.",
     )
-    parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--output-root", default=None)
     parser.add_argument(
         "--name-override",
@@ -256,17 +252,9 @@ def build_parser() -> argparse.ArgumentParser:
 def _run_pair_with_callback(pair_request, before_start):
     from dmdcontrol.runtime import pair as pair_module
 
-    return pair_module.run_with_before_start_namespace(pair_request.to_namespace(), before_start)
+    return pair_module._run(pair_request.to_namespace(), before_start=before_start)
 
 
-def _validate_pair_dry_run_timing(args: argparse.Namespace) -> None:
-    from dmdcontrol.runtime import pair as pair_module
-
-    try:
-        pair_module.run_namespace(
-            pair_runtime_request_from_args(args).to_namespace(dry_run_timing=True))
-    except ValueError as exc:
-        raise SystemExit(f"Invalid paired DMD timing: {exc}") from exc
 
 
 def _copy_sweep_metadata(args: argparse.Namespace, metadata: dict[str, object]) -> None:
@@ -286,8 +274,7 @@ def _start_recording(
     writer,
     event_records,
     trigger_records,
-    accumulation_window_us,
-):
+    accumulation_window_us,):
     recording = AsyncCapture(
         capture,
         writer,
@@ -335,8 +322,7 @@ def _write_capture_artifacts_for_sync_check(
     trigger_records,
     event_filter,
     accumulation_window_us,
-    startup_leader_trigger_count=0,
-):
+    startup_leader_trigger_count=0,):
     return write_capture_artifacts(
         run,
         events=event_records,
@@ -380,14 +366,12 @@ class SyncCheckCaptureSession:
         capture: object,
         writer: object,
         ready: CameraReadyState,
-        command_argv: list[str] | None,
-    ) -> "SyncCheckCaptureSession":
+        command_argv: list[str] | None,) -> "SyncCheckCaptureSession":
         event_filter = event_noise_filter_config_from_args(args)
         command = command_argv or camera_command_argv("sync-check", None)
         metadata = _sync_check_metadata(
             args,
             event_filter,
-            dry_run=False,
             command=command,
         )
         _copy_sweep_metadata(args, metadata)
@@ -476,29 +460,6 @@ class SyncCheckCaptureSession:
         self.recording = None
 
 
-def dry_run(args: argparse.Namespace, command_argv: list[str] | None = None):
-    _validate_pair_dry_run_timing(args)
-    run = create_run_directory("sync-check", args.output_root, timestamp=args.timestamp)
-    event_filter = event_noise_filter_config_from_args(args)
-    trigger_policy = _trigger_policy(args)
-    command = command_argv or camera_command_argv("sync-check", None)
-    metadata = _sync_check_metadata(args, event_filter, dry_run=True, command=command)
-    write_json(run.timing_path, trigger_policy)
-    write_run_metadata(
-        run,
-        metadata,
-        artifacts=["metadata.json",
-                   "timing.json",
-                   "command.txt",
-                   "run.log"],
-    )
-    run.command_path.write_text(
-        command_text(command),
-        encoding="utf-8",
-    )
-    run.log_path.write_text("dry-run\n", encoding="utf-8")
-    return run
-
 
 def live_capture(
     args: argparse.Namespace,
@@ -506,8 +467,7 @@ def live_capture(
     capture,
     writer,
     ready,
-    command_argv: list[str] | None = None,
-) -> int:
+    command_argv: list[str] | None = None,) -> int:
     session = SyncCheckCaptureSession.create(args, run, capture, writer, ready, command_argv)
     try:
         session.write_initial_files()
@@ -524,6 +484,7 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
     writer = None
     try:
         capture, writer, ready = _open_ready_camera(run, args)
+        
         return live_capture(args, run, capture, writer, ready, command_argv=command_argv)
     finally:
         resources = {"writer": writer, "capture": capture}
@@ -533,7 +494,4 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     command_argv = camera_command_argv("sync-check", argv)
-    if args.dry_run:
-        dry_run(args, command_argv=command_argv)
-        return 0
     return live(args, command_argv=command_argv)

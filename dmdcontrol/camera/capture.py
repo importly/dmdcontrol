@@ -48,8 +48,7 @@ class AsyncCapture:
         post_trigger_event_batches=0,
         post_trigger_event_time_us=0,
         stop_drain_reads=DEFAULT_STOP_DRAIN_READS,
-        stop_drain_idle_reads=DEFAULT_STOP_DRAIN_IDLE_READS,
-    ):
+        stop_drain_idle_reads=DEFAULT_STOP_DRAIN_IDLE_READS,):
         self.capture = capture
         self.writer = writer
         self.expected_trigger_count = expected_trigger_count
@@ -102,8 +101,7 @@ class AsyncCapture:
 def validate_camera_ready(
     capture,
     stream_rearm=None,
-    trigger_configuration=None,
-) -> CameraReadyState:
+    trigger_configuration=None,) -> CameraReadyState:
     event_available = bool(capture.isEventStreamAvailable())
     trigger_available = bool(capture.isTriggerStreamAvailable())
     if not event_available:
@@ -251,8 +249,7 @@ def record_until_trigger_count(
     post_trigger_event_batches=0,
     post_trigger_event_time_us=0,
     stop_drain_reads=DEFAULT_STOP_DRAIN_READS,
-    stop_drain_idle_reads=DEFAULT_STOP_DRAIN_IDLE_READS,
-) -> CaptureResult:
+    stop_drain_idle_reads=DEFAULT_STOP_DRAIN_IDLE_READS,) -> CaptureResult:
     deadline = (time.time() + timeout_s if timeout_s is not None and timeout_s > 0 else None)
     trigger_count = 0
     event_count = 0

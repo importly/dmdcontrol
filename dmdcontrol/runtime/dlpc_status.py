@@ -106,7 +106,9 @@ def log_board_snapshot(dlpc: "DLPC900", tag: str) -> None:
     if cs:
         logger.debug(
             f"Channel Swap:         {cs['swap_label']} (port {cs['port']}, raw {cs['raw']})")
-        if cs["swap_label"] != "ABC":
+        if cs["swap_label"] == "BAC":
+            logger.debug("  EVM RGB input swap ABC->BAC active; logical RGB maps to DLPC900 pins.")
+        elif cs["swap_label"] != "ABC":
             logger.debug(
                 f"  Note: non-default channel swap '{cs['swap_label']}' active. Affects RGB->bitplane pin mapping."
             )
@@ -150,8 +152,7 @@ def _bit6_is_cosmetic(dlpc: "DLPC900", hw: int | None) -> bool:
 def ensure_video_pattern_mode(
     dlpc: "DLPC900",
     retries: int = 3,
-    poll_timeout_s: float = 1.2,
-) -> bool:
+    poll_timeout_s: float = 1.2,) -> bool:
     mode, _ = dlpc.get_display_mode()
     if mode == 2:
         return True

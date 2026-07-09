@@ -8,11 +8,6 @@ source "$SCRIPT_DIR/scripts/dmd_shell_common.sh"
 
 dmd_parse_dmd_config_arg "$@"
 
-if dmd_has_flag --dry-run-timing "$@"; then
-    echo "=== Paired calibration dry-run timing (no DP wake, no X, no sudo) ==="
-    dmd_exec_python_module "$SCRIPT_DIR" dmdcontrol pair calibrate "$@"
-    exit 0
-fi
 
 CONTROL_FILE="$(dmd_create_calibr_square_control_file)"
 DMD_CALIBR_CONTROL_PID=""

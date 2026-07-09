@@ -25,8 +25,7 @@ def _blank_pair_frames() -> FramePair:
 
 def _display_frame_pair(
     engine: Any,
-    frame_pair: FramePair | tuple[RGBFrame, RGBFrame],
-) -> None:
+    frame_pair: FramePair | tuple[RGBFrame, RGBFrame],) -> None:
     frames = as_frame_pair(frame_pair)
     engine.display_pair(frames.a, frames.b)
 
@@ -59,8 +58,7 @@ class PairRenderCoordinator:
         startup_leader_pair: FramePair | tuple[RGBFrame, RGBFrame],
         startup_leader_vsyncs: int,
         preview_poster: LivePreviewPoster | None = None,
-        preview_metadata: dict[str, object] | None = None,
-    ) -> None:
+        preview_metadata: dict[str, object] | None = None,) -> None:
         self.engine = engine
         self.provider = provider
         self.args = args
@@ -189,8 +187,7 @@ def _start_pair_render_coordinator(
     startup_leader_pair: FramePair | tuple[RGBFrame, RGBFrame],
     startup_leader_vsyncs: int,
     preview_poster: LivePreviewPoster | None = None,
-    preview_metadata: dict[str, object] | None = None,
-) -> PairRenderCoordinator:
+    preview_metadata: dict[str, object] | None = None,) -> PairRenderCoordinator:
     return PairRenderCoordinator(
         engine,
         provider,

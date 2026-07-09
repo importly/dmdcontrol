@@ -117,12 +117,11 @@ class PairRuntimeRequest:
             verbose=args.verbose or 0,
         )
 
-    def to_namespace(self, *, dry_run_timing: bool = False) -> argparse.Namespace:
+    def to_namespace(self) -> argparse.Namespace:
         from dmdcontrol.runtime import pair as pair_module
 
         namespace = pair_module._build_parser().parse_args([])
         overrides = {
-            "dry_run_timing": dry_run_timing,
             "test": self.test,
             "test_b": self.test_b,
             "b_dot_x": self.b_dot_x,
@@ -154,8 +153,8 @@ class PairRuntimeRequest:
         vars(namespace).update(overrides)
         return namespace
 
-    def to_argv(self, *, dry_run_timing: bool = False) -> list[str]:
-        pair_args = ["--dry-run-timing"] if dry_run_timing else []
+    def to_argv(self) -> list[str]:
+        pair_args: list[str] = []
         pair_args.extend(_argv_options((
             ("--test", self.test),
             ("--test-b", self.test_b),
@@ -194,8 +193,7 @@ def pair_runtime_request_from_args(args: argparse.Namespace) -> PairRuntimeReque
 def _argv_options(
     pairs: Iterable[tuple[str, object | None]],
     *,
-    skip_none: bool = False,
-) -> list[str]:
+    skip_none: bool = False,) -> list[str]:
     return [
         item
         for flag, value in pairs

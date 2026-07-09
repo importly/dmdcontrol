@@ -12,8 +12,7 @@ def _write_accumulation_image_artifacts(
     accumulated,
     *,
     include_filtered,
-    contact_sheet_columns=None,
-):
+    contact_sheet_columns=None,):
     frame_artifacts = []
     filtered_frame_artifacts = []
     scale_max = _grayscale_scale_max(accumulated)
