@@ -9,7 +9,12 @@ from typing import Any
 
 import numpy as np
 
-from dmdcontrol.patterns.paired import FramePair, PairFrameProvider, RGBFrame, as_frame_pair
+from dmdcontrol.patterns.paired import (
+    FramePair,
+    PairFrameProvider,
+    RGBFrame,
+    as_frame_pair,
+)
 from dmdcontrol.preview.render import LivePreviewPoster
 from dmdcontrol.runtime.pair_reporting import _live_preview_metadata_for_frame
 from dmdcontrol.support.constants import DMD_HEIGHT, DMD_WIDTH
@@ -25,28 +30,30 @@ def _blank_pair_frames() -> FramePair:
 
 def _display_frame_pair(
     engine: Any,
-    frame_pair: FramePair | tuple[RGBFrame, RGBFrame],) -> None:
+    frame_pair: FramePair | tuple[RGBFrame, RGBFrame],
+) -> None:
     frames = as_frame_pair(frame_pair)
-    engine.display_pair(frames.a, frames.b)
+    engine.display_pair(np.fliplr(frames.a).copy(), np.fliplr(frames.b).copy())
 
 
 class PairRenderCoordinator:
-    """Own one GL render thread from blank pre-start through semantic playback.
+    """Own one GL render thread from configured startup through semantic playback.
 
     The paired DLPC900 startup path is intentionally staged this way:
-    1. Start one GL thread and keep both framebuffer halves on a blank pair while
-       USB/DLPC setup is still happening. This keeps the DisplayPort pipeline
-       active without advancing the semantic frame provider.
+    1. Start one GL thread and hold the configured startup pair while USB/DLPC
+       setup is still happening. Count/static mode uses A blank and B illuminated;
+       other modes may use a blank pair. This keeps the DisplayPort pipeline active
+       without advancing the semantic frame provider.
     2. Start both sequencers.
-    3. Display a fixed number of blank startup-leader VSYNCs. Those VSYNCs create
-       real TRIG_OUT_2 pulses, but they are intentionally non-semantic and are
-       recorded in metadata as `startup_leader.trigger_count`.
+    3. Display a fixed number of configured startup-leader VSYNCs. Those VSYNCs
+       create real TRIG_OUT_2 pulses, but they are intentionally non-semantic and
+       are recorded in metadata as `startup_leader.trigger_count`.
     4. Only then request provider.initial_pair(), which should be the first real
        displayed frame such as count "1" / dot.
 
     Camera analysis must skip the startup-leader trigger count before labeling
-    trigger windows. Otherwise the first blank leader pulse is mislabeled as the
-    first displayed number, shifting the whole sequence.
+    trigger windows. Otherwise the first non-semantic leader pulse is mislabeled
+    as the first displayed number, shifting the whole sequence.
     """
 
     def __init__(
@@ -58,7 +65,8 @@ class PairRenderCoordinator:
         startup_leader_pair: FramePair | tuple[RGBFrame, RGBFrame],
         startup_leader_vsyncs: int,
         preview_poster: LivePreviewPoster | None = None,
-        preview_metadata: dict[str, object] | None = None,) -> None:
+        preview_metadata: dict[str, object] | None = None,
+    ) -> None:
         self.engine = engine
         self.provider = provider
         self.args = args
@@ -119,8 +127,8 @@ class PairRenderCoordinator:
             # Nothing displayed before `release_semantic_frames()` is allowed to
             # consume provider frames. The sequencers may not be running yet, and
             # any triggers emitted during the startup leader are intentionally
-            # blank and skipped by downstream camera processing.
-            self._run_blank_until_released()
+            # non-semantic and skipped by downstream camera processing.
+            self._run_startup_pair_until_released()
             self._run_startup_leader()
             self._run_semantic_frames()
         except BaseException as exc:
@@ -131,7 +139,7 @@ class PairRenderCoordinator:
             except Exception:
                 pass
 
-    def _run_blank_until_released(self) -> None:
+    def _run_startup_pair_until_released(self) -> None:
         while (
             not self._stop.is_set()
             and not self._release_semantic.is_set()
@@ -150,7 +158,11 @@ class PairRenderCoordinator:
             _display_frame_pair(self.engine, self.startup_leader_pair)
 
     def _run_semantic_frames(self) -> None:
-        end_t = None if self.args.runtime_seconds <= 0 else time.time() + self.args.runtime_seconds
+        end_t = (
+            None
+            if self.args.runtime_seconds <= 0
+            else time.time() + self.args.runtime_seconds
+        )
         first_semantic_frame = self._primed_first_semantic_pair is None
         while (
             not self._stop.is_set()
@@ -175,7 +187,9 @@ class PairRenderCoordinator:
 
     def _first_semantic_pair(self) -> FramePair:
         if self._primed_first_semantic_pair is None:
-            self._primed_first_semantic_pair = as_frame_pair(self.provider.initial_pair())
+            self._primed_first_semantic_pair = as_frame_pair(
+                self.provider.initial_pair()
+            )
         return self._primed_first_semantic_pair
 
 
@@ -187,7 +201,8 @@ def _start_pair_render_coordinator(
     startup_leader_pair: FramePair | tuple[RGBFrame, RGBFrame],
     startup_leader_vsyncs: int,
     preview_poster: LivePreviewPoster | None = None,
-    preview_metadata: dict[str, object] | None = None,) -> PairRenderCoordinator:
+    preview_metadata: dict[str, object] | None = None,
+) -> PairRenderCoordinator:
     return PairRenderCoordinator(
         engine,
         provider,

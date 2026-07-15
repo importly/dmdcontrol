@@ -142,7 +142,7 @@ class CountSequenceConfig:
     def validate_timing(
         self,
         *,
-        exposure_us: int | None,
+        exposure_us: int,
         dark_time_us: int | None,
         target_hz: float = DEFAULT_HZ,
         sequence_utilization: float | None = DEFAULT_SEQUENCE_UTILIZATION,) -> LutTimingMetadata:
@@ -181,11 +181,13 @@ class CountSequenceConfig:
 def validate_count_lut_sequence_timing(
     *,
     count_slots_per_frame: int,
-    exposure_us: int | None,
+    exposure_us: int,
     dark_time_us: int | None,
     count_blank_between_frames: bool = False,
     target_hz: float = DEFAULT_HZ,
     sequence_utilization: float | None = DEFAULT_SEQUENCE_UTILIZATION,) -> LutTimingMetadata:
+    if exposure_us is None:
+        raise ValueError("--exposure-us is required for count LUT timing")
     utilization = (
         DEFAULT_SEQUENCE_UTILIZATION
         if sequence_utilization is None else sequence_utilization)
@@ -207,11 +209,13 @@ def resolve_count_slots_per_frame(
     *,
     count_start: int,
     count_end: int,
-    exposure_us: int | None,
+    exposure_us: int,
     dark_time_us: int | None,
     count_blank_between_frames: bool = False,
     target_hz: float = DEFAULT_HZ,
     sequence_utilization: float | None = DEFAULT_SEQUENCE_UTILIZATION,) -> int:
+    if exposure_us is None:
+        raise ValueError("--exposure-us is required to resolve count LUT slots")
     if count_start > count_end:
         raise ValueError("--count-start must be <= --count-end")
 

@@ -8,6 +8,12 @@ from dmdcontrol.camera.pair_capture import (
 )
 
 
+def _parse_args(args=None):
+    return build_parser().parse_args(
+        ["--exposure-us", "600", *(args or [])]
+    )
+
+
 class FakeNumpyBatch:
 
     def __init__(self, array):
@@ -46,7 +52,7 @@ def test_bounded_artifact_buffer_snapshots_numpy_event_batches():
 
 
 def test_pair_capture_parser_accepts_requested_command_shape():
-    args = build_parser().parse_args(
+    args = _parse_args(
         [
             "--test",
             "a-kernel-b-static",
@@ -79,16 +85,16 @@ def test_pair_capture_parser_accepts_requested_command_shape():
 
 def test_pair_capture_parser_rejects_removed_kernel_exposure_flag():
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["--kernel-exposure-us", "3000"])
+        _parse_args(["--kernel-exposure-us", "3000"])
 
 
 def test_pair_capture_parser_rejects_removed_camera_open_method_flag():
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["--camera-open-method", "modern"])
+        _parse_args(["--camera-open-method", "modern"])
 
 
 def test_pair_capture_parser_accepts_event_noise_filter_options():
-    args = build_parser().parse_args(
+    args = _parse_args(
         [
             "--event-noise-filter",
             "local-support",
@@ -112,26 +118,26 @@ def test_pair_capture_parser_accepts_event_noise_filter_options():
 
 
 def test_pair_capture_parser_defaults_to_bounded_accumulation_artifacts():
-    args = build_parser().parse_args([])
+    args = _parse_args([])
 
     assert args.max_accumulation_triggers == 512
     assert args.paired_startup_leader_vsyncs == 16
 
 
 def test_pair_capture_parser_defaults_trigger_delay_to_zero():
-    args = build_parser().parse_args([])
+    args = _parse_args([])
 
     assert args.trigger_out_2_rising_delay_us == 0
 
 
 def test_pair_capture_parser_accepts_negative_trigger_rising_delay():
-    args = build_parser().parse_args(["--trigger-out-2-rising-delay-us", "-20"])
+    args = _parse_args(["--trigger-out-2-rising-delay-us", "-20"])
 
     assert args.trigger_out_2_rising_delay_us == -20
 
 
 def test_pair_capture_runtime_args_forward_paired_startup_leader_vsyncs():
-    args = build_parser().parse_args(
+    args = _parse_args(
         [
             "--paired-startup-leader-vsyncs",
             "20",
@@ -145,40 +151,40 @@ def test_pair_capture_runtime_args_forward_paired_startup_leader_vsyncs():
 @pytest.mark.parametrize("value", ["-21", "19981"])
 def test_pair_capture_parser_rejects_trigger_rising_delay_outside_effective_range(value):
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["--trigger-out-2-rising-delay-us", value])
+        _parse_args(["--trigger-out-2-rising-delay-us", value])
 
 
 def test_pair_capture_parser_rejects_removed_trigger_delay_fraction_flag():
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["--trigger-out-2-delay-fraction", "0.05"])
+        _parse_args(["--trigger-out-2-delay-fraction", "0.05"])
 
 
 def test_pair_capture_parser_rejects_removed_hz_flag():
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["--hz", "120"])
+        _parse_args(["--hz", "120"])
 
 
 @pytest.mark.parametrize("flag", ["--camera-usb-reset", "--no-camera-usb-reset"])
 def test_pair_capture_parser_rejects_removed_usb_reset_flags(flag):
     with pytest.raises(SystemExit):
-        build_parser().parse_args([flag])
+        _parse_args([flag])
 
 
 @pytest.mark.parametrize("flag", ["--camera-stream-rearm", "--camera-shutdown-streams"])
 def test_pair_capture_parser_rejects_removed_camera_lifecycle_flags(flag):
     with pytest.raises(SystemExit):
-        build_parser().parse_args([flag])
+        _parse_args([flag])
 
 
 def test_pair_capture_parser_uses_mentor_style_camera_lifecycle_by_default():
-    args = build_parser().parse_args([])
+    args = _parse_args([])
 
     assert args.camera_flush_reads == 1
     assert args.camera_post_trigger_event_batches == 0
 
 
 def test_pair_capture_parser_accepts_name_override_alias():
-    args = build_parser().parse_args([
+    args = _parse_args([
         "--name-override",
         "pair-test-run",
     ])
@@ -187,7 +193,7 @@ def test_pair_capture_parser_accepts_name_override_alias():
 
 
 def test_pair_capture_runtime_args_forward_generic_exposure():
-    args = build_parser().parse_args(
+    args = _parse_args(
         [
             "--exposure-us",
             "3000",

@@ -1,10 +1,13 @@
 import unittest
 
-from dmdcontrol.runtime.lifecycle import LutEntry, build_lut_entries, compute_trigger_out_2_timing
+from dmdcontrol.runtime.lifecycle import (
+    LutEntry,
+    build_lut_entries,
+    compute_trigger_out_2_timing,
+)
 
 
 class TriggerTimingTests(unittest.TestCase):
-
     def test_default_rising_delay_is_zero_microseconds(self):
         timing = compute_trigger_out_2_timing()
 
@@ -45,6 +48,20 @@ class TriggerTimingTests(unittest.TestCase):
         self.assertEqual(entry.trig2_disabled, False)
         self.assertEqual(entry.bit_position, 0)
 
+    def test_build_lut_entries_can_hold_last_pattern_until_next_vsync(self):
+        entries, timing = build_lut_entries(
+            target_hz=60,
+            entries_count=1,
+            dark_time_us=0,
+            clear_last_after_exposure=False,
+        )
+
+        self.assertEqual(len(entries), 1)
+        self.assertFalse(entries[0].clear_after)
+        self.assertEqual(entries[0].dark_us, 0)
+        self.assertFalse(timing["clear_last_after_exposure"])
+        self.assertTrue(timing["hold_last_pattern_until_vsync"])
+
     def test_falling_edge_preserves_minimum_twenty_us_pulse(self):
         timing = compute_trigger_out_2_timing(rising_delay_us=15)
 
@@ -63,11 +80,17 @@ class TriggerTimingTests(unittest.TestCase):
             compute_trigger_out_2_timing(rising_delay_us=0.5)
 
     def test_rejects_rising_delay_below_dlpc900_range(self):
-        with self.assertRaisesRegex(ValueError, "rising_delay_us must be between -20 and 19980"):
+        with self.assertRaisesRegex(
+            ValueError, "rising_delay_us must be between -20 and 19980"
+        ):
             compute_trigger_out_2_timing(rising_delay_us=-21)
 
-    def test_rejects_rising_delay_when_derived_falling_delay_exceeds_dlpc900_range(self):
-        with self.assertRaisesRegex(ValueError, "rising_delay_us must be between -20 and 19980"):
+    def test_rejects_rising_delay_when_derived_falling_delay_exceeds_dlpc900_range(
+        self,
+    ):
+        with self.assertRaisesRegex(
+            ValueError, "rising_delay_us must be between -20 and 19980"
+        ):
             compute_trigger_out_2_timing(rising_delay_us=19981)
 
     def test_build_lut_entries_dark_time_reduces_exposure(self):

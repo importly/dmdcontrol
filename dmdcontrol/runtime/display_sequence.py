@@ -6,7 +6,8 @@ The paired pipeline intentionally has one ownership point for timing now:
 2. Each RGB image packs one or more semantic masks into selected bitplanes.
 3. Each `LutSlot` points at one packed bitplane and defines exposure, dark time,
    trigger enablement, and a human-readable semantic label.
-4. The paired runtime loads `sequence.lut_entries()` into both DLPC900 boards
+4. The paired runtime loads an explicit LUT plan for each DLPC900 board. Modes
+   with a static B aperture can hold B continuously while A keeps its own timing,
    and renders a sequence-backed cursor for prebuilt modes, so displayed frames
    and LUT timing cannot drift into separate interpretations.
 
@@ -22,6 +23,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Literal, TypedDict
+
+import numpy as np
 
 from dmdcontrol.patterns.calibration_square import (
     build_calibration_square_frame,
@@ -116,9 +119,12 @@ class LutSlot:
         self,
         *,
         pattern_index: int | None = None,
-        wait_for_trigger: bool | None = None,) -> LutEntry:
+        wait_for_trigger: bool | None = None,
+    ) -> LutEntry:
         bit_position = int(self.bitplane_index)
-        frame_change = self.wait_for_trigger if wait_for_trigger is None else wait_for_trigger
+        frame_change = (
+            self.wait_for_trigger if wait_for_trigger is None else wait_for_trigger
+        )
         return LutEntry(
             pattern_index=bit_position if pattern_index is None else int(pattern_index),
             exposure_us=int(self.exposure_us),
@@ -149,6 +155,16 @@ class StartupPolicy:
 
     mode: Literal["blank_leader", "prime_first_frame"]
     leader_vsyncs: int = 0
+    frame_role: str = "blank_pair"
+
+
+@dataclass(frozen=True)
+class DmdLutPlan:
+    """Controller-specific LUT contract for one side of a paired display."""
+
+    entries: tuple[LutEntry, ...]
+    timing: LutTimingMetadata
+    role: str = "semantic"
 
 
 @dataclass(frozen=True)
@@ -162,13 +178,17 @@ class PairedDisplaySequence:
     timing: LutTimingMetadata
     mode_metadata: dict[str, object] = field(default_factory=dict)
     provider: PairFrameProvider | None = None
+    startup_pair: FramePair | None = None
+    b_lut_plan: DmdLutPlan | None = None
 
     def __post_init__(self) -> None:
         if not self.frames:
             raise ValueError("PairedDisplaySequence requires at least one frame")
         slot_count = len(self.frames[0].lut_slots)
         if slot_count <= 0:
-            raise ValueError("PairedDisplaySequence frames require at least one LUT slot")
+            raise ValueError(
+                "PairedDisplaySequence frames require at least one LUT slot"
+            )
         for frame in self.frames:
             if len(frame.lut_slots) != slot_count:
                 raise ValueError("all source frames must use the same LUT slot count")
@@ -183,24 +203,38 @@ class PairedDisplaySequence:
             for index, slot in enumerate(self.lut_slots)
         ]
 
+    def lut_plan_a(self) -> DmdLutPlan:
+        return DmdLutPlan(
+            entries=tuple(self.lut_entries()),
+            timing=self.timing,
+            role="semantic",
+        )
+
+    def lut_plan_for_b(self) -> DmdLutPlan:
+        return self.b_lut_plan or self.lut_plan_a()
+
     def startup_leader_metadata(self) -> StartupLeaderMetadata:
         entries_count = len(self.lut_slots)
         leader_vsyncs = int(self.startup_policy.leader_vsyncs)
         startup_leader_trigger_count = 0
         if self.startup_policy.mode == "blank_leader":
             startup_leader_trigger_count = (
-                leader_vsyncs if self.timing.get("trig2_mode") == "frame_zero" else
-                leader_vsyncs * entries_count)
+                leader_vsyncs
+                if self.timing.get("trig2_mode") == "frame_zero"
+                else leader_vsyncs * entries_count
+            )
         phase_guard_trigger_count = self._phase_guard_trigger_count()
         return {
             "vsyncs": leader_vsyncs,
-            "trigger_count": int(startup_leader_trigger_count + phase_guard_trigger_count),
+            "trigger_count": int(
+                startup_leader_trigger_count + phase_guard_trigger_count
+            ),
             "entries_count": entries_count,
             "trig2_mode": str(self.timing.get("trig2_mode") or "per_bitplane"),
             "frame_role": (
                 "blank_phase_guard"
                 if phase_guard_trigger_count and not startup_leader_trigger_count
-                else "blank_startup_leader"
+                else self.startup_policy.frame_role
             ),
             "startup_policy": self.startup_policy.mode,
             "startup_leader_trigger_count": int(startup_leader_trigger_count),
@@ -245,9 +279,11 @@ class PairedDisplaySequence:
                             "semantic_role": slot.semantic_role,
                             "semantic_label": slot.semantic_label,
                             "wait_for_trigger": bool(slot.wait_for_trigger),
-                        } for slot in frame.lut_slots
+                        }
+                        for slot in frame.lut_slots
                     ],
-                } for frame in self.frames
+                }
+                for frame in self.frames
             ],
         }
 
@@ -256,12 +292,22 @@ class PairedDisplaySequence:
 
         metadata = dict(self.mode_metadata)
         metadata["display_sequence"] = self.metadata()
-        metadata["lut"] = build_lut_preview_metadata(self.lut_entries(), self.timing)
-        metadata["lut_applies_to"] = ["A", "B"]
+        plan_a = self.lut_plan_a()
+        plan_b = self.lut_plan_for_b()
+        preview_a = build_lut_preview_metadata(plan_a.entries, plan_a.timing)
+        preview_b = build_lut_preview_metadata(plan_b.entries, plan_b.timing)
+        metadata["lut"] = preview_a
+        metadata["lut_by_dmd"] = {
+            "A": {"role": plan_a.role, "lut": preview_a},
+            "B": {"role": plan_b.role, "lut": preview_b},
+        }
+        metadata["lut_applies_to"] = ["A", "B"] if self.b_lut_plan is None else ["A"]
         return metadata
 
     def expected_trigger_count(self) -> int:
-        return sum(1 for frame in self.frames for slot in frame.lut_slots if slot.trig2_enabled)
+        return sum(
+            1 for frame in self.frames for slot in frame.lut_slots if slot.trig2_enabled
+        )
 
 
 class FrameSequenceProvider(PairFrameProvider):
@@ -272,7 +318,8 @@ class FrameSequenceProvider(PairFrameProvider):
         frames: tuple[TimedFramePair, ...],
         *,
         repeat: bool,
-        terminal_pair: FramePair | None = None,) -> None:
+        terminal_pair: FramePair | None = None,
+    ) -> None:
         if not frames:
             raise ValueError("FrameSequenceProvider requires at least one frame")
         self._frames = tuple(frames)
@@ -307,7 +354,10 @@ def build_paired_display_sequence(
     target_hz: float = DEFAULT_HZ,
     engine: object | None = None,
     width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,) -> PairedDisplaySequence:
+    height: int = DMD_HEIGHT,
+) -> PairedDisplaySequence:
+    if getattr(args, "exposure_us", None) is None:
+        raise ValueError("--exposure-us is required for paired LUT workflows")
     if args.test == A_COUNT_B_STATIC_PAIR_TEST:
         return build_count_static_sequence(
             args,
@@ -331,7 +381,11 @@ def build_paired_display_sequence(
             width=width,
             height=height,
         )
-    if args.test in STATIC_PAIR_TESTS or args.test == STATIC_IMAGES_PAIR_TEST or args.test == "snake":
+    if (
+        args.test in STATIC_PAIR_TESTS
+        or args.test == STATIC_IMAGES_PAIR_TEST
+        or args.test == "snake"
+    ):
         return build_provider_backed_sequence(
             args,
             target_hz=target_hz,
@@ -346,7 +400,8 @@ def build_count_static_sequence(
     *,
     target_hz: float,
     width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,) -> PairedDisplaySequence:
+    height: int = DMD_HEIGHT,
+) -> PairedDisplaySequence:
     count_config = CountSequenceConfig.from_args(args)
     entries, timing = build_lut_entries(
         target_hz,
@@ -378,11 +433,26 @@ def build_count_static_sequence(
         dot_shape=args.b_dot_shape,
         dot_invert=args.b_dot_invert,
     )
+    entries_b, timing_b = build_lut_entries(
+        target_hz,
+        sequence_utilization=args.seq_utilization,
+        trig2_frame_zero=True,
+        entries_count=1,
+        # Match A's already-resolved exposure instead of filling B to the
+        # nominal VSYNC budget. The latter is fragile when the controller's
+        # measured VSYNC is a fraction faster than the requested refresh rate.
+        # B still remains continuously visible because clear_after is false.
+        per_entry_exposure_us=timing["exposure_us"],
+        dark_time_us=0,
+        clear_last_after_exposure=False,
+    )
     frames: list[TimedFramePair] = []
     counts = tuple(range(args.count_start, args.count_end + 1))
     if args.count_blank_between_frames:
         if len(base_slots) != 1:
-            raise ValueError("count blank insertion expects one LUT slot per source frame")
+            raise ValueError(
+                "count blank insertion expects one LUT slot per source frame"
+            )
         base_slot = base_slots[0]
         for source_frame_index, frame_a in enumerate(frames_a):
             if source_frame_index % 2 == 0:
@@ -396,13 +466,14 @@ def build_count_static_sequence(
                     lut_slots=_slots_with_labels((base_slot,), labels),
                     source_frame_index=source_frame_index,
                     semantic_labels=tuple(labels),
-                ))
+                )
+            )
     else:
         for source_frame_index, (frame_a, offset) in enumerate(
             zip(frames_a, range(0, len(counts), args.count_slots_per_frame))
         ):
             labels = _count_slot_labels(
-                counts[offset:offset + args.count_slots_per_frame],
+                counts[offset : offset + args.count_slots_per_frame],
                 blank_after_each_count=False,
             )
             frames.append(
@@ -410,9 +481,17 @@ def build_count_static_sequence(
                     frame_pair=FramePair(a=frame_a, b=frame_b),
                     lut_slots=_slots_with_labels(base_slots, labels),
                     source_frame_index=source_frame_index,
-                    semantic_labels=tuple(label for label in labels if label != "blank"),
-                ))
-    startup_policy = StartupPolicy("blank_leader", args.paired_startup_leader_vsyncs)
+                    semantic_labels=tuple(
+                        label for label in labels if label != "blank"
+                    ),
+                )
+            )
+    startup_policy = StartupPolicy(
+        "blank_leader",
+        args.paired_startup_leader_vsyncs,
+        frame_role="a_blank_b_static",
+    )
+    startup_pair = FramePair(a=np.zeros((height, width, 3), dtype=np.uint8), b=frame_b)
     frame_tuple = tuple(frames)
     return PairedDisplaySequence(
         frames=frame_tuple,
@@ -424,9 +503,16 @@ def build_count_static_sequence(
             "count": {
                 **count_config.to_pair_preview_metadata(),
                 "exposure_us": args.exposure_us,
-            }
+            },
+            "static_b": {
+                "continuous_hold": True,
+                "dark_time_us": 0,
+                "trigger_source_for_camera": "A",
+            },
         },
         provider=FrameSequenceProvider(frame_tuple, repeat=True),
+        startup_pair=startup_pair,
+        b_lut_plan=DmdLutPlan(tuple(entries_b), timing_b, role="static_hold"),
     )
 
 
@@ -435,7 +521,8 @@ def build_provider_backed_sequence(
     *,
     target_hz: float,
     width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,) -> PairedDisplaySequence:
+    height: int = DMD_HEIGHT,
+) -> PairedDisplaySequence:
     entries, timing = build_lut_entries(
         target_hz,
         sequence_utilization=args.seq_utilization,
@@ -471,7 +558,8 @@ def build_kernel_static_sequence(
     target_hz: float,
     engine: object | None = None,
     width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,) -> PairedDisplaySequence:
+    height: int = DMD_HEIGHT,
+) -> PairedDisplaySequence:
     entries_count, exposure_us = compute_kernel_lut_override(
         enabled=True,
         exposure_us=args.exposure_us,
@@ -517,10 +605,13 @@ def build_kernel_static_sequence(
             lut_slots=slots,
             source_frame_index=index,
             semantic_labels=(f"kernel-frame:{index}",),
-        ) for index, frame_a in enumerate(kernel_frames)
+        )
+        for index, frame_a in enumerate(kernel_frames)
     )
     terminal_pair = (
-        FramePair(a=metadata["black_frame"], b=frame_b) if args.kernel_single_shot else None
+        FramePair(a=metadata["black_frame"], b=frame_b)
+        if args.kernel_single_shot
+        else None
     )
     return PairedDisplaySequence(
         frames=frames,
@@ -530,7 +621,11 @@ def build_kernel_static_sequence(
         timing=timing,
         mode_metadata={
             "kernel": {
-                **{key: value for key, value in metadata.items() if key != "black_frame"},
+                **{
+                    key: value
+                    for key, value in metadata.items()
+                    if key != "black_frame"
+                },
                 "kernel_px": args.kernel_px,
                 "single_shot": args.kernel_single_shot,
                 "blank_end_frame": args.kernel_blank_end_frame,
@@ -550,7 +645,8 @@ def build_calibration_dot_sequence(
     target_hz: float,
     engine: object | None = None,
     width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,) -> PairedDisplaySequence:
+    height: int = DMD_HEIGHT,
+) -> PairedDisplaySequence:
     entries, timing = build_lut_entries(
         target_hz,
         sequence_utilization=args.seq_utilization,
@@ -606,7 +702,9 @@ def build_calibration_dot_sequence(
         repeat=True,
         target_hz=target_hz,
         timing=timing,
-        mode_metadata={"calibration": {"control_file": args.a_calibr_square_control_file}},
+        mode_metadata={
+            "calibration": {"control_file": args.a_calibr_square_control_file}
+        },
         provider=provider,
     )
 
@@ -614,7 +712,8 @@ def build_calibration_dot_sequence(
 def _slots_from_lut_entries(
     entries: Iterable[LutEntry],
     *,
-    semantic_role: str,) -> tuple[LutSlot, ...]:
+    semantic_role: str,
+) -> tuple[LutSlot, ...]:
     slots: list[LutSlot] = []
     for entry in entries:
         slots.append(
@@ -626,11 +725,14 @@ def _slots_from_lut_entries(
                 clear_after=bool(entry.clear_after),
                 semantic_role=semantic_role,
                 wait_for_trigger=bool(entry.wait_for_trigger),
-            ))
+            )
+        )
     return tuple(slots)
 
 
-def _slots_with_labels(slots: tuple[LutSlot, ...], labels: list[str]) -> tuple[LutSlot, ...]:
+def _slots_with_labels(
+    slots: tuple[LutSlot, ...], labels: list[str]
+) -> tuple[LutSlot, ...]:
     if len(slots) != len(labels):
         raise ValueError("LUT slot labels must match LUT slot count")
     labeled = []
@@ -645,11 +747,14 @@ def _slots_with_labels(slots: tuple[LutSlot, ...], labels: list[str]) -> tuple[L
                 semantic_role="blank" if label == "blank" else slot.semantic_role,
                 semantic_label=label,
                 wait_for_trigger=bool(slot.wait_for_trigger),
-            ))
+            )
+        )
     return tuple(labeled)
 
 
-def _count_slot_labels(counts: Iterable[int], *, blank_after_each_count: bool) -> list[str]:
+def _count_slot_labels(
+    counts: Iterable[int], *, blank_after_each_count: bool
+) -> list[str]:
     labels: list[str] = []
     for count in counts:
         labels.append(f"count:{count}")
@@ -658,7 +763,9 @@ def _count_slot_labels(counts: Iterable[int], *, blank_after_each_count: bool) -
     return labels
 
 
-def _make_basic_provider(args: ArgsNamespace, *, width: int, height: int) -> PairFrameProvider:
+def _make_basic_provider(
+    args: ArgsNamespace, *, width: int, height: int
+) -> PairFrameProvider:
     if args.test in STATIC_PAIR_TESTS:
         return make_pair_frame_provider(
             args.test,
@@ -681,7 +788,6 @@ def _make_basic_provider(args: ArgsNamespace, *, width: int, height: int) -> Pai
 
 
 class _StaticFrameProvider:
-
     def __init__(self, frame: RGBFrame) -> None:
         self._frame = frame
 

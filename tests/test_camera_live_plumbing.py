@@ -3,6 +3,21 @@ from threading import Event
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
+
+def _parse_camera_args(module, args):
+    return module.build_parser().parse_args(
+        ["--exposure-us", "600", *args]
+    )
+
+
+def test_pair_capture_parser_requires_exposure():
+    from dmdcontrol.camera import pair_capture
+
+    with pytest.raises(SystemExit):
+        pair_capture.build_parser().parse_args([])
+
 
 def _fake_run_directory(tmp_path):
     return SimpleNamespace(
@@ -82,7 +97,7 @@ def test_pair_capture_live_records_while_dmd_runtime_is_active(monkeypatch, tmp_
 
     monkeypatch.setattr(pair_capture, "_run_pair_with_callback", fake_run)
 
-    args = pair_capture.build_parser().parse_args(
+    args = _parse_camera_args(pair_capture, 
         [
             "--output-root",
             str(tmp_path),
@@ -139,7 +154,7 @@ def test_pair_capture_live_records_until_dmd_runtime_finishes(monkeypatch, tmp_p
 
     monkeypatch.setattr(pair_capture, "_run_pair_with_callback", fake_run)
 
-    args = pair_capture.build_parser().parse_args(
+    args = _parse_camera_args(pair_capture, 
         [
             "--output-root",
             str(tmp_path),
@@ -220,7 +235,7 @@ def test_pair_capture_live_writes_capture_artifacts_with_event_filter(monkeypatc
 
     monkeypatch.setattr(pair_capture, "write_capture_artifacts", fake_write_capture_artifacts)
 
-    args = pair_capture.build_parser().parse_args(
+    args = _parse_camera_args(pair_capture, 
         [
             "--output-root",
             str(tmp_path),
@@ -293,6 +308,7 @@ def test_pair_capture_live_writes_capture_artifacts_with_event_filter(monkeypatc
     }
     assert metadata["trigger_policy"] == {
         "channel": "TRIG_OUT_2",
+        "source_dmd": "A",
         "edge": "rising",
         "rising_delay_us": 0,
         "falling_delay_us": 20,
@@ -402,7 +418,7 @@ def test_pair_capture_live_limits_in_memory_artifact_batches(monkeypatch, tmp_pa
 
     monkeypatch.setattr(pair_capture, "write_capture_artifacts", fake_write_capture_artifacts)
 
-    args = pair_capture.build_parser().parse_args(
+    args = _parse_camera_args(pair_capture, 
         [
             "--output-root",
             str(tmp_path),
@@ -495,7 +511,7 @@ def test_sync_check_live_records_while_dmd_runtime_is_active(monkeypatch, tmp_pa
 
     monkeypatch.setattr(sync_check, "record_until_trigger_count", fake_record)
 
-    args = sync_check.build_parser().parse_args(
+    args = _parse_camera_args(sync_check, 
         [
             "--output-root",
             str(tmp_path),
@@ -561,7 +577,7 @@ def test_live_stops_recording_when_dmd_runtime_raises(monkeypatch, tmp_path):
 
     monkeypatch.setattr(pair_capture, "_run_pair_with_callback", fake_run)
 
-    args = pair_capture.build_parser().parse_args(
+    args = _parse_camera_args(pair_capture, 
         [
             "--output-root",
             str(tmp_path),
@@ -632,7 +648,7 @@ def test_sync_check_live_stops_recording_when_dmd_runtime_raises(monkeypatch, tm
 
     monkeypatch.setattr(sync_check, "_run_pair_with_callback", fake_run)
 
-    args = sync_check.build_parser().parse_args(
+    args = _parse_camera_args(sync_check, 
         [
             "--output-root",
             str(tmp_path),
@@ -713,7 +729,7 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
 
     monkeypatch.setattr(sync_check, "write_capture_artifacts", fake_write_capture_artifacts)
 
-    args = sync_check.build_parser().parse_args(
+    args = _parse_camera_args(sync_check, 
         [
             "--output-root",
             str(tmp_path),
@@ -762,6 +778,7 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
     assert metadata["bitplane_count"] == 24
     assert metadata["trigger_policy"] == {
         "channel": "TRIG_OUT_2",
+        "source_dmd": "A",
         "edge": "rising",
         "rising_delay_us": 0,
         "falling_delay_us": 20,
@@ -824,7 +841,7 @@ def test_sync_check_live_capture_flushes_stale_batches_immediately_before_record
     monkeypatch.setattr(sync_check, "_run_pair_with_callback", fake_run)
     monkeypatch.setattr(sync_check, "write_capture_artifacts", lambda *args, **kwargs: {})
 
-    args = sync_check.build_parser().parse_args(
+    args = _parse_camera_args(sync_check, 
         [
             "--output-root",
             str(tmp_path),

@@ -11,6 +11,12 @@ from dmdcontrol.runtime.lifecycle import LutEntry
 from dmdcontrol.runtime.pair import resolve_pair_config
 
 
+def _parse_pair_args(args=None):
+    return main_pair._build_parser().parse_args(
+        ["--exposure-us", "600", *(args or [])]
+    )
+
+
 class MainPairConfigTests(unittest.TestCase):
 
     def test_resolve_pair_config_maps_b_left_and_a_right(self):
@@ -47,7 +53,7 @@ class MainPairConfigTests(unittest.TestCase):
                 resolve_pair_config(config_path)
 
     def test_calibration_dot_recipe_accepts_essential_command_shape(self):
-        args = main_pair._build_parser().parse_args([
+        args = _parse_pair_args([
             "--test", "a-calibr-square-b-dot", "--b-dot-x", "960", "--b-dot-y", "540",
             "--b-dot-radius", "40", "--preview-url", "http://127.0.0.1:8080/api/live-frame",
             "--preview-fps", "1", "--runtime-seconds", "0",
@@ -59,7 +65,7 @@ class MainPairConfigTests(unittest.TestCase):
         self.assertEqual(args.b_dot_radius, 40)
 
     def test_calibration_dot_recipe_rejects_static_pair_overrides(self):
-        args = main_pair._build_parser().parse_args([
+        args = _parse_pair_args([
             "--test", "a-calibr-square-b-dot", "--test-a", "grid", "--b-dot-x", "960",
             "--b-dot-y", "540", "--b-dot-radius", "40",
         ])
@@ -67,7 +73,7 @@ class MainPairConfigTests(unittest.TestCase):
             main_pair._validate_pair_args(args)
 
     def test_kernel_static_recipe_accepts_generic_exposure_command_shape(self):
-        args = main_pair._build_parser().parse_args([
+        args = _parse_pair_args([
             "--test", "a-kernel-b-static", "--test-b", "grid", "--kernel-px", "30",
             "--exposure-us", "3000", "--kernel-leader-frames", "0", "--no-kernel-blank-end-frame",
         ])
@@ -79,7 +85,7 @@ class MainPairConfigTests(unittest.TestCase):
         self.assertFalse(args.kernel_blank_end_frame)
 
     def test_kernel_static_recipe_accepts_essential_kernel_static_dot_command(self):
-        args = main_pair._build_parser().parse_args([
+        args = _parse_pair_args([
             "--test", "a-kernel-b-static", "--test-b", "dot", "--b-dot-x", "960",
             "--b-dot-y", "540", "--b-dot-radius", "40", "--kernel-px", "201",
             "--runtime-seconds", "999",
@@ -90,19 +96,19 @@ class MainPairConfigTests(unittest.TestCase):
         self.assertEqual(args.runtime_seconds, 999)
 
     def test_kernel_static_recipe_rejects_test_a_override(self):
-        args = main_pair._build_parser().parse_args(["--test", "a-kernel-b-static", "--test-a", "grid"])
+        args = _parse_pair_args(["--test", "a-kernel-b-static", "--test-a", "grid"])
         with self.assertRaises(SystemExit):
             main_pair._validate_pair_args(args)
 
     def test_parser_accepts_human_visible_pair_modes(self):
         for mode in ("grid", "bands"):
             with self.subTest(mode=mode):
-                args = main_pair._build_parser().parse_args(["--test", mode])
+                args = _parse_pair_args(["--test", mode])
                 main_pair._validate_pair_args(args)
                 self.assertEqual(args.test, mode)
 
     def test_preview_args_validate_without_runtime_launch(self):
-        args = main_pair._build_parser().parse_args([
+        args = _parse_pair_args([
             "--test", "grid", "--preview-url", "http://127.0.0.1:8080/api/live-frame", "--preview-fps", "1",
         ])
         main_pair._validate_pair_args(args)
@@ -112,7 +118,7 @@ class MainPairConfigTests(unittest.TestCase):
     def test_calibration_dot_recipe_flickers_a_square_only(self):
         from dmdcontrol.runtime import display_sequence
 
-        args = main_pair._build_parser().parse_args(["--test", "a-calibr-square-b-dot", "--b-dot-x", "2", "--b-dot-y", "1", "--b-dot-radius", "1"])
+        args = _parse_pair_args(["--test", "a-calibr-square-b-dot", "--b-dot-x", "2", "--b-dot-y", "1", "--b-dot-radius", "1"])
         engine = SimpleNamespace(window=object())
         visible_a = np.full((main_pair.DMD_HEIGHT, main_pair.DMD_WIDTH, 3), 77, dtype=np.uint8)
         original_build = display_sequence.build_calibration_square_frame
@@ -134,7 +140,7 @@ class MainPairConfigTests(unittest.TestCase):
         np.testing.assert_array_equal(off_b, on_b)
 
     def test_live_preview_metadata_includes_lut_timing(self):
-        args = main_pair._build_parser().parse_args(["--test", "snake"])
+        args = _parse_pair_args(["--test", "snake"])
         pair_config = main_pair.PairConfig(
             dmd_a=main_pair.DmdMapping(name="A", usb_id_path="pci-a", xrandr_output="DP-2"),
             dmd_b=main_pair.DmdMapping(name="B", usb_id_path="pci-b", xrandr_output="DP-0"),

@@ -37,7 +37,8 @@ def sync_check_metadata(
     args: argparse.Namespace,
     event_filter: LocalSupportFilterConfig,
     *,
-    command: list[str],) -> dict[str, object]:
+    command: list[str],
+) -> dict[str, object]:
     metadata = {
         "mode": "sync-check",
         "test": args.test,
@@ -52,6 +53,7 @@ def sync_check_metadata(
         "seq_utilization": args.seq_utilization,
         "trigger_policy": _trigger_policy(args),
         "bias_sensitivity": args.bias_sensitivity,
+        "camera_global_hold": args.camera_global_hold,
         "efps": args.efps,
         "polarity_mode": args.polarity_mode,
         "dark_time_us": args.dark_time_us,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 
+from dmdcontrol.camera.arguments import add_camera_performance_arguments
 from dmdcontrol.camera.capture import (
     AsyncCapture,
     record_until_trigger_count,
@@ -66,45 +67,37 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--test-b", default="dot")
     parser.add_argument("--b-dot-x", type=int, default=DMD_CENTER_X)
     parser.add_argument("--b-dot-y", type=int, default=DMD_CENTER_Y)
-    parser.add_argument("--b-dot-radius", type=positive_int, default=DEFAULT_DOT_RADIUS_PX)
-    parser.add_argument("--kernel-px", type=positive_int, default=DEFAULT_PAIR_CAPTURE_KERNEL_PX)
-    parser.add_argument("--exposure-us", type=positive_int, default=None)
-    parser.add_argument("--runtime-seconds", type=positive_int, default=DEFAULT_PAIR_CAPTURE_RUNTIME_SECONDS)
+    parser.add_argument(
+        "--b-dot-radius", type=positive_int, default=DEFAULT_DOT_RADIUS_PX
+    )
+    parser.add_argument(
+        "--kernel-px", type=positive_int, default=DEFAULT_PAIR_CAPTURE_KERNEL_PX
+    )
+    parser.add_argument("--exposure-us", type=positive_int, required=True)
+    parser.add_argument(
+        "--runtime-seconds",
+        type=positive_int,
+        default=DEFAULT_PAIR_CAPTURE_RUNTIME_SECONDS,
+    )
     parser.add_argument(
         "--paired-startup-leader-vsyncs",
         type=nonnegative_int,
         default=DEFAULT_PAIRED_STARTUP_LEADER_VSYNCS,
         help=(
             "Blank paired source VSYNCs after sequencer start before the first semantic frame. "
-            "Forwarded to the paired DMD runtime and skipped in derived artifacts."),
+            "Forwarded to the paired DMD runtime and skipped in derived artifacts."
+        ),
     )
     parser.add_argument(
         "--trigger-out-2-rising-delay-us",
         type=trigger_out_rising_delay_us,
-        default=DEFAULT_TRIGGER_OUT_2_RISING_DELAY_US)
+        default=DEFAULT_TRIGGER_OUT_2_RISING_DELAY_US,
+    )
     parser.add_argument("--dmd-config", default=None)
+    add_camera_performance_arguments(parser)
     parser.add_argument(
-        "--bias-sensitivity",
-        default="default",
-        choices=["default",
-                 "verylow",
-                 "low",
-                 "high",
-                 "veryhigh"])
-    parser.add_argument(
-        "--efps",
-        default="default",
-        choices=["default",
-                 "variable",
-                 "variable_5000",
-                 "constant_1000",
-                 "constant_100"])
-    parser.add_argument(
-        "--polarity-mode",
-        default="positive",
-        choices=["positive",
-                 "signed",
-                 "ignore"])
+        "--polarity-mode", default="positive", choices=["positive", "signed", "ignore"]
+    )
     parser.add_argument("--dark-time-us", type=nonnegative_int, default=None)
     parser.add_argument(
         "--camera-flush-reads",
@@ -122,8 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-accumulation-triggers",
         type=positive_int,
         default=DEFAULT_MAX_ACCUMULATION_TRIGGERS,
-        help=
-        "Maximum rising triggers used for derived accumulation artifacts. Raw AEDAT recording is unchanged.",
+        help="Maximum rising triggers used for derived accumulation artifacts. Raw AEDAT recording is unchanged.",
     )
     add_event_noise_filter_arguments(parser)
     parser.add_argument("-v", "--verbose", action="count", default=0)
@@ -132,7 +124,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 def expected_shape(args: argparse.Namespace) -> dict[str, int | None]:
     return {
-        "kernel_count": KERNEL_VARIATION_COUNT if args.test == "a-kernel-b-static" else None,
+        "kernel_count": KERNEL_VARIATION_COUNT
+        if args.test == "a-kernel-b-static"
+        else None,
         "input_image_count": None,
     }
 
@@ -152,10 +146,11 @@ def requested_command_shape(args: argparse.Namespace) -> list[str]:
         "--kernel-px",
         str(args.kernel_px),
     ]
-    if args.exposure_us is not None:
-        shape.extend(["--exposure-us", str(args.exposure_us)])
+    shape.extend(["--exposure-us", str(args.exposure_us)])
     shape.extend(["--runtime-seconds", str(args.runtime_seconds)])
-    shape.extend(["--paired-startup-leader-vsyncs", str(args.paired_startup_leader_vsyncs)])
+    shape.extend(
+        ["--paired-startup-leader-vsyncs", str(args.paired_startup_leader_vsyncs)]
+    )
     return shape
 
 
@@ -176,14 +171,15 @@ def dmd_config(args: argparse.Namespace) -> dict[str, int | str | None]:
 
 def trigger_policy(args: argparse.Namespace) -> dict[str, str | int]:
     timing = compute_trigger_out_2_timing(
-        rising_delay_us=args.trigger_out_2_rising_delay_us)
+        rising_delay_us=args.trigger_out_2_rising_delay_us
+    )
     return {
         "channel": "TRIG_OUT_2",
+        "source_dmd": "A",
         "edge": "rising",
         "rising_delay_us": timing["rising_delay_us"],
         "falling_delay_us": timing["falling_delay_us"],
     }
-
 
 
 def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
@@ -203,7 +199,9 @@ def _run_pair_with_callback(pair_request, before_start):
 
 
 def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int:
-    run = create_run_directory("pair-capture", args.output_root, timestamp=args.timestamp)
+    run = create_run_directory(
+        "pair-capture", args.output_root, timestamp=args.timestamp
+    )
     event_filter = event_noise_filter_config_from_args(args)
     capture = None
     writer = None
@@ -222,6 +220,7 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
         "expected_shape": expected_shape(args),
         "trigger_policy": trigger_policy(args),
         "bias_sensitivity": args.bias_sensitivity,
+        "camera_global_hold": args.camera_global_hold,
         "efps": args.efps,
         "polarity_mode": args.polarity_mode,
         "dark_time_us": args.dark_time_us,
@@ -246,17 +245,21 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
             nonlocal recording
             startup_leader = context.get("startup_leader") or {}
             startup_leader_trigger_count["value"] = int(
-                startup_leader.get("trigger_count") or 0)
+                startup_leader.get("trigger_count") or 0
+            )
             if args.max_accumulation_triggers is not None:
                 artifact_buffer.max_rising_triggers = (
-                    args.max_accumulation_triggers + startup_leader_trigger_count["value"])
+                    args.max_accumulation_triggers
+                    + startup_leader_trigger_count["value"]
+                )
             metadata.update(
                 {
                     "camera_ready": metadata_dict(ready),
                     "dmd_ready": True,
                     "timing_a": context["state_a"]["timing"],
                     "timing_b": context["state_b"]["timing"],
-                })
+                }
+            )
             if startup_leader:
                 metadata["startup_leader"] = startup_leader
             display_sequence = context.get("display_sequence")
@@ -267,8 +270,7 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
                     capture,
                     writer,
                     expected_trigger_count=None,
-                    timeout_s=max(1,
-                                  args.runtime_seconds),
+                    timeout_s=max(1, args.runtime_seconds),
                     on_events=artifact_buffer.append_events,
                     on_triggers=artifact_buffer.append_triggers,
                     record_fn=record_until_trigger_count,
@@ -278,11 +280,12 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
             write_run_metadata(
                 run,
                 metadata,
-                artifacts=["raw.aedat4",
-                           "metadata.json"],
+                artifacts=["raw.aedat4", "metadata.json"],
             )
 
-        _run_pair_with_callback(PairRuntimeRequest.from_pair_capture_args(args), before_start)
+        _run_pair_with_callback(
+            PairRuntimeRequest.from_pair_capture_args(args), before_start
+        )
         if recording is not None:
             recording.stop()
             capture_result = recording.join()

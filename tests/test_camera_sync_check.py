@@ -27,16 +27,27 @@ def test_sync_check_has_focused_helper_modules():
     assert hasattr(metadata, "sync_check_metadata")
 
 
+def _parse_args(args=None):
+    return build_parser().parse_args(
+        ["--exposure-us", "600", *(args or [])]
+    )
+
+
+def test_sync_check_parser_requires_exposure():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args([])
+
+
 def _pair_runtime_argv(args):
     return pair_runtime_request_from_args(args).to_argv()
 
 
 def _count_args(*args):
-    return build_parser().parse_args(["--test", "a-count-b-static", *args])
+    return _parse_args(["--test", "a-count-b-static", *args])
 
 
 def test_sync_check_parser_defaults_to_count_recipe():
-    args = build_parser().parse_args([])
+    args = _parse_args([])
 
     assert args.test == "a-count-b-static"
     assert args.test_b == "dot"
@@ -53,13 +64,13 @@ def test_sync_check_parser_defaults_to_count_recipe():
 
 
 def test_sync_check_count_mode_does_not_limit_accumulation_cycles_by_default():
-    args = build_parser().parse_args([])
+    args = _parse_args([])
 
     assert args.requested_accumulation_cycles is None
 
 
 def test_sync_check_parser_accepts_accumulation_cycle_options():
-    args = build_parser().parse_args(
+    args = _parse_args(
         [
             "--accumulation-cycles",
             "2",
@@ -75,40 +86,40 @@ def test_sync_check_parser_accepts_accumulation_cycle_options():
 @pytest.mark.parametrize("flag", ["--trigger-cluster-us", "--cycle-selection"])
 def test_sync_check_parser_rejects_removed_trigger_selection_options(flag):
     with pytest.raises(SystemExit):
-        build_parser().parse_args([flag, "1"])
+        _parse_args([flag, "1"])
 
 
 def test_sync_check_parser_rejects_removed_camera_open_method_flag():
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["--camera-open-method", "modern"])
+        _parse_args(["--camera-open-method", "modern"])
 
 
 @pytest.mark.parametrize("flag", ["--numbers", "--numbers-bitplane-order"])
 def test_sync_check_parser_rejects_removed_numbers_flags(flag):
     with pytest.raises(SystemExit):
-        build_parser().parse_args([flag, "1,2,3"])
+        _parse_args([flag, "1,2,3"])
 
 
 @pytest.mark.parametrize("flag", ["--number-size-px", "--exposure-us"])
 def test_sync_check_positive_numeric_options_are_validated(flag):
     with pytest.raises(SystemExit):
-        build_parser().parse_args([flag, "0"])
+        _parse_args([flag, "0"])
 
 
 @pytest.mark.parametrize("flag", ["--numbers-exposure-us", "--count-exposure-us"])
 def test_sync_check_parser_rejects_removed_exposure_flags(flag):
     with pytest.raises(SystemExit):
-        build_parser().parse_args([flag, "600"])
+        _parse_args([flag, "600"])
 
 
 def test_sync_check_parser_defaults_trigger_rising_delay_to_zero():
-    args = build_parser().parse_args([])
+    args = _parse_args([])
 
     assert args.trigger_out_2_rising_delay_us == 0
 
 
 def test_sync_check_parser_accepts_negative_trigger_rising_delay():
-    args = build_parser().parse_args(["--trigger-out-2-rising-delay-us", "-20"])
+    args = _parse_args(["--trigger-out-2-rising-delay-us", "-20"])
 
     assert args.trigger_out_2_rising_delay_us == -20
 
@@ -116,16 +127,16 @@ def test_sync_check_parser_accepts_negative_trigger_rising_delay():
 @pytest.mark.parametrize("value", ["-21", "19981"])
 def test_sync_check_parser_rejects_trigger_rising_delay_outside_effective_range(value):
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["--trigger-out-2-rising-delay-us", value])
+        _parse_args(["--trigger-out-2-rising-delay-us", value])
 
 
 def test_sync_check_parser_rejects_removed_trigger_delay_fraction_flag():
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["--trigger-out-2-delay-fraction", "0.05"])
+        _parse_args(["--trigger-out-2-delay-fraction", "0.05"])
 
 
 def test_sync_check_runtime_args_use_default_count_recipe():
-    args = build_parser().parse_args(
+    args = _parse_args(
         [
             "--number-size-px",
             "123",
@@ -144,11 +155,11 @@ def test_sync_check_runtime_args_use_default_count_recipe():
     assert pair_args[pair_args.index("--count-slots-per-frame") + 1] == "5"
     assert pair_args[pair_args.index("--numbers-size-px") + 1] == "123"
     assert pair_args[pair_args.index("--b-dot-radius") + 1] == "20"
-    assert "--exposure-us" not in pair_args
+    assert pair_args[pair_args.index("--exposure-us") + 1] == "600"
 
 
 def test_sync_check_runtime_args_pass_b_dot_geometry():
-    args = build_parser().parse_args(
+    args = _parse_args(
         [
             "--test",
             "a-count-b-static",
@@ -170,7 +181,7 @@ def test_sync_check_runtime_args_pass_b_dot_geometry():
 
 
 def test_sync_check_runtime_args_allow_explicit_bitplane_exposure_override():
-    args = build_parser().parse_args([
+    args = _parse_args([
         "--exposure-us",
         "2900",
         "--trigger-out-2-rising-delay-us",
@@ -184,7 +195,7 @@ def test_sync_check_runtime_args_allow_explicit_bitplane_exposure_override():
 
 
 def test_sync_check_runtime_args_forward_paired_startup_leader_vsyncs():
-    args = build_parser().parse_args(["--paired-startup-leader-vsyncs", "20"])
+    args = _parse_args(["--paired-startup-leader-vsyncs", "20"])
 
     pair_args = _pair_runtime_argv(args)
 
@@ -315,6 +326,7 @@ def test_sync_check_metadata_records_count_timing_lut_and_capture_policy():
     assert metadata["accumulation_window_us"] == 16000
     assert metadata["trigger_policy"] == {
         "channel": "TRIG_OUT_2",
+        "source_dmd": "A",
         "edge": "rising",
         "rising_delay_us": 250,
         "falling_delay_us": 270,
@@ -424,7 +436,7 @@ def test_sync_check_pair_runtime_request_keeps_auto_count_slots_for_internal_run
 
 
 def test_sync_check_parser_accepts_event_noise_filter_options():
-    args = build_parser().parse_args(
+    args = _parse_args(
         [
             "--event-noise-filter",
             "local-support",
@@ -450,29 +462,29 @@ def test_sync_check_parser_accepts_event_noise_filter_options():
 @pytest.mark.parametrize("flag", ["--camera-usb-reset", "--no-camera-usb-reset"])
 def test_sync_check_parser_rejects_removed_usb_reset_flags(flag):
     with pytest.raises(SystemExit):
-        build_parser().parse_args([flag])
+        _parse_args([flag])
 
 
 def test_sync_check_parser_rejects_removed_hz_flag():
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["--hz", "120"])
+        _parse_args(["--hz", "120"])
 
 
 @pytest.mark.parametrize("flag", ["--camera-stream-rearm", "--camera-shutdown-streams"])
 def test_sync_check_parser_rejects_removed_camera_lifecycle_flags(flag):
     with pytest.raises(SystemExit):
-        build_parser().parse_args([flag])
+        _parse_args([flag])
 
 
 def test_sync_check_parser_uses_mentor_style_camera_lifecycle_by_default():
-    args = build_parser().parse_args([])
+    args = _parse_args([])
 
     assert args.camera_flush_reads == 32
     assert args.camera_post_trigger_event_batches == 0
 
 
 def test_sync_check_parser_accepts_name_override_alias():
-    args = build_parser().parse_args(["--name-override", "first-run"])
+    args = _parse_args(["--name-override", "first-run"])
 
     assert args.timestamp == "first-run"
 
@@ -484,7 +496,7 @@ def test_live_capture_flushes_queued_triggers_before_recording(monkeypatch, tmp_
     from dmdcontrol.camera.capture import CaptureResult
     from dmdcontrol.camera.runs import create_run_directory
 
-    args = build_parser().parse_args(
+    args = _parse_args(
         [
             "--output-root",
             str(tmp_path),

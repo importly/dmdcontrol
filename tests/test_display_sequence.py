@@ -1,6 +1,7 @@
 import types
 
 import numpy as np
+import pytest
 
 from dmdcontrol.patterns.bitplanes import extract_bitplane
 from dmdcontrol.patterns.modes import generate_decimal_number_rgb
@@ -11,7 +12,7 @@ from dmdcontrol.patterns.paired import (
     as_frame_pair,
 )
 from dmdcontrol.runtime import display_sequence
-from dmdcontrol.runtime.lifecycle import LutEntry
+from dmdcontrol.runtime.lifecycle import LutEntry, build_lut_entries
 
 
 def _assert_sequence_cursor(sequence):
@@ -51,6 +52,18 @@ def _count_args(**overrides):
     }
     defaults.update(overrides)
     return types.SimpleNamespace(**defaults)
+
+def test_paired_sequence_requires_explicit_exposure():
+    with pytest.raises(
+        ValueError, match="--exposure-us is required for paired LUT workflows"
+    ):
+        display_sequence.build_paired_display_sequence(
+            _count_args(exposure_us=None),
+            target_hz=60,
+            engine=types.SimpleNamespace(window=None),
+            width=120,
+            height=160,
+        )
 
 
 def test_lut_slot_to_entry_separates_pattern_index_from_selected_bit_position():
@@ -102,6 +115,58 @@ def test_count_blank_sequence_pairs_each_frame_with_its_lut_slots():
     assert int(np.count_nonzero(extract_bitplane(frame1.frame_pair.a, 0))) == 0
 
 
+def test_count_static_keeps_b_circle_on_during_startup_and_vsync_idle():
+    sequence = display_sequence.build_paired_display_sequence(
+        _count_args(exposure_us=16000),
+        target_hz=60,
+        engine=types.SimpleNamespace(window=None),
+        width=120,
+        height=160,
+    )
+
+    assert sequence.startup_pair is not None
+    assert sequence.startup_leader_metadata()["frame_role"] == "a_blank_b_static"
+    assert int(np.count_nonzero(sequence.startup_pair.a)) == 0
+    np.testing.assert_array_equal(
+        sequence.startup_pair.b,
+        sequence.frames[0].frame_pair.b,
+    )
+    assert sequence.startup_pair.b[80, 60].tolist() == [255, 255, 255]
+    assert set(np.unique(sequence.startup_pair.b)).issubset({0, 255})
+
+    plan_a = sequence.lut_plan_a()
+    plan_b = sequence.lut_plan_for_b()
+    assert plan_a.entries[-1].clear_after is True
+    assert len(plan_b.entries) == 1
+    assert plan_b.entries[0].exposure_us == plan_a.entries[0].exposure_us == 16000
+    assert plan_b.entries[0].clear_after is False
+    assert plan_b.entries[0].dark_us == 0
+    assert plan_b.timing["clear_last_after_exposure"] is False
+    assert plan_b.timing["hold_last_pattern_until_vsync"] is True
+    assert sequence.mode_metadata["static_b"]["continuous_hold"] is True
+    assert sequence.preview_metadata()["lut_by_dmd"]["B"]["role"] == "static_hold"
+
+    # The physical controller can report a VSYNC that is microscopically
+    # faster than the nominal 60 Hz mode. Revalidation during device setup
+    # must keep fitting instead of failing at the safety-margin boundary.
+    rebuilt_b, rebuilt_timing_b = build_lut_entries(
+        60,
+        sequence_utilization=plan_b.timing["sequence_utilization"],
+        trig2_frame_zero=True,
+        entries_count=len(plan_b.entries),
+        per_entry_exposure_us=plan_b.timing["exposure_us"],
+        dark_time_us=plan_b.timing["dark_us"],
+        clear_last_after_exposure=False,
+        display_dimensions={
+            "pixel_clock_khz": 148512,
+            "total_pixels_per_line": 2200,
+            "total_lines_per_frame": 1125,
+        },
+    )
+    assert rebuilt_b[0].exposure_us == 16000
+    assert rebuilt_timing_b["timing_source"] == "measured"
+
+
 def test_count_blank_sequence_uses_separate_count_and_blank_source_frames():
     sequence = display_sequence.build_paired_display_sequence(
         _count_args(exposure_us=16000),
@@ -124,12 +189,16 @@ def test_count_blank_sequence_uses_separate_count_and_blank_source_frames():
         extract_bitplane(sequence.frames[0].frame_pair.a, 0),
         generate_decimal_number_rgb(1, width=120, height=160, size_px=80)[:, :, 0],
     )
-    assert int(np.count_nonzero(extract_bitplane(sequence.frames[1].frame_pair.a, 0))) == 0
+    assert (
+        int(np.count_nonzero(extract_bitplane(sequence.frames[1].frame_pair.a, 0))) == 0
+    )
     np.testing.assert_array_equal(
         extract_bitplane(sequence.frames[2].frame_pair.a, 0),
         generate_decimal_number_rgb(2, width=120, height=160, size_px=80)[:, :, 0],
     )
-    assert int(np.count_nonzero(extract_bitplane(sequence.frames[3].frame_pair.a, 0))) == 0
+    assert (
+        int(np.count_nonzero(extract_bitplane(sequence.frames[3].frame_pair.a, 0))) == 0
+    )
 
 
 def test_exact_count_blank_sixty_sequence_keeps_frames_luts_and_provider_in_order():
@@ -157,7 +226,9 @@ def test_exact_count_blank_sixty_sequence_keeps_frames_luts_and_provider_in_orde
         assert blank_frame.source_frame_index == index * 2 + 1
         assert count_frame.semantic_labels == (f"count:{count}",)
         assert blank_frame.semantic_labels == ("blank",)
-        assert [slot.semantic_label for slot in count_frame.lut_slots] == [f"count:{count}"]
+        assert [slot.semantic_label for slot in count_frame.lut_slots] == [
+            f"count:{count}"
+        ]
         assert [slot.semantic_label for slot in blank_frame.lut_slots] == ["blank"]
         assert [slot.semantic_role for slot in count_frame.lut_slots] == ["count"]
         assert [slot.semantic_role for slot in blank_frame.lut_slots] == ["blank"]
@@ -169,7 +240,9 @@ def test_exact_count_blank_sixty_sequence_keeps_frames_luts_and_provider_in_orde
         assert [slot.trig2_enabled for slot in blank_frame.lut_slots] == [True]
         np.testing.assert_array_equal(
             extract_bitplane(count_frame.frame_pair.a, 0),
-            generate_decimal_number_rgb(count, width=120, height=160, size_px=80)[:, :, 0],
+            generate_decimal_number_rgb(count, width=120, height=160, size_px=80)[
+                :, :, 0
+            ],
         )
         assert int(np.count_nonzero(extract_bitplane(blank_frame.frame_pair.a, 0))) == 0
 
@@ -225,18 +298,22 @@ def test_packed_count_sequence_waits_for_frame_change_only_on_first_slot():
         ("count:1", "count:2", "count:3", "count:4"),
         ("count:5", "count:6", "count:7", "count:8"),
     ]
-    assert [[slot.bitplane_index for slot in frame.lut_slots] for frame in sequence.frames] == [
+    assert [
+        [slot.bitplane_index for slot in frame.lut_slots] for frame in sequence.frames
+    ] == [
         [0, 1, 2, 3],
         [0, 1, 2, 3],
     ]
-    assert [[slot.wait_for_trigger for slot in frame.lut_slots] for frame in sequence.frames] == [
+    assert [
+        [slot.wait_for_trigger for slot in frame.lut_slots] for frame in sequence.frames
+    ] == [
         [True, False, False, False],
         [True, False, False, False],
     ]
     assert [
-        entry["plane_label"]
-        for entry in sequence.preview_metadata()["lut"]["entries"]
+        entry["plane_label"] for entry in sequence.preview_metadata()["lut"]["entries"]
     ] == ["G0", "G1", "G2", "G3"]
+
 
 def test_removed_numbers_sequence_mode_is_rejected():
     with np.testing.assert_raises(ValueError):

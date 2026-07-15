@@ -42,8 +42,8 @@ X-stage script is the generic `scripts/dmd_xinit_client.sh`.
 
 ```bash
 ./run_dmd.sh [flags]
-./run_dmd_pair.sh [flags]
-./run_dmd_pair_calibr_square.sh [flags]
+./run_dmd_pair.sh --exposure-us 14000 [other flags]
+./run_dmd_pair_calibr_square.sh --exposure-us 14000 [other flags]
 ```
 
 For local development on Windows or any host without DMD hardware, debug the fake-backed pytest targets. Use the package CLI inside an already prepared Linux X session when driving hardware directly:
@@ -66,25 +66,25 @@ directly for custom preview-server workflows.
 Paired kernel-on-A with static dot-on-B:
 
 ```bash
-./run_dmd_pair.sh --test a-kernel-b-static --test-b dot --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --kernel-px 201 --runtime-seconds 999
+./run_dmd_pair.sh --test a-kernel-b-static --test-b dot --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --kernel-px 201 --exposure-us 14000 --runtime-seconds 999
 ```
 
 Equivalent package CLI, for use only inside a prepared X session:
 
 ```bash
-python -m dmdcontrol pair run --mode a-kernel-b-static --b-test dot --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --kernel-px 201 --runtime-seconds 999
+python -m dmdcontrol pair run --mode a-kernel-b-static --b-test dot --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --kernel-px 201 --exposure-us 14000 --runtime-seconds 999
 ```
 
 Paired calibration square on A with static dot-on-B and live preview:
 
 ```bash
-./run_dmd_pair_calibr_square.sh --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
+./run_dmd_pair_calibr_square.sh --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --exposure-us 14000 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
 ```
 
 Equivalent package CLI, for use only inside a prepared X session:
 
 ```bash
-python -m dmdcontrol pair calibrate --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
+python -m dmdcontrol pair calibrate --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --exposure-us 14000 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
 ```
 
 Run the preview server separately before using a `--preview-url`:
@@ -133,13 +133,13 @@ This mapping is by labeled USB and DisplayPort ports, not by board serial number
 Paired mode is intentionally separate from the single-DMD flow:
 
 ```bash
-./run_dmd_pair.sh --test grid --runtime-seconds 300
-./run_dmd_pair.sh --test bands --runtime-seconds 300
-./run_dmd_pair.sh --test checkerboard --test-a checkerboard --test-b grid
+./run_dmd_pair.sh --test grid --exposure-us 14000 --runtime-seconds 300
+./run_dmd_pair.sh --test bands --exposure-us 14000 --runtime-seconds 300
+./run_dmd_pair.sh --test checkerboard --test-a checkerboard --test-b grid --exposure-us 14000
 ./run_dmd_pair.sh --test a-kernel-b-static --test-b grid --kernel-px 900 --exposure-us 14000 --runtime-seconds 999
-./run_dmd_pair.sh --test a-kernel-b-static --test-b dot --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --kernel-px 201 --runtime-seconds 999
-./run_dmd_pair.sh --test static-images --static-image-b images/O.png --static-image-a images/T.png --static-image-size-px 1080 --runtime-seconds 999
-./run_dmd_pair_calibr_square.sh --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
+./run_dmd_pair.sh --test a-kernel-b-static --test-b dot --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --kernel-px 201 --exposure-us 14000 --runtime-seconds 999
+./run_dmd_pair.sh --test static-images --static-image-b images/O.png --static-image-a images/T.png --static-image-size-px 1080 --exposure-us 14000 --runtime-seconds 999
+./run_dmd_pair_calibr_square.sh --b-dot-x 960 --b-dot-y 540 --b-dot-radius 40 --exposure-us 14000 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
 ```
 
 `run_dmd_pair.sh` wakes both mapped controllers, starts the generic `scripts/dmd_xinit_client.sh` in paired-layout
@@ -163,7 +163,7 @@ Preview packed frames and individual DLPC900 bitplanes in a browser:
 ```bash
 ./run_dmd_preview_server.sh
 # open http://127.0.0.1:8080/
-./run_dmd_pair.sh --test grid --runtime-seconds 300 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
+./run_dmd_pair.sh --test grid --exposure-us 14000 --runtime-seconds 300 --preview-url http://127.0.0.1:8080/api/live-frame --preview-fps 1
 ```
 
 The preview server is offline by default and does not open GLFW, OpenGL, USB, or DMD hardware. `--preview-url` is opt-in
@@ -228,7 +228,7 @@ DMD launchers use the custom `1920x1080_60_RAW` modeline and fixed 60.000 Hz tim
 | `--kernel-single-shot`                                     | flag                                                                                                                                                                                                 | off                | Display each kernel for exactly one bitplane fire then advance. Implies dynamic frame buffer cycling.                                    |
 | `--kernel-blank-end-frame` / `--no-kernel-blank-end-frame` | flag                                                                                                                                                                                                 | on                 | Append one all-black 24-bitplane VSYNC frame at the end of each kernel cycle, or disable it explicitly.                                  |
 | `--kernel-leader-frames`                                   | int                                                                                                                                                                                                  | `3`                | Prepend all-black VSYNC frames to each kernel cycle. DAQ should ignore these leader trigger pulses before kernel index 0.                |
-| `--exposure-us`                                            | int µs                                                                                                                                                                                               | auto               | Generic DLPC900 LUT-entry exposure. With `--dark-time-us`, controls how many entries fit per 60 Hz VSYNC and therefore the effective pattern rate. Ignored by dynamic wall-clock modes that do not use LUT exposure timing. |
+| `--exposure-us`                                            | int µs                                                                                                                                                                                               | paired/camera: required; single: auto | DLPC900 LUT-entry exposure. Required for paired and camera LUT workflows; single-DMD LUT modes may still calculate it automatically. Ignored by dynamic wall-clock modes that do not use LUT exposure timing. |
 | `--dark-time-us`                                           | int µs                                                                                                                                                                                               | `0`                | Unreliable for visible off-time in DLPC900 Video Pattern Mode. Prefer explicit blank frames or blank bitplanes.                            |
 | `-v`, `--verbose`                                          | repeatable                                                                                                                                                                                           | basic              | Logging level: basic = INFO, `-v` = DEBUG + 2s watchdog, `-vv` = DEBUG with source paths + 1s watchdog + full board snapshots.           |
 
@@ -273,15 +273,23 @@ LUT slots that consume their bitplanes, startup policy, preview metadata, and ca
 source frame uses bitplane 0 for exactly one semantic item: either `count:N` or `blank`, both using the requested exposure.
 Live camera metadata includes `display_sequence` and `startup_leader` so notebooks can see the exact frame/LUT pairing
 used during capture. Local fake-backed tests assert the same metadata without opening camera, X11, or USB hardware.
+For count/static mode, DMD B now has an independent one-entry LUT: zero programmed dark time and no clear after the
+last exposure, so the circle is held through VSYNC idle time. Its startup pair is A blank/B static, which illuminates
+the circle before semantic count playback begins. DMD A retains the requested count/blank exposure and is the camera
+timing source. Connect the event camera to A `TRIG_OUT_2`; use B `TRIG_OUT_2` only to measure paired-controller skew.
+Camera global hold is preserved unless `--camera-global-hold on` or `--camera-global-hold off` is explicit, and supported
+camera readbacks are stored under `camera_ready.camera_configuration`. Follow
+[the count/static optical verification runbook](docs/count-static-optical-verification.md) for controlled runs.
+
 
 For local camera-flow debugging without hardware, run `python -m pytest tests/test_camera_live_plumbing.py -q`. Those tests use fake camera/runtime objects while still exercising the live metadata, timing, trigger, and artifact plumbing paths.
 
-Paired camera runs use one continuous OpenGL render coordinator through startup: blank frames are displayed before DLPC
-sequencer start, remain blank for `--paired-startup-leader-vsyncs` source VSYNCs after sequencer start, and only then
-advance to the semantic pattern frames. This avoids the old blank-pump to semantic-loop handoff while the DLPC900
-sequencer is already running. The leader trigger count is recorded in `metadata.json` as `startup_leader` and is skipped
-before derived accumulation/contact-sheet artifacts are selected. The `a-count-b-static` blank-insertion recipe is the
-exception: it primes the first semantic source frame before sequencer start and records zero startup-leader triggers.
+Paired camera runs use one continuous OpenGL render coordinator through startup. It holds the mode's configured startup
+pair before DLPC sequencer start, repeats that pair for `--paired-startup-leader-vsyncs` source VSYNCs after start, and
+only then advances to semantic frames. Most modes use a blank pair; count/static uses A blank/B static. This avoids the
+old startup-to-semantic render handoff while the DLPC900 sequencer is already running. The non-semantic leader trigger
+count and frame role are recorded in `metadata.json` under `startup_leader`, then skipped before accumulation artifacts
+are selected.
 
 `--test numbers` is a dynamic DisplayPort-frame mode, not a custom LUT sequence. `TRIG_OUT_2` remains the real
 acquisition/index signal from the Video Pattern Mode LUT and may pulse multiple times per displayed digit. `TRIG_OUT_1`
@@ -314,19 +322,15 @@ python -m dmdcontrol usb discover      # list DLPC900 USB devices and mappings
 The normal camera entrypoints are:
 
 ```bash
-./run_camera_sync_check.sh [flags]
-./run_dmd_pair_capture.sh [flags]
+./run_camera_sync_check.sh --exposure-us 16000 [other flags]
+./run_dmd_pair_capture.sh --exposure-us 14000 [other flags]
 ```
 
-Current camera behavior uses the `dv_processing` camera API directly:
+Both camera launchers require an explicit positive --exposure-us and reject the command before opening the camera or configuring either DMD when it is missing. `dv_processing` camera API directly:
 
 - Camera open defaults to `dv.io.camera.open()`.
 - The open-time stale batch flush uses `--camera-flush-reads`, default `1`.
 - No post-trigger grace reads are used unless `--camera-post-trigger-event-batches N` is passed. The default is `0`.
-
-For timing sweeps, use `notebooks/01_generate_timing_sweep_commands.ipynb` to generate a shell file containing ordinary
-`./run_camera_sync_check.sh ...` commands. Each row is an independent sync-check run with its own camera open/close cycle;
-there is no persistent sweep command path.
 
 The extra camera flags are diagnostic switches, not normal-run requirements:
 

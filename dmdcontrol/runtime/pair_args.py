@@ -202,8 +202,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--exposure-us",
         type=positive_int,
-        default=None,
-        help="Optional per-DLPC900-LUT-entry exposure override in microseconds",
+        required=True,
+        help="Required per-DLPC900-LUT-entry exposure in microseconds",
     )
     parser.add_argument(
         "--dark-time-us",
@@ -251,6 +251,8 @@ def _resolve_count_recipe_args(args: argparse.Namespace, target_hz: float = DEFA
 
 
 def _validate_pair_args(args: argparse.Namespace, target_hz: float = DEFAULT_HZ) -> None:
+    if getattr(args, "exposure_us", None) is None:
+        raise SystemExit("--exposure-us is required for paired LUT workflows")
     if args.preview_fps <= 0:
         raise SystemExit("--preview-fps must be positive")
     try:

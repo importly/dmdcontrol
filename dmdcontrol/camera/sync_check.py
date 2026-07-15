@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, cast
 
+from dmdcontrol.camera.arguments import add_camera_performance_arguments
 from dmdcontrol.camera.capture import (
     AsyncCapture,
     CameraReadyState,
@@ -91,7 +92,9 @@ def _resolve_count_mode_slots(args: argparse.Namespace) -> None:
     args.count_slots_per_frame_mode = mode
 
 
-def _validate_count_mode_args(args: argparse.Namespace, *, require_resolved_slots: bool = True) -> None:
+def _validate_count_mode_args(
+    args: argparse.Namespace, *, require_resolved_slots: bool = True
+) -> None:
     if args.test != A_COUNT_B_STATIC_TEST:
         return
     if args.count_start > args.count_end:
@@ -107,11 +110,12 @@ def _validate_count_mode_args(args: argparse.Namespace, *, require_resolved_slot
 
 def _validate_count_blank_between_frames_mode(args: argparse.Namespace) -> None:
     if args.test != A_COUNT_B_STATIC_TEST and args.count_blank_between_frames:
-        raise ValueError("count blank insertion is only valid for --test a-count-b-static")
+        raise ValueError(
+            "count blank insertion is only valid for --test a-count-b-static"
+        )
 
 
 class SyncCheckArgumentParser(argparse.ArgumentParser):
-
     def parse_args(self, *args: Any, **kwargs: Any) -> argparse.Namespace:
         parsed = cast(argparse.Namespace, super().parse_args(*args, **kwargs))
         try:
@@ -146,13 +150,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--exposure-us",
         type=positive_int,
-        default=None,
-        help="Optional per-entry LUT exposure override in microseconds. "
-        "Omit for the maximum safe exposure at the configured VSYNC.",
+        required=True,
+        help="Required per-entry LUT exposure in microseconds.",
     )
     parser.add_argument("--count-start", type=positive_int, default=DEFAULT_COUNT_START)
-    parser.add_argument("--count-end", type=positive_int, default=DEFAULT_SYNC_CHECK_COUNT_END)
-    parser.add_argument("--count-slots-per-frame", type=count_slots_per_frame, default=None)
+    parser.add_argument(
+        "--count-end", type=positive_int, default=DEFAULT_SYNC_CHECK_COUNT_END
+    )
+    parser.add_argument(
+        "--count-slots-per-frame", type=count_slots_per_frame, default=None
+    )
     parser.add_argument(
         "--count-blank-after-each-count",
         dest="count_blank_between_frames",
@@ -168,7 +175,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--trigger-out-2-rising-delay-us",
         type=trigger_out_rising_delay_us,
-        default=DEFAULT_TRIGGER_OUT_2_RISING_DELAY_US)
+        default=DEFAULT_TRIGGER_OUT_2_RISING_DELAY_US,
+    )
     parser.add_argument(
         "--runtime-seconds",
         type=nonnegative_int,
@@ -180,7 +188,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_PAIRED_STARTUP_LEADER_VSYNCS,
         help=(
             "Blank paired source VSYNCs after sequencer start before the first semantic frame. "
-            "Forwarded to the paired DMD runtime and skipped in derived artifacts."),
+            "Forwarded to the paired DMD runtime and skipped in derived artifacts."
+        ),
     )
     parser.add_argument(
         "--seq-utilization",
@@ -194,29 +203,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--test-b", default="dot")
     parser.add_argument("--b-dot-x", type=int, default=DMD_CENTER_X)
     parser.add_argument("--b-dot-y", type=int, default=DMD_CENTER_Y)
-    parser.add_argument("--b-dot-radius", type=positive_int, default=DEFAULT_SYNC_CHECK_DOT_RADIUS_PX)
     parser.add_argument(
-        "--bias-sensitivity",
-        default="default",
-        choices=["default",
-                 "verylow",
-                 "low",
-                 "high",
-                 "veryhigh"])
+        "--b-dot-radius", type=positive_int, default=DEFAULT_SYNC_CHECK_DOT_RADIUS_PX
+    )
+    add_camera_performance_arguments(parser)
     parser.add_argument(
-        "--efps",
-        default="default",
-        choices=["default",
-                 "variable",
-                 "variable_5000",
-                 "constant_1000",
-                 "constant_100"])
-    parser.add_argument(
-        "--polarity-mode",
-        default="positive",
-        choices=["positive",
-                 "signed",
-                 "ignore"])
+        "--polarity-mode", default="positive", choices=["positive", "signed", "ignore"]
+    )
     parser.add_argument(
         "--accumulation-start-offset-us",
         type=int,
@@ -242,7 +235,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Number of complete trigger cycles to use for derived accumulation artifacts. "
-            "Count mode defaults to unlimited."),
+            "Count mode defaults to unlimited."
+        ),
     )
     add_event_noise_filter_arguments(parser)
     parser.add_argument("-v", "--verbose", action="count", default=0)
@@ -253,8 +247,6 @@ def _run_pair_with_callback(pair_request, before_start):
     from dmdcontrol.runtime import pair as pair_module
 
     return pair_module._run(pair_request.to_namespace(), before_start=before_start)
-
-
 
 
 def _copy_sweep_metadata(args: argparse.Namespace, metadata: dict[str, object]) -> None:
@@ -274,14 +266,16 @@ def _start_recording(
     writer,
     event_records,
     trigger_records,
-    accumulation_window_us,):
+    accumulation_window_us,
+):
     recording = AsyncCapture(
         capture,
         writer,
         expected_trigger_count=None,
-        timeout_s=max(1,
-                      _pair_runtime_seconds(args)),
-        on_events=lambda batch: append_batch_records(event_records, batch, as_numpy=True),
+        timeout_s=max(1, _pair_runtime_seconds(args)),
+        on_events=lambda batch: append_batch_records(
+            event_records, batch, as_numpy=True
+        ),
         on_triggers=lambda batch: append_batch_records(trigger_records, batch),
         record_fn=record_until_trigger_count,
         post_trigger_event_batches=args.camera_post_trigger_event_batches,
@@ -296,11 +290,10 @@ def _update_before_start_metadata(metadata, ready, context, accumulation_window_
         {
             "camera_ready": metadata_dict(ready),
             "dmd_ready": True,
-            "timing_a": context.get("state_a",
-                                    {}).get("timing"),
-            "timing_b": context.get("state_b",
-                                    {}).get("timing"),
-        })
+            "timing_a": context.get("state_a", {}).get("timing"),
+            "timing_b": context.get("state_b", {}).get("timing"),
+        }
+    )
     if accumulation_window_us is None:
         timing = context.get("state_a", {}).get("timing") or {}
         accumulation_window_us = timing.get("exposure_us")
@@ -322,7 +315,8 @@ def _write_capture_artifacts_for_sync_check(
     trigger_records,
     event_filter,
     accumulation_window_us,
-    startup_leader_trigger_count=0,):
+    startup_leader_trigger_count=0,
+):
     return write_capture_artifacts(
         run,
         events=event_records,
@@ -366,7 +360,8 @@ class SyncCheckCaptureSession:
         capture: object,
         writer: object,
         ready: CameraReadyState,
-        command_argv: list[str] | None,) -> "SyncCheckCaptureSession":
+        command_argv: list[str] | None,
+    ) -> "SyncCheckCaptureSession":
         event_filter = event_noise_filter_config_from_args(args)
         command = command_argv or camera_command_argv("sync-check", None)
         metadata = _sync_check_metadata(
@@ -402,7 +397,9 @@ class SyncCheckCaptureSession:
         startup_leader = context.get("startup_leader") or {}
         if not isinstance(startup_leader, Mapping):
             startup_leader = {}
-        self.startup_leader_trigger_count = int(startup_leader.get("trigger_count") or 0)
+        self.startup_leader_trigger_count = int(
+            startup_leader.get("trigger_count") or 0
+        )
         self.metadata["camera_pre_capture_flush"] = flush_stale_batches(
             self.capture,
             reads=self.args.camera_flush_reads,
@@ -420,8 +417,7 @@ class SyncCheckCaptureSession:
         write_run_metadata(
             self.run,
             self.metadata,
-            artifacts=["raw.aedat4",
-                       "metadata.json"],
+            artifacts=["raw.aedat4", "metadata.json"],
         )
 
     def complete_recording_and_artifacts(self) -> None:
@@ -441,7 +437,9 @@ class SyncCheckCaptureSession:
         )
         self.metadata["artifact_summary"] = self.artifact_summary
         if "event_noise_filter" in self.artifact_summary:
-            self.metadata["event_noise_filter"] = self.artifact_summary["event_noise_filter"]
+            self.metadata["event_noise_filter"] = self.artifact_summary[
+                "event_noise_filter"
+            ]
 
     def finalize(self) -> None:
         if self.recording is not None and self.capture_result is None:
@@ -460,18 +458,22 @@ class SyncCheckCaptureSession:
         self.recording = None
 
 
-
 def live_capture(
     args: argparse.Namespace,
     run,
     capture,
     writer,
     ready,
-    command_argv: list[str] | None = None,) -> int:
-    session = SyncCheckCaptureSession.create(args, run, capture, writer, ready, command_argv)
+    command_argv: list[str] | None = None,
+) -> int:
+    session = SyncCheckCaptureSession.create(
+        args, run, capture, writer, ready, command_argv
+    )
     try:
         session.write_initial_files()
-        _run_pair_with_callback(pair_runtime_request_from_args(args), session.before_pair_start)
+        _run_pair_with_callback(
+            pair_runtime_request_from_args(args), session.before_pair_start
+        )
         session.complete_recording_and_artifacts()
         return 0
     finally:
@@ -484,8 +486,10 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
     writer = None
     try:
         capture, writer, ready = _open_ready_camera(run, args)
-        
-        return live_capture(args, run, capture, writer, ready, command_argv=command_argv)
+
+        return live_capture(
+            args, run, capture, writer, ready, command_argv=command_argv
+        )
     finally:
         resources = {"writer": writer, "capture": capture}
         close_camera_resources(resources)

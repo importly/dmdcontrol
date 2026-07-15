@@ -109,54 +109,21 @@ def _exec_trim_cell_tail_without_resolution_global(notebook):
     return captured
 
 
-def test_timing_sweep_notebooks_exist_and_are_parseable():
-    expected = {
-        "01_generate_timing_sweep_commands.ipynb": [
-            "SWEEP_MANIFEST_PATH",
-            "SWEEP_COMMAND_PATH",
-            "dark_time_us_values",
-            "trigger_rising_delay_us_values",
-            "run_camera_sync_check.sh",
-            "number_size_px",
-            "b_dot_radius",
-            "exposure_us_values",
-            "sync_check_argv",
-            "--name-override",
-            "Each row runs an ordinary sync-check command",
-        ],
-        "02_analyze_timing_sweep_results.ipynb": [
-            "summary.json",
-            "events_per_accumulation_window",
-            "number_sequence",
-            "expected_number",
-            "crossover_score",
-            "timing_score",
-            "ranked_runs",
-        ],
-        "03_accumulation_offset_rescan.ipynb": [
-            "filtered_events.npz",
-            "offset_us_values",
-            "rescan_offsets",
-            "best_offset_by_run",
-        ],
+def test_retained_timing_notebooks_exist_and_are_parseable():
+    expected_names = {
+        "fast_accumulation_offset_explorer_count_20260629_160740.ipynb",
+        "fast_accumulation_offset_explorer_count_20260629_174138.ipynb",
+        "fast_accumulation_offset_explorer_count_startup_leader_20260701.ipynb",
+        "fast_accumulation_offset_explorer_laser3.ipynb",
     }
 
-    for name, required_terms in expected.items():
-        notebook = _load_notebook(name)
-        source = _joined_source(notebook)
-        for term in required_terms:
-            assert term in source, f"{term!r} missing from {name}"
-
-    generator_source = _joined_source(_load_notebook("01_generate_timing_sweep_commands.ipynb"))
-    assert "./run_camera_sync_sweep.sh" not in generator_source
-    assert "run_dmd_pair_capture.sh" not in generator_source
-    assert "kernel_exposure_us" not in generator_source
-    assert "numbers_exposure_us" not in generator_source
-    assert "count_exposure_us" not in generator_source
+    assert {path.name for path in NOTEBOOKS.glob("*.ipynb")} == expected_names
+    for name in expected_names:
+        _load_notebook(name)
 
 
 def test_laser3_notebook_repeats_rainbow_phase_per_number_cycle():
-    notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
+    notebook = _load_notebook("fast_accumulation_offset_explorer_laser3.ipynb")
     source = _joined_source(notebook)
     namespace = _exec_notebook_functions(
         notebook,
@@ -188,7 +155,7 @@ def test_laser3_notebook_repeats_rainbow_phase_per_number_cycle():
 
 
 def test_laser3_notebook_separates_display_sequence_from_analysis_phase():
-    notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
+    notebook = _load_notebook("fast_accumulation_offset_explorer_laser3.ipynb")
     namespace = _exec_notebook_functions(
         notebook,
         [
@@ -251,7 +218,7 @@ def test_laser3_notebook_separates_display_sequence_from_analysis_phase():
 
 
 def test_laser3_notebook_counts_temporal_provenance_buckets():
-    notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
+    notebook = _load_notebook("fast_accumulation_offset_explorer_laser3.ipynb")
     namespace = _exec_notebook_functions(notebook, ["event_provenance_counts_for_frame"])
 
     trigger_ts = np.array([0, 5000, 10000, 15000], dtype=np.int64)
@@ -288,7 +255,7 @@ def test_laser3_notebook_counts_temporal_provenance_buckets():
 
 
 def test_laser3_notebook_computes_trimmed_aedat4_time_window():
-    notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
+    notebook = _load_notebook("fast_accumulation_offset_explorer_laser3.ipynb")
     namespace = _exec_notebook_functions(
         notebook,
         ["displayed_trigger_trim_window", "trim_event_arrays_for_time_window"],
@@ -325,7 +292,7 @@ def test_laser3_notebook_computes_trimmed_aedat4_time_window():
 
 
 def test_laser3_notebook_writes_trimmed_display_aedat4_artifact():
-    notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
+    notebook = _load_notebook("fast_accumulation_offset_explorer_laser3.ipynb")
     source = _joined_source(notebook)
 
     assert "TRIMMED_AEDAT4_TRIGGER_COUNT = STATIC_RAINBOW_FRAME_COUNT" in source
@@ -339,7 +306,7 @@ def test_laser3_notebook_writes_trimmed_display_aedat4_artifact():
 
 
 def test_count_offset_notebook_writes_trimmed_display_aedat4_artifact():
-    notebook = _load_notebook("07_fast_accumulation_offset_explorer_count_20260629_174138.ipynb")
+    notebook = _load_notebook("fast_accumulation_offset_explorer_count_20260629_174138.ipynb")
     source = _joined_source(notebook)
     namespace = _exec_notebook_functions(
         notebook,
@@ -386,10 +353,10 @@ def test_count_offset_notebook_writes_trimmed_display_aedat4_artifact():
 
 def test_recent_accumulation_notebooks_skip_startup_leader_triggers():
     notebook_names = [
-        "07_fast_accumulation_offset_explorer_count_20260629_160740.ipynb",
-        "07_fast_accumulation_offset_explorer_count_20260629_174138.ipynb",
-        "07_fast_accumulation_offset_explorer_count_startup_leader_20260701.ipynb",
-        "07_fast_accumulation_offset_explorer_laser3.ipynb",
+        "fast_accumulation_offset_explorer_count_20260629_160740.ipynb",
+        "fast_accumulation_offset_explorer_count_20260629_174138.ipynb",
+        "fast_accumulation_offset_explorer_count_startup_leader_20260701.ipynb",
+        "fast_accumulation_offset_explorer_laser3.ipynb",
     ]
 
     for notebook_name in notebook_names:
@@ -402,8 +369,8 @@ def test_recent_accumulation_notebooks_skip_startup_leader_triggers():
 
 def test_trim_cells_use_defined_recording_resolution_and_displayed_frame_count():
     expected_counts = {
-        "07_fast_accumulation_offset_explorer_laser3.ipynb": 30,
-        "07_fast_accumulation_offset_explorer_count_20260629_174138.ipynb": 120,
+        "fast_accumulation_offset_explorer_laser3.ipynb": 30,
+        "fast_accumulation_offset_explorer_count_20260629_174138.ipynb": 120,
     }
 
     for notebook_name, expected_count in expected_counts.items():
@@ -417,7 +384,7 @@ def test_trim_cells_use_defined_recording_resolution_and_displayed_frame_count()
 
 
 def test_laser3_notebook_uses_readable_rainbow_view_defaults():
-    notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
+    notebook = _load_notebook("fast_accumulation_offset_explorer_laser3.ipynb")
     source = _joined_source(notebook)
 
     assert "RAINBOW_FONT" in source
@@ -436,7 +403,7 @@ def test_laser3_notebook_uses_readable_rainbow_view_defaults():
 
 
 def test_laser3_rainbow_header_keeps_analysis_legend_above_focus():
-    notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
+    notebook = _load_notebook("fast_accumulation_offset_explorer_laser3.ipynb")
     source = _joined_source(notebook)
     render_block_match = re.search(
         r"def render_rainbow_provenance_sheet\(.*?\ndef render_shape_leakage_sheet\(",
@@ -463,7 +430,7 @@ def test_laser3_rainbow_header_keeps_analysis_legend_above_focus():
 
 
 def test_laser3_notebook_uses_aedat4_triggers_instead_of_trigger_csv():
-    notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
+    notebook = _load_notebook("fast_accumulation_offset_explorer_laser3.ipynb")
     source = _joined_source(notebook)
 
     assert "FORCE_AEDAT4_TRIGGERS = True" in source
@@ -475,7 +442,7 @@ def test_laser3_notebook_uses_aedat4_triggers_instead_of_trigger_csv():
 
 
 def test_laser3_shape_leakage_scores_detect_off_label_structure():
-    notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
+    notebook = _load_notebook("fast_accumulation_offset_explorer_laser3.ipynb")
     source = _joined_source(notebook)
     namespace = _exec_notebook_functions(
         notebook,
@@ -516,7 +483,7 @@ def test_laser3_shape_leakage_scores_detect_off_label_structure():
 
 
 def test_laser3_notebook_defaults_to_widgets_with_static_png_fallback():
-    notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
+    notebook = _load_notebook("fast_accumulation_offset_explorer_laser3.ipynb")
     source = _joined_source(notebook)
 
     assert 'STATIC_RAINBOW_VIEW = globals().get("STATIC_RAINBOW_VIEW", "shape")' in source
@@ -531,7 +498,7 @@ def test_laser3_notebook_defaults_to_widgets_with_static_png_fallback():
 
 
 def test_laser3_notebook_does_not_persist_dead_widget_state():
-    notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
+    notebook = _load_notebook("fast_accumulation_offset_explorer_laser3.ipynb")
 
     assert "widgets" not in notebook.get("metadata", {})
     for cell in notebook["cells"]:
@@ -542,7 +509,7 @@ def test_laser3_notebook_does_not_persist_dead_widget_state():
 
 
 def test_laser3_notebook_exposes_full_trigger_phase_scan():
-    notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
+    notebook = _load_notebook("fast_accumulation_offset_explorer_laser3.ipynb")
     source = _joined_source(notebook)
 
     assert "trigger_period_us = int(default_window_us + default_dark_time_us)" in source
@@ -556,7 +523,7 @@ def test_laser3_notebook_exposes_full_trigger_phase_scan():
 
 
 def test_laser3_notebook_defaults_to_pre_trigger_exposure_window():
-    notebook = _load_notebook("07_fast_accumulation_offset_explorer_laser3.ipynb")
+    notebook = _load_notebook("fast_accumulation_offset_explorer_laser3.ipynb")
     source = _joined_source(notebook)
 
     assert "metadata_offset_us = metadata.get(\"accumulation_start_offset_us\")" in source
