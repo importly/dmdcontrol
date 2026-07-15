@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import TypedDict
 
 from dmdcontrol.hardware.mapping import DmdMapping
@@ -91,6 +92,41 @@ class BeforeStartContext(TypedDict):
 BeforeStartCallback = Callable[[BeforeStartContext], None]
 
 
+def _prepare_pair_controllers(
+    dlpc_a,
+    dlpc_b,
+    *,
+    args: argparse.Namespace,
+    pair_config: PairConfig,
+    timing_a,
+    timing_b,
+    entries_count_a: int,
+    entries_count_b: int,
+) -> None:
+    def prepare(label, dlpc, timing, entries_count):
+        logger.info(f"[+] Preparing DMD {label} controller without starting sequencer...")
+        prepare_dlpc900_for_video_pattern(
+            dlpc,
+            pair_config.target_hz,
+            dual_pixel=args.dual_pixel,
+            sequence_utilization=timing["sequence_utilization"],
+            trig2_frame_zero=timing["trig2_mode"] == "frame_zero",
+            entries_count=entries_count,
+            per_entry_exposure_us=timing["exposure_us"],
+            trigger_out_2_rising_delay_us=args.trigger_out_2_rising_delay_us,
+            dark_time_us=timing["dark_us"],
+        )
+        logger.info(f"[+] DMD {label} controller preparation complete.")
+
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="dlpc900-prepare") as executor:
+        futures = (
+            executor.submit(prepare, "A", dlpc_a, timing_a, entries_count_a),
+            executor.submit(prepare, "B", dlpc_b, timing_b, entries_count_b),
+        )
+        for future in futures:
+            future.result()
+
+
 def _run(
     args: argparse.Namespace,
     *,
@@ -166,29 +202,16 @@ def _run(
         if not render_coordinator.wait_until_ready(timeout_s=1.0):
             raise RuntimeError("Paired render coordinator did not become ready.")
 
-        logger.info("[+] Preparing DMD A controller without starting sequencer...")
-        prepare_dlpc900_for_video_pattern(
+        logger.info("[+] Preparing both DLPC900 controllers concurrently...")
+        _prepare_pair_controllers(
             dlpc_a,
-            pair_config.target_hz,
-            dual_pixel=args.dual_pixel,
-            sequence_utilization=timing_a["sequence_utilization"],
-            trig2_frame_zero=timing_a["trig2_mode"] == "frame_zero",
-            entries_count=len(lut_entries_a),
-            per_entry_exposure_us=timing_a["exposure_us"],
-            trigger_out_2_rising_delay_us=args.trigger_out_2_rising_delay_us,
-            dark_time_us=timing_a["dark_us"],
-        )
-        logger.info("[+] Preparing DMD B controller without starting sequencer...")
-        prepare_dlpc900_for_video_pattern(
             dlpc_b,
-            pair_config.target_hz,
-            dual_pixel=args.dual_pixel,
-            sequence_utilization=timing_b["sequence_utilization"],
-            trig2_frame_zero=timing_b["trig2_mode"] == "frame_zero",
-            entries_count=len(lut_entries_b),
-            per_entry_exposure_us=timing_b["exposure_us"],
-            trigger_out_2_rising_delay_us=args.trigger_out_2_rising_delay_us,
-            dark_time_us=timing_b["dark_us"],
+            args=args,
+            pair_config=pair_config,
+            timing_a=timing_a,
+            timing_b=timing_b,
+            entries_count_a=len(lut_entries_a),
+            entries_count_b=len(lut_entries_b),
         )
 
         logger.info("[+] Loading paired pattern LUTs without starting sequencers...")

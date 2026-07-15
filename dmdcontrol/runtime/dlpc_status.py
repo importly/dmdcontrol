@@ -126,6 +126,55 @@ def wait_for_external_lock(dlpc: "DLPC900", timeout_s: float = 4.0) -> bool:
     return False
 
 
+def wait_for_stable_external_lock(
+    dlpc: "DLPC900",
+    *,
+    timeout_s: float,
+    stable_for_s: float = 0.25,
+    poll_interval_s: float = 0.05,
+    required_mode: int | None = None,
+) -> bool:
+    """Return once the external video source remains healthy for a bounded interval."""
+    if timeout_s < 0:
+        raise ValueError("timeout_s must be non-negative")
+    if stable_for_s < 0:
+        raise ValueError("stable_for_s must be non-negative")
+    if poll_interval_s <= 0:
+        raise ValueError("poll_interval_s must be positive")
+
+    deadline = time.monotonic() + timeout_s
+    stable_since: float | None = None
+    while True:
+        now = time.monotonic()
+        if now > deadline:
+            return False
+
+        main_status = dlpc.get_main_status() or {}
+        mode_matches = True
+        if required_mode is not None:
+            mode, _ = dlpc.get_display_mode()
+            mode_matches = mode == required_mode
+        source_ready = bool(
+            main_status.get("external_source_locked")
+            and main_status.get("port1_syncs_valid")
+            and not main_status.get("video_frozen")
+            and mode_matches
+        )
+
+        if source_ready:
+            if stable_since is None:
+                stable_since = now
+            if now - stable_since >= stable_for_s:
+                return True
+        else:
+            stable_since = None
+
+        remaining_s = deadline - now
+        if remaining_s <= 0:
+            return False
+        time.sleep(min(poll_interval_s, remaining_s))
+
+
 def wait_for_sequencer_running(dlpc: "DLPC900", timeout_s: float = 1.5) -> bool:
     start = time.time()
     while time.time() - start < timeout_s:

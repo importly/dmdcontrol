@@ -147,6 +147,16 @@ mode, and launches `python -m dmdcontrol pair run`. The paired X layout is one X
 `+0+0`, and A/`DP-2` is the right half at `+1920+0`. The runtime opens one undecorated GLFW window at `(0, 0)`, renders
 B into `x=0..1919`, renders A into `x=1920..3839`, and performs one buffer swap per paired frame.
 
+Paired launchers minimize cold-start latency without weakening the controller transition sequence:
+
+- DMD A and B DisplayPort receivers are woken concurrently.
+- Linux DRM connector state is sampled until both DisplayPort outputs are connected for three consecutive polls.
+  The previous six-second wait remains the bounded fallback when connector readiness is not exposed in sysfs.
+- After the shared framebuffer is live, the two independent DLPC900 controllers are prepared concurrently.
+- The conservative 3 s buffer, 2 s pipeline, and 1 s VSYNC dwells are bounded stability checks over external lock,
+  Port 1 sync validity, video-frozen state, and display mode. The working-reference 500 ms Video Pattern Mode
+  transition guard and the block-lock workaround delays remain unchanged.
+
 `--test static-images` loads one image for each DMD, keeps each image's aspect ratio, resizes the longest side to
 `--static-image-size-px`, alpha-composites onto black, centers the result on each 1920x1080 DMD canvas, and repeats those
 static frames for the full run. The B image is shown on the left output and the A image is shown on the right output.

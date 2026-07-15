@@ -13,6 +13,7 @@ from dmdcontrol.runtime.dlpc_status import (
     _format_hw,
     ensure_video_pattern_mode,
     wait_for_external_lock,
+    wait_for_stable_external_lock,
     wait_for_sequencer_running,
 )
 from dmdcontrol.runtime.lut import (
@@ -258,9 +259,21 @@ def prepare_dlpc900_for_video_pattern(
 
     logger.info("[+] Waiting for external source sync lock...")
     if wait_for_external_lock(dlpc, timeout_s=4.0):
-        logger.info("[+] External source lock acquired. Waiting 3s for video buffer to fill...")
-        time.sleep(3)
-        logger.info("[+] Video buffer dwell complete.")
+        logger.info(
+            "[+] External source lock acquired. Verifying stable video input (up to 3s)..."
+        )
+        if wait_for_stable_external_lock(
+            dlpc,
+            timeout_s=3.0,
+            stable_for_s=0.25,
+            required_mode=0,
+        ):
+            logger.info("[+] Video input is stable; continuing without the remaining dwell.")
+        else:
+            logger.warning(
+                "Video input did not remain continuously stable during the 3s buffer timeout; "
+                "continuing after the bounded fallback."
+            )
     else:
         ms = dlpc.get_main_status() or {}
         raise RuntimeError(
@@ -297,8 +310,20 @@ def prepare_dlpc900_for_video_pattern(
             "External lock not re-acquired in mode 2. Proceeding — triggers may be unreliable.")
     else:
         logger.info(
-            "[+] External lock confirmed in mode 2. Waiting 2s for DP pipeline to stabilize...")
-        time.sleep(2.0)
+            "[+] External lock confirmed in mode 2. Verifying stable DP input (up to 2s)..."
+        )
+        if wait_for_stable_external_lock(
+            dlpc,
+            timeout_s=2.0,
+            stable_for_s=0.25,
+            required_mode=2,
+        ):
+            logger.info("[+] Video Pattern Mode input is stable.")
+        else:
+            logger.warning(
+                "Video Pattern Mode input did not remain continuously stable during the 2s "
+                "pipeline timeout; continuing after the bounded fallback."
+            )
 
     # DLPU018J Table 2-118/2-120: byte 0 bit 0 = polarity. No enable bit.
     # Non-inverted constraint: rising_delay <= falling_delay. Min pulse width: 20us.
@@ -364,8 +389,17 @@ def prepare_dlpc900_for_video_pattern(
         "With dark=0us, pulse may appear as a wide frame-level gate.")
 
     # Empirically: arming before DLPC900 processes several VSYNCs in mode 2 -> forced-swap (hw 0x08) -> abort (0x40).
-    logger.debug("  - Final VSYNC settling wait (1s)...")
-    time.sleep(1.0)
+    logger.debug("  - Verifying final stable VSYNC input (up to 1s)...")
+    if not wait_for_stable_external_lock(
+        dlpc,
+        timeout_s=1.0,
+        stable_for_s=max(0.2, 8.0 / target_hz),
+        required_mode=2,
+    ):
+        logger.warning(
+            "Final VSYNC input did not remain continuously stable during the 1s settling "
+            "timeout; continuing after the bounded fallback."
+        )
 
     return {"entries": entries, "timing": timing}
 

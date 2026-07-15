@@ -19,10 +19,9 @@ cleanup() {
 trap cleanup EXIT
 
 echo "=== Paired DLPC900 DP Wake ==="
-dmd_wake_configured_dmd "$SCRIPT_DIR" A "${DMD_CONFIG_ARGS[@]}"
-dmd_wake_configured_dmd "$SCRIPT_DIR" B "${DMD_CONFIG_ARGS[@]}"
+dmd_wake_configured_pair "$SCRIPT_DIR" "${DMD_CONFIG_ARGS[@]}"
 
-dmd_wait_for_hotplug "Xorg and GPU to detect both DP hotplug events"
+dmd_wait_for_hotplug "Xorg and GPU to detect both DP hotplug events" 2
 
 echo "=== Launching Interactive Paired Calibration Square + B Dot ==="
 dmd_start_calibr_square_control_reader "$CONTROL_FILE" "dmdcontrol pair calibrate"

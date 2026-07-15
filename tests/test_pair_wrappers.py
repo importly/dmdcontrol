@@ -24,12 +24,12 @@ class PairWrapperTests(unittest.TestCase):
     def test_run_pair_routes_through_wake_hotplug_and_xinit(self):
         script = (ROOT / "run_dmd_pair.sh").read_text(encoding="utf-8")
 
-        wake_idx = script.index("dmd_wake_configured_dmd")
+        wake_idx = script.index("dmd_wake_configured_pair")
         xinit_idx = script.index("dmd_run_xinit_python_module")
 
         self.assertLess(wake_idx, xinit_idx)
-        self.assertIn('dmd_wake_configured_dmd "$SCRIPT_DIR" A', script)
-        self.assertIn('dmd_wake_configured_dmd "$SCRIPT_DIR" B', script)
+        self.assertIn('dmd_wake_configured_pair "$SCRIPT_DIR"', script)
+        self.assertIn('dmd_wait_for_hotplug "Xorg and GPU to detect both DP hotplug events" 2', script)
         self.assertIn('dmd_run_xinit_python_module "$SCRIPT_DIR" pair dmdcontrol pair run -- "$@"', script)
 
     def test_common_shell_helper_execs_python_modules_with_repo_pythonpath(self):
@@ -42,6 +42,13 @@ class PairWrapperTests(unittest.TestCase):
         self.assertIn('"${xinit_args[@]}" -- :0 vt1', helper)
         self.assertIn("dmd_python_module() {", helper)
         self.assertIn("dmd_pythonpath() {", helper)
+        self.assertIn("dmd_wake_configured_pair() {", helper)
+        self.assertIn('dmd_wake_configured_dmd "$script_dir" A "$@" &', helper)
+        self.assertIn('dmd_wake_configured_dmd "$script_dir" B "$@" &', helper)
+        self.assertIn("dmd_connected_dp_count() {", helper)
+        self.assertIn("/sys/class/drm/*-DP-*/status", helper)
+        self.assertIn("local max_attempts=60", helper)
+        self.assertIn("local stable_required=3", helper)
         self.assertIn('local repo_root="$script_dir"', helper)
         self.assertIn('local pythonpath="$repo_root:/home/main/.local/lib/python3.14/site-packages"', helper)
         self.assertIn('exec env PYTHONPATH="$(dmd_pythonpath "$script_dir")"', helper)
@@ -66,7 +73,7 @@ class PairWrapperTests(unittest.TestCase):
     def test_pair_calibration_runner_routes_live_command_through_xinit(self):
         script = (ROOT / "run_dmd_pair_calibr_square.sh").read_text(encoding="utf-8")
 
-        wake_idx = script.index("dmd_wake_configured_dmd")
+        wake_idx = script.index("dmd_wake_configured_pair")
         xinit_idx = script.index("dmd_run_xinit_python_module")
 
         self.assertLess(wake_idx, xinit_idx)
@@ -110,8 +117,8 @@ class PairWrapperTests(unittest.TestCase):
         script = (ROOT / "run_dmd_pair_calibr_square.sh").read_text(encoding="utf-8")
 
         self.assertIn("dmd_start_calibr_square_control_reader", script)
-        self.assertIn('dmd_wake_configured_dmd "$SCRIPT_DIR" A', script)
-        self.assertIn('dmd_wake_configured_dmd "$SCRIPT_DIR" B', script)
+        self.assertIn('dmd_wake_configured_pair "$SCRIPT_DIR"', script)
+        self.assertIn('dmd_wait_for_hotplug "Xorg and GPU to detect both DP hotplug events" 2', script)
         self.assertIn('dmd_run_xinit_python_module "$SCRIPT_DIR" pair dmdcontrol pair calibrate --', script)
         self.assertIn("--test a-calibr-square-b-dot", script)
         self.assertIn('--a-calibr-square-control-file "$CONTROL_FILE"', script)
@@ -140,15 +147,15 @@ class PairWrapperTests(unittest.TestCase):
     def test_camera_sync_check_runner_routes_live_capture_through_xinit(self):
         script = (ROOT / "run_camera_sync_check.sh").read_text(encoding="utf-8")
 
-        wake_idx = script.index("dmd_wake_configured_dmd")
+        wake_idx = script.index("dmd_wake_configured_pair")
         xinit_idx = script.index("dmd_run_xinit_python_module")
 
         self.assertLess(wake_idx, xinit_idx)
         self.assertIn("camera sync-check", script)
         self.assertIn('dmd_run_xinit_python_module "$SCRIPT_DIR" pair dmdcontrol camera sync-check -- "$@"', script)
         self.assertNotIn("xinitrc_camera_sync_check.sh", script)
-        self.assertIn('dmd_wake_configured_dmd "$SCRIPT_DIR" A', script)
-        self.assertIn('dmd_wake_configured_dmd "$SCRIPT_DIR" B', script)
+        self.assertIn('dmd_wake_configured_pair "$SCRIPT_DIR"', script)
+        self.assertIn('dmd_wait_for_hotplug "Xorg and GPU to detect both DP hotplug events" 2', script)
 
     def test_camera_sync_sweep_runner_was_removed(self):
         self.assertFalse((ROOT / "run_camera_sync_sweep.sh").exists())
@@ -156,15 +163,15 @@ class PairWrapperTests(unittest.TestCase):
     def test_pair_capture_runner_routes_live_capture_through_xinit(self):
         script = (ROOT / "run_dmd_pair_capture.sh").read_text(encoding="utf-8")
 
-        wake_idx = script.index("dmd_wake_configured_dmd")
+        wake_idx = script.index("dmd_wake_configured_pair")
         xinit_idx = script.index("dmd_run_xinit_python_module")
 
         self.assertLess(wake_idx, xinit_idx)
         self.assertIn("dmdcontrol camera pair-capture", script)
         self.assertIn('dmd_run_xinit_python_module "$SCRIPT_DIR" pair dmdcontrol camera pair-capture -- "$@"', script)
         self.assertNotIn("xinitrc_dmd_pair_capture.sh", script)
-        self.assertIn('dmd_wake_configured_dmd "$SCRIPT_DIR" A', script)
-        self.assertIn('dmd_wake_configured_dmd "$SCRIPT_DIR" B', script)
+        self.assertIn('dmd_wake_configured_pair "$SCRIPT_DIR"', script)
+        self.assertIn('dmd_wait_for_hotplug "Xorg and GPU to detect both DP hotplug events" 2', script)
 
     def test_command_specific_xinit_wrappers_were_removed(self):
         self.assertFalse((SCRIPTS / "xinit").exists())

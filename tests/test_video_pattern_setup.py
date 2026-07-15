@@ -50,7 +50,11 @@ class FakeDLPC900:
         self.calls.append(("start_pattern_display", action))
 
     def get_main_status(self):
-        return {"external_source_locked": True}
+        return {
+            "external_source_locked": True,
+            "port1_syncs_valid": True,
+            "video_frozen": False,
+        }
 
     def configure_trigger_out_1(self, *, polarity_high, rising_delay_us, falling_delay_us):
         self.calls.append(("configure_trigger_out_1", polarity_high, rising_delay_us, falling_delay_us))
@@ -70,8 +74,15 @@ class FakeDLPC900:
 
 def test_video_pattern_setup_sets_rgb_format_and_evm_channel_swap(monkeypatch):
     dlpc = FakeDLPC900()
-    monkeypatch.setattr(video_pattern.time, "sleep", lambda _seconds: None)
+    sleep_calls = []
+    stable_calls = []
+    monkeypatch.setattr(video_pattern.time, "sleep", sleep_calls.append)
     monkeypatch.setattr(video_pattern, "wait_for_external_lock", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        video_pattern,
+        "wait_for_stable_external_lock",
+        lambda *_args, **kwargs: stable_calls.append(kwargs) or True,
+    )
     monkeypatch.setattr(video_pattern, "ensure_video_pattern_mode", lambda *_args, **_kwargs: True)
 
     state = video_pattern.prepare_dlpc900_for_video_pattern(
@@ -88,3 +99,9 @@ def test_video_pattern_setup_sets_rgb_format_and_evm_channel_swap(monkeypatch):
     assert dlpc.calls.index(("set_input_source", 0, 1)) < dlpc.calls.index(("set_input_pixel_format", 0))
     assert dlpc.calls.index(("set_input_pixel_format", 0)) < dlpc.calls.index(("set_data_channel_swap", 0, 4))
     assert dlpc.calls.index(("set_data_channel_swap", 0, 4)) < dlpc.calls.index(("toggle_dual_pixel_mode", False))
+    assert 0.5 in sleep_calls
+    assert 3 not in sleep_calls
+    assert 2.0 not in sleep_calls
+    assert 1.0 not in sleep_calls
+    assert [call["timeout_s"] for call in stable_calls] == [3.0, 2.0, 1.0]
+    assert [call["required_mode"] for call in stable_calls] == [0, 2, 2]

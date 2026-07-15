@@ -66,10 +66,73 @@ dmd_wake_configured_dmd() {
     fi
 }
 
+dmd_wake_configured_pair() {
+    local script_dir="$1"
+    shift
+    local pid_a
+    local pid_b
+    local status_a=0
+    local status_b=0
+
+    dmd_wake_configured_dmd "$script_dir" A "$@" &
+    pid_a=$!
+    dmd_wake_configured_dmd "$script_dir" B "$@" &
+    pid_b=$!
+
+    if ! wait "$pid_a"; then
+        status_a=1
+    fi
+    if ! wait "$pid_b"; then
+        status_b=1
+    fi
+    if [ "$status_a" -ne 0 ] || [ "$status_b" -ne 0 ]; then
+        echo "Error: one or both paired DLPC900 DisplayPort wake operations failed."
+        return 1
+    fi
+}
+
+dmd_connected_dp_count() {
+    local count=0
+    local state
+    local status_file
+    for status_file in /sys/class/drm/*-DP-*/status; do
+        if [ ! -r "$status_file" ]; then
+            continue
+        fi
+        state=""
+        IFS= read -r state < "$status_file" || true
+        if [ "$state" = "connected" ]; then
+            count=$((count + 1))
+        fi
+    done
+    printf '%s\n' "$count"
+}
+
 dmd_wait_for_hotplug() {
     local label="${1:-Xorg and GPU to detect the DP hotplug event}"
-    echo "Waiting 6 seconds for $label..."
-    sleep 6
+    local required_dp_count="${2:-1}"
+    local max_attempts=60
+    local stable_required=3
+    local stable_count=0
+    local connected_count=0
+    local attempt
+
+    echo "Waiting up to 6 seconds for $label..."
+    for ((attempt=1; attempt<=max_attempts; attempt++)); do
+        connected_count="$(dmd_connected_dp_count)"
+        if [ "$connected_count" -ge "$required_dp_count" ]; then
+            stable_count=$((stable_count + 1))
+            if [ "$stable_count" -ge "$stable_required" ]; then
+                echo "Detected $connected_count connected DisplayPort output(s); continuing early."
+                return 0
+            fi
+        else
+            stable_count=0
+        fi
+        sleep 0.1
+    done
+
+    echo "[WARN] DisplayPort readiness was not observable in sysfs; continuing after the 6-second fallback."
 }
 
 dmd_run_xinit_python_module() {
