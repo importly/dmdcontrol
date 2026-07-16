@@ -33,7 +33,7 @@ def _display_frame_pair(
     frame_pair: FramePair | tuple[RGBFrame, RGBFrame],
 ) -> None:
     frames = as_frame_pair(frame_pair)
-    engine.display_pair(np.fliplr(frames.a).copy(), np.fliplr(frames.b).copy())
+    engine.display_pair(frames.a, frames.b)
 
 
 class PairRenderCoordinator:

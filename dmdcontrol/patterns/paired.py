@@ -669,7 +669,10 @@ class PairedPatternEngine:
         fps: float = TARGET_HZ,
         x: int = 0,
         y: int = 0,) -> None:
+        if width <= 0 or width % 2:
+            raise ValueError("Paired drawable width must be a positive even number")
         self.width = width
+        self.half_width = width // 2
         self.height = height
         self.fps = fps
         self._glfw, self._gl = _load_gl_modules()
@@ -719,10 +722,30 @@ class PairedPatternEngine:
         gl.glMatrixMode(gl.GL_MODELVIEW)
         gl.glLoadIdentity()
         gl.glEnable(gl.GL_TEXTURE_2D)
-        self.tex_id = gl.glGenTextures(1)
-        gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex_id)
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
+        texture_ids = tuple(int(texture_id) for texture_id in gl.glGenTextures(2))
+        if len(texture_ids) != 2:
+            self.cleanup()
+            raise RuntimeError(f"OpenGL allocated {len(texture_ids)} paired textures, expected 2")
+        self.texture_b, self.texture_a = texture_ids
+        self._textures_deleted = False
+        gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
+        for texture_id in texture_ids:
+            gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id)
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE)
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE)
+            gl.glTexImage2D(
+                gl.GL_TEXTURE_2D,
+                0,
+                gl.GL_RGB8,
+                self.half_width,
+                self.height,
+                0,
+                gl.GL_RGB,
+                gl.GL_UNSIGNED_BYTE,
+                None,
+            )
 
     def make_context_current(self) -> None:
         self._glfw.make_context_current(self.window)
@@ -731,54 +754,123 @@ class PairedPatternEngine:
         self._glfw.make_context_current(None)
 
     def display_pair(self, frame_a: RGBFrame, frame_b: RGBFrame) -> None:
-        self.display_frame(compose_pair_frame(frame_a, frame_b))
+        frame_start = time.perf_counter()
+        cadence_dt = (
+            frame_start - self.last_frame_time
+            if self.last_frame_time > 0.0
+            else None
+        )
+        self.last_frame_time = frame_start
+
+        prepared_a = self._prepare_dmd_frame(frame_a, "frame_a")
+        prepared_b = self._prepare_dmd_frame(frame_b, "frame_b")
+        input_end = time.perf_counter()
+
+        self._upload_texture(self.texture_b, prepared_b)
+        upload_b_end = time.perf_counter()
+        self._upload_texture(self.texture_a, prepared_a)
+        upload_a_end = time.perf_counter()
+
+        gl = self._gl
+        gl.glClear(gl.GL_COLOR_BUFFER_BIT)
+        self._draw_mirrored_texture(self.texture_b, 0, self.half_width)
+        self._draw_mirrored_texture(self.texture_a, self.half_width, self.width)
+        draw_end = time.perf_counter()
+
+        self._glfw.swap_buffers(self.window)
+        frame_end = time.perf_counter()
+        phases = {
+            "input": input_end - frame_start,
+            "upload_b": upload_b_end - input_end,
+            "upload_a": upload_a_end - upload_b_end,
+            "draw": draw_end - upload_a_end,
+            "swap": frame_end - draw_end,
+        }
+        self._record_stutter_timing(
+            cadence_dt,
+            frame_end,
+            phases,
+        )
+        self._glfw.poll_events()
+
+    def _prepare_dmd_frame(self, frame: RGBFrame, label: str) -> RGBFrame:
+        _validate_rgb_frame(frame, label)
+        expected_shape = (self.height, self.half_width, 3)
+        if frame.shape != expected_shape:
+            raise ValueError(
+                f"{label} shape {frame.shape} does not match "
+                f"{self.height}x{self.half_width}x3")
+        if frame.flags.c_contiguous:
+            return frame
+        return np.ascontiguousarray(frame)
+
+    def _upload_texture(self, texture_id: int, frame: RGBFrame) -> None:
+        gl = self._gl
+        gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id)
+        gl.glTexSubImage2D(
+            gl.GL_TEXTURE_2D,
+            0,
+            0,
+            0,
+            self.half_width,
+            self.height,
+            gl.GL_RGB,
+            gl.GL_UNSIGNED_BYTE,
+            frame,
+        )
+
+    def _draw_mirrored_texture(self, texture_id: int, left: int, right: int) -> None:
+        gl = self._gl
+        gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id)
+        gl.glBegin(gl.GL_QUADS)
+        gl.glTexCoord2f(1, 0)
+        gl.glVertex2f(left, 0)
+        gl.glTexCoord2f(0, 0)
+        gl.glVertex2f(right, 0)
+        gl.glTexCoord2f(0, 1)
+        gl.glVertex2f(right, self.height)
+        gl.glTexCoord2f(1, 1)
+        gl.glVertex2f(left, self.height)
+        gl.glEnd()
+
+    def _record_stutter_timing(
+        self,
+        cadence_dt: float | None,
+        frame_end: float,
+        phases: dict[str, float],
+    ) -> None:
+        if cadence_dt is None or cadence_dt <= self.expected_frame_time * 1.5:
+            return
+
+        self.dropped_frames += 1
+        if frame_end - self.last_stutter_log <= 2.0:
+            return
+
+        total = sum(phases.values())
+        slow_phase, slow_duration = max(phases.items(), key=lambda item: item[1])
+        logger.warning(
+            f"[WARNING] Paired render stutter: dt={cadence_dt * 1000:.2f}ms, "
+            f"input={phases['input'] * 1000:.2f}ms, "
+            f"upload_b={phases['upload_b'] * 1000:.2f}ms, "
+            f"upload_a={phases['upload_a'] * 1000:.2f}ms, "
+            f"draw={phases['draw'] * 1000:.2f}ms, "
+            f"swap={phases['swap'] * 1000:.2f}ms, "
+            f"total={total * 1000:.2f}ms, "
+            f"target={self.expected_frame_time * 1000:.2f}ms, "
+            f"slow_phase={slow_phase} ({slow_duration * 1000:.2f}ms), "
+            f"dropped_frames={self.dropped_frames}")
+        self.last_stutter_log = frame_end
 
     def display_frame(self, frame_array: RGBFrame) -> None:
+        """Display a precomposed B-left/A-right frame through the paired texture path."""
         _validate_rgb_frame(frame_array, "frame_array")
         if frame_array.shape[:2] != (self.height, self.width):
             raise ValueError(
                 f"Paired frame shape {frame_array.shape} does not match "
                 f"{self.height}x{self.width}x3")
-
-        now = time.perf_counter()
-        if self.last_frame_time > 0:
-            dt = now - self.last_frame_time
-            if dt > self.expected_frame_time * 1.5:
-                self.dropped_frames += 1
-                if now - self.last_stutter_log > 2.0:
-                    logger.warning(
-                        f"[WARNING] Paired render stutter: dt={dt * 1000:.2f}ms, "
-                        f"dropped_frames={self.dropped_frames}")
-                    self.last_stutter_log = now
-        self.last_frame_time = now
-
-        frame = np.ascontiguousarray(frame_array)
-        gl = self._gl
-        gl.glClear(gl.GL_COLOR_BUFFER_BIT)
-        gl.glBindTexture(gl.GL_TEXTURE_2D, self.tex_id)
-        gl.glTexImage2D(
-            gl.GL_TEXTURE_2D,
-            0,
-            gl.GL_RGB,
-            self.width,
-            self.height,
-            0,
-            gl.GL_RGB,
-            gl.GL_UNSIGNED_BYTE,
-            frame,
-        )
-        gl.glBegin(gl.GL_QUADS)
-        gl.glTexCoord2f(0, 0)
-        gl.glVertex2f(0, 0)
-        gl.glTexCoord2f(1, 0)
-        gl.glVertex2f(self.width, 0)
-        gl.glTexCoord2f(1, 1)
-        gl.glVertex2f(self.width, self.height)
-        gl.glTexCoord2f(0, 1)
-        gl.glVertex2f(0, self.height)
-        gl.glEnd()
-        self._glfw.swap_buffers(self.window)
-        self._glfw.poll_events()
+        frame_b = frame_array[:, :self.half_width, :]
+        frame_a = frame_array[:, self.half_width:, :]
+        self.display_pair(frame_a, frame_b)
 
     def should_close(self) -> bool:
         return self._glfw.window_should_close(self.window) or (
@@ -788,6 +880,18 @@ class PairedPatternEngine:
     def cleanup(self) -> None:
         try:
             if getattr(self, "window", None):
+                self._glfw.make_context_current(self.window)
+                texture_ids = [
+                    texture_id
+                    for texture_id in (
+                        getattr(self, "texture_b", None),
+                        getattr(self, "texture_a", None),
+                    )
+                    if texture_id is not None
+                ]
+                if texture_ids and not getattr(self, "_textures_deleted", False):
+                    self._gl.glDeleteTextures(texture_ids)
+                    self._textures_deleted = True
                 self._glfw.destroy_window(self.window)
         finally:
             self._glfw.terminate()

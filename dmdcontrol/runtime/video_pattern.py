@@ -29,7 +29,7 @@ from dmdcontrol.support.constants import (
     DMD_HEIGHT,
     DMD_WIDTH,
 )
-from dmdcontrol.support.logging import logger
+from dmdcontrol.support.logging import log_context, logger
 
 if TYPE_CHECKING:
     from dmdcontrol.hardware.dlpc900 import DLPC900
@@ -76,11 +76,12 @@ def start_loaded_pattern_sequences(
     errors: list[tuple[str, BaseException]] = []
 
     def _start_one(label: str, dlpc: "DLPC900") -> None:
-        try:
-            barrier.wait()
-            dlpc.start_pattern_display(2)
-        except Exception as exc:
-            errors.append((label, exc))
+        with log_context(f"DMD {label}"):
+            try:
+                barrier.wait()
+                dlpc.start_pattern_display(2)
+            except Exception as exc:
+                errors.append((label, exc))
 
     threads = [
         threading.Thread(target=_start_one,
@@ -107,8 +108,10 @@ def start_loaded_pattern_sequences(
         time.sleep(post_start_delay_s)
 
     if verify:
-        verify_started_pattern_sequence(dlpc_a, label="A")
-        verify_started_pattern_sequence(dlpc_b, label="B")
+        with log_context("DMD A"):
+            verify_started_pattern_sequence(dlpc_a, label="DMD A")
+        with log_context("DMD B"):
+            verify_started_pattern_sequence(dlpc_b, label="DMD B")
 
 
 def verify_started_pattern_sequence(

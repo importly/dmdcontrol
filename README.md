@@ -301,6 +301,20 @@ old startup-to-semantic render handoff while the DLPC900 sequencer is already ru
 count and frame role are recorded in `metadata.json` under `startup_leader`, then skipped before accumulation artifacts
 are selected.
 
+Paired presentation keeps one 3840x1080 GLFW drawable, one OpenGL context, and one
+`swap_buffers()` call with `swap_interval(1)`. Two persistent 1920x1080 RGB textures are
+updated with `glTexSubImage2D`: B is drawn into the left half and A into the right half.
+Each quad reverses only its S texture coordinate, preserving the validated per-DMD horizontal
+mirror without CPU `fliplr` copies or a 3840x1080 NumPy composition in the runtime path.
+
+Rate-limited paired stutter warnings report input preparation, B upload, A upload, draw,
+swap, total, target, and the slowest phase. Because OpenGL uploads may complete asynchronously,
+a driver/GPU stall may appear in the swap phase. See the optical verification runbook above
+
+Board-specific paired controller logs are tagged `[DMD A]` or `[DMD B]`, including nested USB,
+setup, LUT-load, sequencer-start, and cleanup messages. Shared renderer and synchronization
+messages remain untagged.
+
 `--test numbers` is a dynamic DisplayPort-frame mode, not a custom LUT sequence. `TRIG_OUT_2` remains the real
 acquisition/index signal from the Video Pattern Mode LUT and may pulse multiple times per displayed digit. `TRIG_OUT_1`
 is advisory only.

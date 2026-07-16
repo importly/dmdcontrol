@@ -1,9 +1,11 @@
+import logging
 import unittest
 
 from dmdcontrol.runtime.lifecycle import (
     load_pattern_sequence,
     start_loaded_pattern_sequences,
 )
+from dmdcontrol.support.logging import logger
 
 
 class _FakeDlpc:
@@ -54,6 +56,27 @@ class PairedLifecycleTests(unittest.TestCase):
 
         self.assertEqual(dlpc_a.calls.count(("start_pattern_display", 2)), 1)
         self.assertEqual(dlpc_b.calls.count(("start_pattern_display", 2)), 1)
+
+def test_start_loaded_pattern_sequences_tags_each_controller_thread(caplog):
+    class _LoggingDlpc(_FakeDlpc):
+
+        def start_pattern_display(self, mode):
+            logger.info(f"Starting {self.name}")
+            super().start_pattern_display(mode)
+
+    caplog.set_level(logging.INFO, logger="dmdcontrol")
+    dlpc_a = _LoggingDlpc("A")
+    dlpc_b = _LoggingDlpc("B")
+
+    start_loaded_pattern_sequences(
+        dlpc_a,
+        dlpc_b,
+        post_start_delay_s=0.0,
+    )
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert "[DMD A] Starting A" in messages
+    assert "[DMD B] Starting B" in messages
 
 
 if __name__ == "__main__":

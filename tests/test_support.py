@@ -1,4 +1,5 @@
 import argparse
+import logging
 
 import pytest
 
@@ -16,6 +17,7 @@ from dmdcontrol.support.constants import (
     DMD_WIDTH,
     KERNEL_VARIATION_COUNT,
 )
+from dmdcontrol.support.logging import log_context, logger
 
 
 def test_display_center_constants_follow_dmd_resolution():
@@ -52,3 +54,22 @@ def test_unit_interval_float_validator():
 
     with pytest.raises(argparse.ArgumentTypeError):
         unit_interval_float("1.1")
+
+
+def test_log_context_prefixes_messages_and_restores_previous_scope(caplog):
+    caplog.set_level(logging.INFO, logger="dmdcontrol")
+
+    with log_context("DMD A"):
+        logger.info("A message %s", 1)
+        with log_context("DMD B"):
+            logger.info("B message")
+        logger.info("A message 2")
+    logger.info("Shared message")
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert messages == [
+        "[DMD A] A message 1",
+        "[DMD B] B message",
+        "[DMD A] A message 2",
+        "Shared message",
+    ]

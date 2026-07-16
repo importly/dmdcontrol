@@ -1,9 +1,11 @@
+import logging
 from threading import Event, Lock
 from types import SimpleNamespace
 
 import pytest
 
 from dmdcontrol.runtime import pair
+from dmdcontrol.support.logging import logger
 
 
 def timing():
@@ -15,12 +17,16 @@ def timing():
     }
 
 
-def test_prepare_pair_controllers_runs_both_usb_setups_concurrently(monkeypatch):
+def test_prepare_pair_controllers_runs_both_usb_setups_concurrently(
+    monkeypatch,
+    caplog,
+):
     entered = set()
     entered_lock = Lock()
     both_entered = Event()
     dlpc_a = SimpleNamespace(name="A")
     dlpc_b = SimpleNamespace(name="B")
+    caplog.set_level(logging.INFO, logger="dmdcontrol")
 
     def fake_prepare(dlpc, *_args, **_kwargs):
         with entered_lock:
@@ -28,6 +34,7 @@ def test_prepare_pair_controllers_runs_both_usb_setups_concurrently(monkeypatch)
             if entered == {"A", "B"}:
                 both_entered.set()
         assert both_entered.wait(timeout=1.0)
+        logger.info(f"Nested setup for {dlpc.name}")
         return {"entries": [], "timing": {}}
 
     monkeypatch.setattr(pair, "prepare_dlpc900_for_video_pattern", fake_prepare)
@@ -46,6 +53,13 @@ def test_prepare_pair_controllers_runs_both_usb_setups_concurrently(monkeypatch)
     )
 
     assert entered == {"A", "B"}
+    messages = [record.getMessage() for record in caplog.records]
+    assert "[DMD A] Nested setup for A" in messages
+    assert "[DMD B] Nested setup for B" in messages
+    assert "[DMD A] [+] Preparing controller without starting sequencer..." in messages
+    assert "[DMD B] [+] Preparing controller without starting sequencer..." in messages
+    assert "[DMD A] [+] Controller preparation complete." in messages
+    assert "[DMD B] [+] Controller preparation complete." in messages
 
 
 def test_prepare_pair_controllers_propagates_worker_failure(monkeypatch):
