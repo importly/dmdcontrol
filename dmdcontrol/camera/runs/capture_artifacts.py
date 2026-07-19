@@ -13,6 +13,7 @@ from dmdcontrol.camera.local_support_filter import (
     apply_local_support_filter_arrays,
     event_noise_filter_metadata,
 )
+from dmdcontrol.camera.record_fields import as_int
 from dmdcontrol.camera.runs.accumulation_artifacts import (
     _process_accumulation_triggers,
     _record_field,
@@ -224,7 +225,7 @@ def _write_triggers_csv(path, triggers):
     for index, trigger in enumerate(triggers):
         timestamp = _record_field(trigger, "timestamp")
         edge = _record_field(trigger, "edge", default="rising")
-        lines.append(f"{index},{int(timestamp)},{edge}")
+        lines.append(f"{index},{as_int(timestamp, name='timestamp')},{edge}")
     Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 def _write_filtered_events_artifact(run_directory, filtered_arrays, *, save_filtered_events):

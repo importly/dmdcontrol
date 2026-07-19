@@ -1,13 +1,7 @@
 from __future__ import annotations
 
-from types import ModuleType
-
-
-def _single_runtime() -> ModuleType:
-    from dmdcontrol.runtime import single
-
-    return single
+from dmdcontrol.runtime.single import main as runtime_main
 
 
 def run(argv: list[str]) -> int | None:
-    return _single_runtime().main(argv)
+    return runtime_main(argv)

@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from dmdcontrol.camera.record_fields import as_int
+
 _MISSING = object()
 
 
@@ -183,7 +185,7 @@ def _trigger_edge(trigger):
 
 
 def _timestamp(record):
-    return int(_field_any(record, ("timestamp", "t")))
+    return as_int(_field_any(record, ("timestamp", "t")), name="timestamp")
 
 
 def _field_any(record, names, default=_MISSING):

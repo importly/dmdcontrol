@@ -61,6 +61,25 @@ Compatibility shims such as `compat/legacy/main.py`, `compat/legacy/main_pair.py
 under `compat/legacy/`. Use `run_dmd_preview_server.sh` for the preview server default bind, or `python -m dmdcontrol`
 directly for custom preview-server workflows.
 
+## Development verification
+
+Install the locked development dependencies and run the production-package type check plus the full
+hardware-independent test suite:
+
+```bash
+uv sync --group dev
+uv run basedpyright
+uv run pytest -q
+```
+
+The committed basedpyright configuration checks `dmdcontrol/` with Python 3.13 in standard mode. Research
+notebooks and `server_backup/` are intentionally outside that production type-check boundary.
+
+Import architecture keeps deferred imports at explicit boundaries only. `dmdcontrol.cli.main` imports the selected command
+adapter after parsing the command, while command adapters and runtime modules use ordinary imports. Function-local imports
+are reserved for optional `dv_processing`, native OpenGL construction, and the lightweight `dmdcontrol.preview` public API;
+the CLI test suite audits this allowlist so module-returning lazy-loader helpers cannot creep back in.
+
 ## Essential Linux DMD workflows
 
 Paired kernel-on-A with static dot-on-B:

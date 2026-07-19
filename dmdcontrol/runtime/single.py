@@ -2,12 +2,16 @@ import argparse
 import threading
 import time
 
+import glfw
+
 try:
     import cv2
 except ImportError:
     cv2 = None
 
+from dmdcontrol.hardware.dlpc900 import DLPC900
 from dmdcontrol.hardware.mapping import resolve_dmd_mapping
+from dmdcontrol.patterns.engine import PatternEngine
 from dmdcontrol.patterns.calibration_square import (
     build_calibration_square_frame,
     format_calibration_square_state,
@@ -283,7 +287,7 @@ def _open_video_writer(path, target_hz):
         logger.warning("Cannot capture video, opencv-python is not installed.")
         return None
     logger.info(f"[+] Recording packed frames to {path}")
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    fourcc = cv2.VideoWriter.fourcc(*"mp4v")
     return cv2.VideoWriter(path, fourcc, target_hz, (DMD_WIDTH, DMD_HEIGHT), isColor=True)
 
 
@@ -338,6 +342,8 @@ def _make_frame_provider(
                 initial_state=calibration_square_state,
             ))
     if dynamic_kind == "kernel":
+        if kernel_frames is None:
+            raise ValueError("kernel_frames are required for kernel mode")
         frames = kernel_frames
         n = len(frames)
         black = engine.pack_patterns(engine.generate_solid(0))
@@ -407,10 +413,6 @@ def main(argv=None):
     dlpc = None
     engine = None
     try:
-        import glfw
-
-        from dmdcontrol.hardware.dlpc900 import DLPC900
-        from dmdcontrol.patterns.engine import PatternEngine
         engine = PatternEngine(monitor_index=monitor_index, fps=target_hz)
 
         logger.info("[+] Initializing DLPC900...")
@@ -440,7 +442,11 @@ def main(argv=None):
         lut_per_entry_exposure_us = None
         lut_entries_count, lut_per_entry_exposure_us = _lut_timing_override(
             args, target_hz, dynamic_kind)
-        if dynamic_kind == "kernel" and lut_per_entry_exposure_us is not None:
+        if (
+            dynamic_kind == "kernel"
+            and lut_per_entry_exposure_us is not None
+            and lut_entries_count is not None
+        ):
             logger.info(
                 f"[+] Kernel exposure override: {lut_per_entry_exposure_us} us uniformly per kernel -> "
                 f"{lut_entries_count} LUT entries per VSYNC (binary rate {lut_entries_count * target_hz} Hz)."
@@ -617,6 +623,8 @@ def main(argv=None):
         logger.info(f"[+] Starting Diagnostic Mode: {label}...")
 
         if dynamic_kind == "kernel":
+            if kernel_cycle_vsyncs is None or kernel_cycle_kernels is None:
+                raise RuntimeError("kernel cycle timing was not initialized")
             logger.info(
                 f"[+] Kernel cycle: {kernel_cycle_vsyncs} VSYNC frames covering {kernel_cycle_kernels} "
                 f"payload/end-marker bitplane fires plus {kernel_leader_fires} leader fires "

@@ -1,5 +1,8 @@
+import random
 import time
+from datetime import datetime
 
+import cv2
 import glfw
 import numpy as np
 from OpenGL.GL import (
@@ -197,7 +200,6 @@ class PatternEngine:
         return [solid for _ in range(24)]
 
     def generate_snake_frame(self, grid_w=24, grid_h=13):
-        import random
         # Initialize snake state if it doesn't exist
         if not hasattr(self, 'snake_pos'):
             self.snake_pos = [
@@ -253,10 +255,8 @@ class PatternEngine:
         """
         Generates a 1920x1080 pure grayscale frame with a massive microsecond clock timestamp.
         """
-        from datetime import datetime
 
         # We need cv2 to render the text
-        import cv2
 
         canvas = np.zeros((self.height, self.width), dtype=np.uint8)
 

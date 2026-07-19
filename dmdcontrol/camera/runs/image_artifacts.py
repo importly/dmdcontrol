@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 from PIL import Image
@@ -51,7 +52,7 @@ def _contact_sheet(frames, *, scale_max=None, cols=None):
     if len(frames) == 0:
         return np.zeros((1, 1), dtype=np.uint8)
     normalized = [_normalize_grayscale(frame, scale_max=scale_max) for frame in frames]
-    frame_h, frame_w = normalized[0].shape
+    frame_h, frame_w = cast(tuple[int, int], normalized[0].shape)
     cols = (
         max(1,
             int(cols)) if cols is not None else max(1,

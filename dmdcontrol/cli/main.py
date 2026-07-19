@@ -59,9 +59,9 @@ def main(argv: list[str] | None = None) -> int | None:
 
         return preview.serve(passthrough)
     if args.area == "usb" and args.command == "discover":
-        from dmdcontrol.cli import usb
+        from dmdcontrol.cli import usb_discover
 
-        return usb.discover(passthrough)
+        return usb_discover.discover(passthrough)
     if args.area == "usb" and args.command == "wake":
         from dmdcontrol.cli import usb
 
@@ -70,16 +70,20 @@ def main(argv: list[str] | None = None) -> int | None:
         from dmdcontrol.cli import config
 
         return config.show(passthrough)
-    if args.area == "camera":
+    if args.area == "camera" and args.command in {"discover", "status"}:
         from dmdcontrol.cli import camera
 
-        handlers = {
-            "discover": camera.discover,
-            "status": camera.status,
-            "sync-check": camera.sync_check,
-            "pair-capture": camera.pair_capture,
-            "reprocess-aedat4": camera.reprocess_aedat4,
-        }
-        if args.command in handlers:
-            return handlers[args.command](passthrough)
+        return {"discover": camera.discover, "status": camera.status}[args.command](passthrough)
+    if args.area == "camera" and args.command == "sync-check":
+        from dmdcontrol.camera import sync_check
+
+        return sync_check.main(passthrough)
+    if args.area == "camera" and args.command == "pair-capture":
+        from dmdcontrol.camera import pair_capture
+
+        return pair_capture.main(passthrough)
+    if args.area == "camera" and args.command == "reprocess-aedat4":
+        from dmdcontrol.camera import reprocess_aedat4
+
+        return reprocess_aedat4.main(passthrough)
     raise SystemExit(f"Unsupported command: {args.area} {args.command}")

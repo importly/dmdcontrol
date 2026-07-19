@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from dmdcontrol.runtime.count_slots import CountSequenceConfig
+from dmdcontrol.runtime.pair import _build_parser as build_pair_parser
 from dmdcontrol.runtime.lifecycle import compute_trigger_out_2_timing
 
 A_COUNT_B_STATIC_TEST = "a-count-b-static"
@@ -114,9 +115,7 @@ class PairRuntimeRequest:
         )
 
     def to_namespace(self) -> argparse.Namespace:
-        from dmdcontrol.runtime import pair as pair_module
-
-        namespace = pair_module._build_parser().parse_args(
+        namespace = build_pair_parser().parse_args(
             ["--exposure-us", str(self.exposure_us)]
         )
         overrides = {

@@ -5,6 +5,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, cast
 
+from dmdcontrol.runtime.pair import _run as run_pair_runtime
+
 from dmdcontrol.camera.arguments import add_camera_performance_arguments
 from dmdcontrol.camera.capture import (
     AsyncCapture,
@@ -244,9 +246,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _run_pair_with_callback(pair_request, before_start):
-    from dmdcontrol.runtime import pair as pair_module
-
-    return pair_module._run(pair_request.to_namespace(), before_start=before_start)
+    return run_pair_runtime(pair_request.to_namespace(), before_start=before_start)
 
 
 def _copy_sweep_metadata(args: argparse.Namespace, metadata: dict[str, object]) -> None:

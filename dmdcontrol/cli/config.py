@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
-from types import ModuleType
+
+from dmdcontrol.hardware.mapping import resolve_dmd_mapping
 
 FIELDS = (
     "name",
@@ -11,12 +12,6 @@ FIELDS = (
     "xrandr_output",
     "glfw_monitor_index",
 )
-
-
-def _mapping_module() -> ModuleType:
-    from dmdcontrol.hardware import mapping
-
-    return mapping
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -29,7 +24,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def show(argv: list[str]) -> int:
     args = _build_parser().parse_args(argv)
-    mapping = _mapping_module().resolve_dmd_mapping(args.dmd, args.config)
+    mapping = resolve_dmd_mapping(args.dmd, args.config)
     values = {field: getattr(mapping, field) for field in FIELDS}
     if args.field:
         value = values[args.field]

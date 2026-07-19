@@ -26,6 +26,8 @@ from typing import Literal, TypedDict
 
 import numpy as np
 
+from dmdcontrol.preview.render import build_lut_preview_metadata
+
 from dmdcontrol.patterns.calibration_square import (
     build_calibration_square_frame,
     make_calibration_square_frame_provider,
@@ -288,8 +290,6 @@ class PairedDisplaySequence:
         }
 
     def preview_metadata(self) -> dict[str, object]:
-        from dmdcontrol.preview.render import build_lut_preview_metadata
-
         metadata = dict(self.mode_metadata)
         metadata["display_sequence"] = self.metadata()
         plan_a = self.lut_plan_a()

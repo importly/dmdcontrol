@@ -22,7 +22,13 @@ from dmdcontrol.preview.render import (
 class DmdPreviewHandler(BaseHTTPRequestHandler):
     server_version = "DmdPreview/1.0"
 
-    def log_message(self, _format, *args):
+    @property
+    def preview_server(self) -> DmdPreviewServer:
+        if not isinstance(self.server, DmdPreviewServer):
+            raise TypeError("preview handler requires DmdPreviewServer")
+        return self.server
+
+    def log_message(self, format: str, *args: object) -> None:
         return
 
     def do_GET(self):
@@ -57,7 +63,7 @@ class DmdPreviewHandler(BaseHTTPRequestHandler):
             except json.JSONDecodeError:
                 metadata = {}
         try:
-            self.server.live_store.set_png(body, metadata=metadata)
+            self.preview_server.live_store.set_png(body, metadata=metadata)
         except Exception as exc:
             self.send_error(400, str(exc))
             return
@@ -65,14 +71,14 @@ class DmdPreviewHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _config_payload(self):
-        metadata, updated_at = self.server.live_store.get_metadata()
+        metadata, updated_at = self.preview_server.live_store.get_metadata()
         return {
             "default_layout": "pair",
             "single_tests": list(PATTERN_NAMES),
             "pair_tests": list(PAIR_TESTS),
             "static_pair_tests": list(STATIC_PAIR_TESTS),
             "bitplanes": list(BITPLANE_LABELS),
-            "live_frame_available": self.server.live_store.has_frame(),
+            "live_frame_available": self.preview_server.live_store.has_frame(),
             "live_metadata": metadata,
             "live_updated_at": updated_at,
         }
@@ -97,7 +103,7 @@ class DmdPreviewHandler(BaseHTTPRequestHandler):
         self._send_bytes(png, "image/png")
 
     def _send_live_frame(self, params):
-        frame, _metadata, _updated_at = self.server.live_store.get_frame()
+        frame, _metadata, _updated_at = self.preview_server.live_store.get_frame()
         if frame is None:
             self.send_error(404, "no live frame")
             return
@@ -158,7 +164,7 @@ def _build_parser():
 def main(argv=None):
     args = _build_parser().parse_args(argv)
     server = create_server(args.host, args.port)
-    host, port = server.server_address
+    host, port = server.server_address[:2]
     print(f"Serving DMD preview at http://{host}:{port}/")
     try:
         server.serve_forever()

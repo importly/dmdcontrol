@@ -22,6 +22,7 @@ camera = [
 
 [dependency-groups]
 dev = [
+    "basedpyright>=1.39.9",
     "ipykernel>=7.3.0",
     "ipywidgets>=8.1.8",
     "notebook>=7.6.0",
@@ -31,6 +32,11 @@ dev = [
 [tool.uv]
 package = false
 default-groups = ["dev"]
+
+[tool.basedpyright]
+include = ["dmdcontrol"]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
 
 [tool.yapf]
 based_on_style = "pep8"

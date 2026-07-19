@@ -38,7 +38,7 @@ def test_cli_main_import_does_not_load_hardware_modules():
     assert "dmdcontrol.hardware.dlpc900" not in sys.modules
 
 
-def test_production_code_uses_navigable_lazy_imports():
+def test_production_code_uses_static_import_syntax():
     root = Path(__file__).resolve().parents[1]
     offenders = []
     for path in sorted((root / "dmdcontrol").rglob("*.py")):
@@ -56,12 +56,49 @@ def test_production_code_uses_navigable_lazy_imports():
     assert offenders == []
 
 
+def test_function_local_imports_are_limited_to_explicit_boundaries():
+    root = Path(__file__).resolve().parents[1]
+    allowed_targets = {
+        "dmdcontrol/camera/discovery.py": {"dv_processing"},
+        "dmdcontrol/camera/reprocess_aedat4.py": {"dv_processing"},
+        "dmdcontrol/camera/session.py": {"dv_processing"},
+        "dmdcontrol/cli/main.py": {"dmdcontrol.camera", "dmdcontrol.cli"},
+        "dmdcontrol/patterns/calibration_square.py": {"glfw"},
+        "dmdcontrol/patterns/paired.py": {"OpenGL.GL", "glfw"},
+        "dmdcontrol/preview/__init__.py": {"dmdcontrol.preview"},
+    }
+    offenders = []
+    for path in sorted((root / "dmdcontrol").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        parents = {
+            child: parent
+            for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
+        relative_path = path.relative_to(root).as_posix()
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                continue
+            parent = parents.get(node)
+            while parent is not None and not isinstance(
+                    parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                parent = parents.get(parent)
+            if parent is None:
+                continue
+            targets = (
+                [node.module]
+                if isinstance(node, ast.ImportFrom)
+                else [alias.name for alias in node.names]
+            )
+            for target in targets:
+                if target not in allowed_targets.get(relative_path, set()):
+                    offenders.append(f"{relative_path}:{parent.name}:{target}")
+
+    assert offenders == []
+
 def test_single_run_delegates_passthrough_args(monkeypatch):
     runtime = Mock(return_value=7)
-    monkeypatch.setattr(
-        "dmdcontrol.cli.single._single_runtime",
-        lambda: SimpleNamespace(main=runtime),
-    )
+    monkeypatch.setattr("dmdcontrol.cli.single.runtime_main", runtime)
 
     assert run_cli(["single", "run", "--test", "checkerboard"]) == 7
 
@@ -70,10 +107,7 @@ def test_single_run_delegates_passthrough_args(monkeypatch):
 
 def test_pair_run_translates_preferred_flags(monkeypatch):
     runtime = Mock(return_value=0)
-    monkeypatch.setattr(
-        "dmdcontrol.cli.pair._pair_runtime",
-        lambda: SimpleNamespace(main=runtime),
-    )
+    monkeypatch.setattr("dmdcontrol.cli.pair.runtime_main", runtime)
 
     assert run_cli(
         [
@@ -100,10 +134,7 @@ def test_pair_run_translates_preferred_flags(monkeypatch):
 
 def test_pair_calibrate_injects_test_and_default_zero_runtime(monkeypatch):
     runtime = Mock(return_value=0)
-    monkeypatch.setattr(
-        "dmdcontrol.cli.pair._pair_runtime",
-        lambda: SimpleNamespace(main=runtime),
-    )
+    monkeypatch.setattr("dmdcontrol.cli.pair.runtime_main", runtime)
 
     assert run_cli(["pair", "calibrate", "--b-dot-x", "10"]) == 0
 
@@ -120,10 +151,7 @@ def test_pair_calibrate_injects_test_and_default_zero_runtime(monkeypatch):
 
 def test_pair_calibrate_preserves_essential_preview_dot_args(monkeypatch):
     runtime = Mock(return_value=0)
-    monkeypatch.setattr(
-        "dmdcontrol.cli.pair._pair_runtime",
-        lambda: SimpleNamespace(main=runtime),
-    )
+    monkeypatch.setattr("dmdcontrol.cli.pair.runtime_main", runtime)
 
     assert (
         run_cli(
@@ -163,10 +191,7 @@ def test_pair_calibrate_preserves_essential_preview_dot_args(monkeypatch):
 
 def test_pair_calibrate_preserves_user_runtime_seconds(monkeypatch):
     runtime = Mock(return_value=0)
-    monkeypatch.setattr(
-        "dmdcontrol.cli.pair._pair_runtime",
-        lambda: SimpleNamespace(main=runtime),
-    )
+    monkeypatch.setattr("dmdcontrol.cli.pair.runtime_main", runtime)
 
     assert run_cli(["pair", "calibrate", "--runtime-seconds=5"]) == 0
 
@@ -186,14 +211,14 @@ def test_preview_serve_help_exits_zero(capsys):
 
 def test_usb_discover_delegates_passthrough(monkeypatch):
     usb = Mock(return_value=3)
-    monkeypatch.setattr("dmdcontrol.cli.usb._usb_module", lambda: SimpleNamespace(main=usb))
+    monkeypatch.setattr("dmdcontrol.cli.usb_discover.usb_main", usb)
 
     assert run_cli(["usb", "discover", "--verbose"]) == 3
 
     usb.assert_called_once_with(["--verbose"])
 
 
-def test_usb_wake_uses_inline_lazy_dependencies(monkeypatch):
+def test_usb_wake_uses_direct_dependencies(monkeypatch):
     from dmdcontrol.cli import usb as usb_cli
 
     calls = []
@@ -218,16 +243,10 @@ def test_usb_wake_uses_inline_lazy_dependencies(monkeypatch):
     resolver = Mock(return_value=Mapping(name="A", usb_id_path="pci-0000:00", usb_devpath_contains="/usb1/1-1/"))
     setup_logger = Mock()
     logger = SimpleNamespace(info=Mock())
-    monkeypatch.setattr(
-        usb_cli,
-        "_wake_dependencies",
-        lambda: SimpleNamespace(
-            DLPC900=FakeDLPC900,
-            resolve_dmd_mapping=resolver,
-            setup_logger=setup_logger,
-            logger=logger,
-        ),
-    )
+    monkeypatch.setattr(usb_cli, "DLPC900", FakeDLPC900)
+    monkeypatch.setattr(usb_cli, "resolve_dmd_mapping", resolver)
+    monkeypatch.setattr(usb_cli, "setup_logger", setup_logger)
+    monkeypatch.setattr(usb_cli, "logger", logger)
     monkeypatch.setattr(usb_cli.time, "sleep", Mock())
 
     assert run_cli(["usb", "wake", "--dmd", "A", "--dmd-config", "devices.json"]) == 0
@@ -268,10 +287,7 @@ class Mapping:
 
 def test_config_show_prints_json(monkeypatch, capsys):
     resolver = Mock(return_value=Mapping())
-    monkeypatch.setattr(
-        "dmdcontrol.cli.config._mapping_module",
-        lambda: SimpleNamespace(resolve_dmd_mapping=resolver),
-    )
+    monkeypatch.setattr("dmdcontrol.cli.config.resolve_dmd_mapping", resolver)
 
     assert run_cli(["config", "show", "--dmd", "A"]) == 0
 
@@ -287,10 +303,7 @@ def test_config_show_prints_json(monkeypatch, capsys):
 
 def test_config_show_prints_one_field(monkeypatch, capsys):
     resolver = Mock(return_value=Mapping())
-    monkeypatch.setattr(
-        "dmdcontrol.cli.config._mapping_module",
-        lambda: SimpleNamespace(resolve_dmd_mapping=resolver),
-    )
+    monkeypatch.setattr("dmdcontrol.cli.config.resolve_dmd_mapping", resolver)
 
     assert run_cli(["config", "show", "--dmd", "A", "--field", "xrandr_output"]) == 0
 

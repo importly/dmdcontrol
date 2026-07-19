@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 from dataclasses import is_dataclass, replace
+from typing import Any, cast
 
 from dmdcontrol.camera.capture import flush_stale_batches, validate_camera_ready
 from dmdcontrol.camera.discovery import (
@@ -21,8 +22,8 @@ _CAMERA_READBACK_METHODS = (
 
 
 def _ready_with_initial_flush(ready, initial_flush):
-    if is_dataclass(ready):
-        return replace(ready, initial_flush=initial_flush)
+    if not isinstance(ready, type) and is_dataclass(ready):
+        return replace(cast(Any, ready), initial_flush=initial_flush)
     try:
         setattr(ready, "initial_flush", initial_flush)
     except Exception:

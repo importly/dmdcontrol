@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
+import usb.core
+
 from dmdcontrol.support.constants import DLPC900_PID, DLPC900_VID
 
 
@@ -189,8 +191,6 @@ def resolve_usb_candidate(usb_id_path, usb_devpath_contains=None, candidates=Non
 def _load_pyusb_devices(pyusb_devices=None):
     if pyusb_devices is not None:
         return list(pyusb_devices)
-    import usb.core
-
     return list(usb.core.find(find_all=True, idVendor=DLPC900_VID, idProduct=DLPC900_PID) or [])
 
 

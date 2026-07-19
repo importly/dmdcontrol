@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from dmdcontrol.camera.accumulation import filter_rising_triggers
+from dmdcontrol.camera.record_fields import as_int
 
 
 @dataclass(frozen=True)
@@ -19,8 +20,10 @@ class _AccumulationTriggerStages:
 
 def _trigger_timestamps(triggers):
     return np.array(
-        [int(_record_field(trigger,
-                           "timestamp")) for trigger in triggers],
+        [
+            as_int(_record_field(trigger, "timestamp"), name="timestamp")
+            for trigger in triggers
+        ],
         dtype=np.int64,
     )
 

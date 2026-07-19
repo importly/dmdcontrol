@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from dmdcontrol.camera.record_fields import as_int
+
 
 class BoundedArtifactBuffer:
 
@@ -111,7 +113,7 @@ def _trigger_edge(record) -> str:
 
 
 def _record_timestamp(record) -> int:
-    return int(_record_field(record, "timestamp"))
+    return as_int(_record_field(record, "timestamp"), name="timestamp")
 
 
 def _record_field(record, name, default=None):

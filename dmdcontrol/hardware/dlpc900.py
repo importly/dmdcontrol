@@ -17,6 +17,8 @@ from typing import cast
 import usb.core
 import usb.util
 
+from dmdcontrol.hardware.usb import select_pyusb_device_for_mapping
+
 from dmdcontrol.support.constants import DLPC900_PID, DLPC900_VID
 from dmdcontrol.support.logging import logger
 
@@ -30,8 +32,6 @@ class DLPC900:
         self._closed = False
         try:
             if usb_id_path:
-                from dmdcontrol.hardware.usb import select_pyusb_device_for_mapping
-
                 found = select_pyusb_device_for_mapping(
                     usb_id_path,
                     usb_devpath_contains=usb_devpath_contains,

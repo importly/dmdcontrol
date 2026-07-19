@@ -5,11 +5,13 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypedDict
 
 import numpy as np
 
 from dmdcontrol.camera.accumulation import TriggerRecord
 from dmdcontrol.camera.capture import merge_time_range
+from dmdcontrol.camera.record_fields import as_int
 from dmdcontrol.camera.runs import (
     CameraRunDirectory,
     write_capture_artifacts,
@@ -24,6 +26,17 @@ class Aedat4RecordingData:
     triggers: list[TriggerRecord]
     resolution: tuple[int, int]
     stats: dict[str, object]
+
+
+class ReprocessOptions(TypedDict):
+    window_us: int
+    accumulation_start_offset_us: int
+    polarity_mode: str
+    trigger_cycle_length: int | None
+    accumulation_cycles: int | None
+    max_accumulation_triggers: int | None
+    contact_sheet_columns: int
+    startup_leader_trigger_count: int
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -148,7 +161,12 @@ def read_aedat4_recording(path: str | Path) -> Aedat4RecordingData:
     events, event_stats = _read_event_batches(recording)
     recording.resetSequentialRead()
     triggers, trigger_stats = _read_trigger_batches(recording)
-    resolution = tuple(int(value) for value in recording.getEventResolution())
+    resolution_values = tuple(
+        as_int(value, name="event resolution") for value in recording.getEventResolution()
+    )
+    if len(resolution_values) != 2:
+        raise ValueError(f"event resolution must contain two values, got {resolution_values!r}")
+    resolution = (resolution_values[0], resolution_values[1])
     stats = {
         "event_batches": event_stats["batches"],
         "event_count": event_stats["count"],
@@ -212,7 +230,7 @@ def _read_trigger_batches(recording) -> tuple[list[TriggerRecord], dict[str, obj
 
 
 def _trigger_record(trigger) -> TriggerRecord:
-    timestamp = int(_record_value(trigger, "timestamp"))
+    timestamp = as_int(_record_value(trigger, "timestamp"), name="timestamp")
     trigger_type = _record_value(trigger, "type", default=None)
     return TriggerRecord(timestamp=timestamp, edge=_trigger_edge_name(trigger_type))
 
@@ -253,61 +271,84 @@ def _json_time_range(time_range):
     return [int(time_range[0]), int(time_range[1])]
 
 
-def _resolve_options(args, metadata: dict[str, object]) -> dict[str, object]:
-    trigger_cycle_length = _first_not_none(
+def _resolve_options(args, metadata: dict[str, object]) -> ReprocessOptions:
+    number_sequence = metadata.get("number_sequence")
+    number_sequence_length = (
+        len(number_sequence) if isinstance(number_sequence, (list, tuple)) else None
+    )
+    trigger_cycle_length_value = _first_not_none(
         args.trigger_cycle_length,
         metadata.get("expected_trigger_count"),
-        len(metadata.get("number_sequence",
-                         [])) or None,
+        number_sequence_length or None,
+    )
+    trigger_cycle_length = (
+        as_int(trigger_cycle_length_value, name="trigger cycle length")
+        if trigger_cycle_length_value is not None
+        else None
+    )
+    accumulation_cycles_value = _first_not_none(
+        args.accumulation_cycles,
+        metadata.get("accumulation_cycles"),
+    )
+    startup_leader = metadata.get("startup_leader")
+    startup_leader_count: object | None = None
+    if isinstance(startup_leader, dict):
+        startup_leader_count = startup_leader.get("trigger_count")
+
+    window_value = _first_not_none(
+        args.window_us,
+        metadata.get("accumulation_window_us"),
+        metadata.get("exposure_us"),
+        metadata.get("numbers_exposure_us"),
+        metadata.get("count_exposure_us"),
+        0,
+    )
+    polarity_value = _first_not_none(
+        args.polarity_mode,
+        metadata.get("polarity_mode"),
+        "positive",
+    )
+    contact_sheet_value = _first_not_none(
+        args.contact_sheet_columns,
+        trigger_cycle_length,
+        1,
+    )
+    leader_count_value = _first_not_none(
+        args.startup_leader_trigger_count,
+        startup_leader_count,
+        0,
     )
     return {
-        "window_us":
-        int(
-            _first_not_none(
-                args.window_us,
-                metadata.get("accumulation_window_us"),
-                metadata.get("exposure_us"),
-                metadata.get("numbers_exposure_us"),
-                metadata.get("count_exposure_us"),
-                0,
-            )),
-        "accumulation_start_offset_us":
-        int(args.accumulation_start_offset_us),
-        "polarity_mode":
-        str(_first_not_none(args.polarity_mode,
-                            metadata.get("polarity_mode"),
-                            "positive")),
-        "trigger_cycle_length":
-        int(trigger_cycle_length) if trigger_cycle_length is not None else None,
+        "window_us": as_int(window_value, name="accumulation window"),
+        "accumulation_start_offset_us": as_int(
+            args.accumulation_start_offset_us,
+            name="accumulation start offset",
+        ),
+        "polarity_mode": str(polarity_value),
+        "trigger_cycle_length": trigger_cycle_length,
         "accumulation_cycles": (
-            int(args.accumulation_cycles)
-            if args.accumulation_cycles is not None else
-            int(metadata["accumulation_cycles"]) if metadata.get("accumulation_cycles") is not None else None),
+            as_int(accumulation_cycles_value, name="accumulation cycles")
+            if accumulation_cycles_value is not None
+            else None
+        ),
         "max_accumulation_triggers": (
-            int(args.max_accumulation_triggers)
-            if args.max_accumulation_triggers is not None else None),
-        "contact_sheet_columns":
-        int(_first_not_none(
-            args.contact_sheet_columns,
-            trigger_cycle_length,
-            1,
-        )),
-        "startup_leader_trigger_count":
-        int(
-            _first_not_none(
-                args.startup_leader_trigger_count,
-                (metadata.get("startup_leader") or {}).get("trigger_count"),
-                0,
-            )),
+            as_int(args.max_accumulation_triggers, name="maximum accumulation triggers")
+            if args.max_accumulation_triggers is not None
+            else None
+        ),
+        "contact_sheet_columns": as_int(contact_sheet_value, name="contact sheet columns"),
+        "startup_leader_trigger_count": as_int(
+            leader_count_value,
+            name="startup leader trigger count",
+        ),
     }
 
 
-def _first_not_none(*values):
+def _first_not_none(*values: object | None) -> object | None:
     for value in values:
         if value is not None:
             return value
     return None
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

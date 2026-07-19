@@ -1,6 +1,5 @@
 import json
 import sys
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -38,10 +37,7 @@ def test_camera_subcommand_help_exits_zero_without_dv_processing(command):
 
 def test_camera_discover_delegates(monkeypatch, capsys):
     discover = Mock(return_value=[{"index": 0, "cameraModel": "DVXPLORER"}])
-    monkeypatch.setattr(
-        "dmdcontrol.cli.camera._discovery_module",
-        lambda: SimpleNamespace(discover_cameras=discover),
-    )
+    monkeypatch.setattr("dmdcontrol.cli.camera.discover_cameras", discover)
 
     assert run_cli(["camera", "discover"]) == 0
 

@@ -7,6 +7,8 @@ from typing import Any
 
 import numpy as np
 
+from dmdcontrol.camera.record_fields import as_int
+
 DEFAULT_STOP_DRAIN_READS = 8
 DEFAULT_STOP_DRAIN_IDLE_READS = 2
 
@@ -225,15 +227,15 @@ def _record_timestamp_or_none(record):
     for name in ("timestamp", "t"):
         if hasattr(record, name):
             value: Any = getattr(record, name)
-            return int(value() if callable(value) else value)
+            return as_int(value() if callable(value) else value, name=name)
         if isinstance(record, dict) and name in record:
-            return int(record[name])
+            return as_int(record[name], name=name)
         if (
             isinstance(record, np.void)
             and record.dtype.names
             and name in record.dtype.names
         ):
-            return int(record[name])
+            return as_int(record[name], name=name)
     return None
 
 

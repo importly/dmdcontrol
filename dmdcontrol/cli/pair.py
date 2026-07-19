@@ -1,14 +1,8 @@
 from __future__ import annotations
 
-from types import ModuleType
+from dmdcontrol.runtime.pair import main as runtime_main
 
 CALIBRATION_TEST = "a-calibr-square-b-dot"
-
-
-def _pair_runtime() -> ModuleType:
-    from dmdcontrol.runtime import pair
-
-    return pair
 
 
 def _translate_run_args(argv: list[str]) -> list[str]:
@@ -28,7 +22,7 @@ def _translate_run_args(argv: list[str]) -> list[str]:
 
 
 def run(argv: list[str]) -> int | None:
-    return _pair_runtime().main(_translate_run_args(argv))
+    return runtime_main(_translate_run_args(argv))
 
 
 def calibrate(argv: list[str]) -> int | None:
@@ -36,4 +30,4 @@ def calibrate(argv: list[str]) -> int | None:
     if not any(arg == "--runtime-seconds" or arg.startswith("--runtime-seconds=") for arg in argv):
         translated.extend(["--runtime-seconds", "0"])
     translated.extend(argv)
-    return _pair_runtime().main(translated)
+    return runtime_main(translated)

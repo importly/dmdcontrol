@@ -780,8 +780,6 @@ def test_pair_runtime_rejects_count_sequence_when_dark_time_exceeds_budget():
 
 
 def test_run_starts_render_coordinator_without_post_start_sleep(monkeypatch):
-    import dmdcontrol.hardware.dlpc900 as dlpc_module
-    import dmdcontrol.patterns.paired as paired_module
     from dmdcontrol.runtime import pair
 
     calls = {}
@@ -833,8 +831,8 @@ def test_run_starts_render_coordinator_without_post_start_sleep(monkeypatch):
         def stop(self):
             calls["stopped"] = True
 
-    monkeypatch.setattr(dlpc_module, "DLPC900", FakeDLPC)
-    monkeypatch.setattr(paired_module, "PairedPatternEngine", FakeEngine)
+    monkeypatch.setattr(pair, "DLPC900", FakeDLPC)
+    monkeypatch.setattr(pair, "PairedPatternEngine", FakeEngine)
     monkeypatch.setattr(
         pair,
         "build_paired_display_sequence",
@@ -902,8 +900,6 @@ def test_run_starts_render_coordinator_without_post_start_sleep(monkeypatch):
 
 
 def test_run_uses_single_render_coordinator_without_pump_handoff(monkeypatch):
-    import dmdcontrol.hardware.dlpc900 as dlpc_module
-    import dmdcontrol.patterns.paired as paired_module
     from dmdcontrol.runtime import pair
 
     calls = []
@@ -968,8 +964,8 @@ def test_run_uses_single_render_coordinator_without_pump_handoff(monkeypatch):
         calls.append("before_start")
         before_start_context.update(context)
 
-    monkeypatch.setattr(dlpc_module, "DLPC900", FakeDLPC)
-    monkeypatch.setattr(paired_module, "PairedPatternEngine", FakeEngine)
+    monkeypatch.setattr(pair, "DLPC900", FakeDLPC)
+    monkeypatch.setattr(pair, "PairedPatternEngine", FakeEngine)
     monkeypatch.setattr(
         pair,
         "build_paired_display_sequence",
@@ -1048,8 +1044,6 @@ def test_run_uses_single_render_coordinator_without_pump_handoff(monkeypatch):
 
 
 def test_run_primes_count_blank_frame_before_start(monkeypatch):
-    import dmdcontrol.hardware.dlpc900 as dlpc_module
-    import dmdcontrol.patterns.paired as paired_module
     from dmdcontrol.patterns.paired import A_COUNT_B_STATIC_PAIR_TEST
     from dmdcontrol.runtime import pair
 
@@ -1113,8 +1107,8 @@ def test_run_primes_count_blank_frame_before_start(monkeypatch):
         calls.append("before_start")
         before_start_context.update(context)
 
-    monkeypatch.setattr(dlpc_module, "DLPC900", FakeDLPC)
-    monkeypatch.setattr(paired_module, "PairedPatternEngine", FakeEngine)
+    monkeypatch.setattr(pair, "DLPC900", FakeDLPC)
+    monkeypatch.setattr(pair, "PairedPatternEngine", FakeEngine)
     monkeypatch.setattr(
         pair,
         "build_paired_display_sequence",
@@ -1190,8 +1184,6 @@ def test_run_primes_count_blank_frame_before_start(monkeypatch):
 
 
 def test_run_uses_display_sequence_instead_of_lut_override(monkeypatch):
-    import dmdcontrol.hardware.dlpc900 as dlpc_module
-    import dmdcontrol.patterns.paired as paired_module
     from dmdcontrol.patterns.paired import FramePair
     from dmdcontrol.runtime import pair
 
@@ -1283,8 +1275,8 @@ def test_run_uses_display_sequence_instead_of_lut_override(monkeypatch):
                 "startup_policy": "blank_leader",
             }
 
-    monkeypatch.setattr(dlpc_module, "DLPC900", FakeDLPC)
-    monkeypatch.setattr(paired_module, "PairedPatternEngine", FakeEngine)
+    monkeypatch.setattr(pair, "DLPC900", FakeDLPC)
+    monkeypatch.setattr(pair, "PairedPatternEngine", FakeEngine)
     monkeypatch.setattr(pair, "build_paired_display_sequence", lambda *args, **kwargs: FakeSequence())
     monkeypatch.setattr(
         pair,

@@ -4,6 +4,7 @@ import json
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any, cast
 
 
 @dataclass(frozen=True)
@@ -75,8 +76,8 @@ def write_json(path, payload):
     return payload
 
 def metadata_dict(value):
-    if is_dataclass(value):
-        return asdict(value)
+    if not isinstance(value, type) and is_dataclass(value):
+        return asdict(cast(Any, value))
     return dict(getattr(value, "__dict__", {}))
 
 def write_run_metadata(run_directory, metadata, artifacts=None):
