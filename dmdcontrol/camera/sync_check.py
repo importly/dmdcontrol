@@ -369,10 +369,10 @@ class SyncCheckCaptureSession:
 
 def live_capture(
     args: argparse.Namespace,
-    run,
-    capture,
-    writer,
-    ready,
+    run: CameraRunDirectory,
+    capture: object,
+    writer: object,
+    ready: CameraReadyState,
     command_argv: list[str] | None = None,
 ) -> int:
     session = SyncCheckCaptureSession.create(
