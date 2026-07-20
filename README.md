@@ -1,11 +1,8 @@
 # dmdcontrol
 
-DLPC900 1080p Video Pattern Mode runtime. Drives a TI DLP6500 / DLP9000 evaluation module over USB HID with DisplayPort
-as the pattern source, then plays back up to 24 bit-planes per VSYNC frame. 
-
-This is a incomplete README.
-
-Currently working on camera timing issue. not sure if root cause is timing.
+Pair-only DLPC900 1080p Video Pattern Mode runtime. It drives labeled DMDs A and B over USB HID, presents one
+3840x1080 DisplayPort source spanning both 1920x1080 devices, and optionally coordinates that paired output with a
+DVXplorer camera for sync checks and captures.
 
 ## Prerequisites
 
@@ -13,10 +10,10 @@ Currently working on camera timing issue. not sure if root cause is timing.
 - NVIDIA proprietary driver (akmod-nvidia via RPM Fusion). The nouveau driver works but lacks GL acceleration. Custom
   modeline injection via `xrandr --newmode` is rejected by NVIDIA proprietary, so the modeline must be baked into
   `/etc/X11/xorg.conf.d/20-nvidia-dlpc.conf`.
-- DLPC900 EVM connected via USB (HID interface 0) and DisplayPort
-- Python 3.13+, PyOpenGL, GLFW, `opencv-python` (only for `--capture`)
-- Custom 1920x1080 @ 60.000 Hz exact modeline (pclk 138.6528 MHz, htotal 2080, vtotal 1111). CEA-861 60Hz (actually
-  60.019 Hz) causes DLPC900 forced-swap abort.
+- Two DLPC900 EVMs connected through their configured USB HID and DisplayPort paths
+- Python 3.13+, PyOpenGL, and GLFW
+- The exact 1920x1080 @ 60.000 Hz modeline on both outputs (pclk 138.6528 MHz, htotal 2080, vtotal 1111). CEA-861
+  60 Hz (actually 60.019 Hz) causes DLPC900 forced-swap abort.
 
 ### Required xorg.conf snippet
 
@@ -27,7 +24,7 @@ Currently working on camera timing issue. not sure if root cause is timing.
 - A `Device` section with
   `Option "ModeValidation" "AllowNonEdidModes, NoMaxPClkCheck, NoEdidMaxPClkCheck, NoVertRefreshCheck, NoHorizSyncCheck, NoMaxSizeCheck, NoXServerCheck, NoDFPNativeResolutionCheck, NoVesaModes, NoXServerModes, NoPredefinedModes"`
 - A `Screen` section with
-  `Option "MetaModes" "1920x1080_60_RAW +0+0 {ColorSpace=RGB, ColorRange=Full, ForceFullCompositionPipeline=On}"`
+  `Option "MetaModes" "DP-0: 1920x1080_60_RAW +0+0 {ColorSpace=RGB, ColorRange=Full, ForceFullCompositionPipeline=On}, DP-2: 1920x1080_60_RAW +1920+0 {ColorSpace=RGB, ColorRange=Full, ForceFullCompositionPipeline=On}"`
 
 `scripts/dmd_x11_common.sh` detects when xrandr cannot switch to the custom mode by name (expected on NVIDIA
 proprietary) and validates the active MetaMode via `nvidia-settings -q CurrentMetaMode` instead. It only aborts if
@@ -35,15 +32,15 @@ neither path applied the target mode.
 
 ## Command model
 
-On the Linux DMD box, the root `run_*.sh` launchers are the production orchestration entrypoints. They handle
-DisplayPort wakeup, `xinit`, sudo/env pass-through, NVIDIA/X11 mode validation, and calibration terminal input wiring
-before handing off to the Python package. Each public runner names the Python subcommand it will launch; the only hidden
-X-stage script is the generic `scripts/dmd_xinit_client.sh`.
+On the Linux DMD box, the root launchers are the production orchestration entrypoints. Every hardware launcher prepares
+the configured A/B pair: DisplayPort wakeup, `xinit`, sudo/env pass-through, NVIDIA/X11 paired-layout validation, and
+optional calibration terminal input. The pair-only X-stage client is `scripts/dmd_xinit_client.sh`.
 
 ```bash
-./run_dmd.sh [flags]
 ./run_dmd_pair.sh --exposure-us 14000 [other flags]
 ./run_dmd_pair_calibr_square.sh --exposure-us 14000 [other flags]
+./run_camera_sync_check.sh --exposure-us 16000 [other flags]
+./run_dmd_pair_capture.sh --exposure-us 14000 [other flags]
 ```
 
 For local development on Windows or any host without DMD hardware, debug the fake-backed pytest targets. Use the package CLI inside an already prepared Linux X session when driving hardware directly:
@@ -71,6 +68,10 @@ uv sync --group dev
 uv run basedpyright
 uv run pytest -q
 ```
+
+OpenCV is not required by the runtime. Install the optional accelerated notebook path with
+`uv sync --group dev --extra analysis`; without it, the camera-analysis notebooks use their slower NumPy dilation
+fallback.
 
 The committed basedpyright configuration checks `dmdcontrol/` with Python 3.13 in standard mode. Research
 notebooks and `server_backup/` are intentionally outside that production type-check boundary.
@@ -124,32 +125,29 @@ Linux DMD verification checklist:
 
 ## Dual-DMD mapping
 
-Explicit dual-DMD runs use `dmd_devices.json`:
+All hardware runs resolve DMD A and DMD B from `dmd_devices.json`. Inspect either labeled mapping without opening USB:
 
 ```bash
-./run_dmd.sh --dmd A [flags]
-./run_dmd.sh --dmd B [flags]
 python -m dmdcontrol config show --dmd A
 python -m dmdcontrol config show --dmd B
 ```
 
-`--dmd` selects the configured udev `ID_PATH` and expected `DEVPATH` fragment before USB is opened. The X11 wrapper also
-requires that DMD's configured `xrandr_output` be connected; leave it blank only when you want explicit dual-DMD
-launches to fail closed until the DisplayPort mapping is filled in.
+Each mapping binds a logical label to its udev `ID_PATH`, expected `DEVPATH` fragment, and XRandR output. Pair startup
+fails closed if either USB or DisplayPort mapping is unavailable.
 
-Current dual-DMD mapping:
+Current mapping:
 
-| DMD | USB identity                   | Physical USB path | DisplayPort output | GLFW monitor |
-|-----|--------------------------------|-------------------|--------------------|--------------|
-| A   | `pci-0000:03:00.0-usb-0:1:1.0` | `usb1/1-1`        | `DP-2`             | `1`          |
-| B   | `pci-0000:03:00.0-usb-0:8:1.0` | `usb1/1-8`        | `DP-0`             | `0`          |
+| DMD | USB identity                    | Physical USB path | DisplayPort output |
+|-----|---------------------------------|-------------------|--------------------|
+| A   | `pci-0000:03:00.0-usb-0:1:1.0` | `usb1/1-1`        | `DP-2`             |
+| B   | `pci-0000:03:00.0-usb-0:8:1.0` | `usb1/1-8`        | `DP-0`             |
 
-This mapping is by labeled USB and DisplayPort ports, not by board serial number. Both DLPC900 boards report serial
-`C900`. The mapping has been verified after reboot; keep the hardware plugged into the same labeled ports.
+Both controllers report serial `C900`, so mapping is by labeled USB and DisplayPort ports. It has been verified after
+reboot; keep the hardware plugged into the same labeled ports.
 
 ## Paired Dual-DMD Runner
 
-Paired mode is intentionally separate from the single-DMD flow:
+Paired mode is the only live DMD flow:
 
 ```bash
 ./run_dmd_pair.sh --test grid --exposure-us 14000 --runtime-seconds 300
@@ -211,75 +209,64 @@ pumping. This improves software alignment, but it is not a hard genlock guarante
 `TRIG_OUT_2` and B `TRIG_OUT_2` on a scope to decide whether initial skew and long-run drift are acceptable for the
 laser path.
 
-## Common examples
+## Additional pair examples
 
 ```bash
-./run_dmd.sh --test checkerboard
-./run_dmd.sh --test snake --runtime-seconds 300
-./run_dmd.sh -v --seq-utilization 0.70 --test checkerboard --runtime-seconds 1200
-./run_dmd.sh -v --seq-utilization 0.7 --test snake --runtime-seconds 1200 --trig2-frame-zero
-./run_dmd.sh --test clock
-./run_dmd.sh --trigger --test checkerboard # spacebar fires the pattern
-./run_dmd.sh --capture out.mp4 --test snake
+./run_dmd_pair.sh --test checkerboard --exposure-us 14000 --runtime-seconds 300
+./run_dmd_pair.sh --test snake --exposure-us 14000 --runtime-seconds 300
+./run_dmd_pair.sh -v --seq-utilization 0.70 --test grid --exposure-us 14000 --runtime-seconds 1200
 
-# 3x3 convolution kernel rotation (512 patterns, eye-visible at 14000 us)
-./run_dmd.sh --test kernel --kernel-px 900 --exposure-us 14000 --runtime-seconds 999
-
-# Same, fast (full 1440 Hz binary rate, 24 bitplanes per VSYNC)
-./run_dmd.sh --test kernel --kernel-px 900 --runtime-seconds 60
+# 3x3 convolution kernel rotation on A with a static dot on B
+./run_dmd_pair.sh --test a-kernel-b-static --test-b dot --kernel-px 900 --exposure-us 14000 --runtime-seconds 999
 
 # Local timing and LUT checks without hardware
 python -m pytest tests/test_kernel_runtime.py tests/test_pair_lut_override.py -q
 ```
 
-## Flags
+## Paired runtime flags
 
-DMD launchers use the custom `1920x1080_60_RAW` modeline and fixed 60.000 Hz timing.
+Pair launchers use the custom `1920x1080_60_RAW` modeline and fixed 60.000 Hz timing. Run
+`python -m dmdcontrol pair run --help` for the complete current interface.
 
-| Flag                                                       | Type / values                                                                                                                                                                                        | Default            | Purpose                                                                                                                                  |
-|------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------|------------------------------------------------------------------------------------------------------------------------------------------|
-| `--monitor`                                                | int                                                                                                                                                                                                  | `0`                | GLFW monitor index for the fullscreen window.                                                                                            |
-| `--dmd`                                                    | configured name                                                                                                                                                                                      | none               | Select a DMD from `dmd_devices.json` and require its USB physical-path mapping before opening the controller.                            |
-| `--dmd-config`                                             | path                                                                                                                                                                                                 | `dmd_devices.json` | Alternate mapping file for `--dmd`.                                                                                                      |
-| `--test`                                                   | `checkerboard`, `grid`, `bands`, `calibr-square`, `snake`, `clock`, `kernel` | `checkerboard`     | Diagnostic pattern. See table below.                                                                                                     |
-| `--trigger`                                                | flag                                                                                                                                                                                                 | off                | Software trigger mode. Renders black until you press space; one press shows the pattern frame. ESC exits.                                |
-| `--runtime-seconds`                                        | int                                                                                                                                                                                                  | `60`               | Total wall-clock runtime for the render loop.                                                                                            |
-| `--wake-dp`                                                | flag                                                                                                                                                                                                 | off                | Send the DP-receiver wakeup packet from inside the runtime, in addition to the shell launcher wake step.                                 |
-| `--dual-pixel`                                             | flag                                                                                                                                                                                                 | off                | Force dual-pixel P1-P2 parallel input mode. Default is single-pixel P1.                                                                  |
-| `--seq-utilization`                                        | float in `(0, 1]`                                                                                                                                                                                    | `0.90`             | Fraction of the safe per-frame budget used by the LUT. Lower = more idle headroom = more robust against forced-swap aborts.              |
-| `--trig2-frame-zero`                                       | flag                                                                                                                                                                                                 | off                | Emit `TRIG_OUT_2` only on bitplane 0 (one pulse per frame). Default emits per bitplane. In count/blank mode there is one LUT entry per source frame, so this still gives one pulse per source frame. |
-| `--paired-startup-leader-vsyncs`                           | int                                                                                                                                                                                                  | `16`               | Paired runtime only: blank source VSYNCs after both sequencers start before the first semantic frame. Camera artifacts skip these startup trigger pulses. |
-| `--abort-recover-cooldown`                                 | float seconds                                                                                                                                                                                        | `8.0`              | Minimum gap between automatic re-arm attempts when the watchdog sees a sequencer abort.                                                  |
-| `--no-auto-recover-abort`                                  | flag                                                                                                                                                                                                 | off                | Disable automatic re-arm. Watchdog will log the abort but not act.                                                                       |
-| `--capture`                                                | path to `.mp4`                                                                                                                                                                                       | none               | Save the packed frames being sent to the DP output (requires `opencv-python`).                                                           |
-| `--kernel-px`                                              | int (multiple of 3)                                                                                                                                                                                  | `30`               | Total kernel side length in pixels for `--test kernel`. Single-cell size = `kernel-px / 3`.                                              |
-| `--invert-dmd`                                             | flag                                                                                                                                                                                                 | off                | Invert the final packed DMD output: every pixel in every displayed bitplane, including leader, pad, blank-end, and trigger black frames. |
-| `--kernel-single-shot`                                     | flag                                                                                                                                                                                                 | off                | Display each kernel for exactly one bitplane fire then advance. Implies dynamic frame buffer cycling.                                    |
-| `--kernel-blank-end-frame` / `--no-kernel-blank-end-frame` | flag                                                                                                                                                                                                 | on                 | Append one all-black 24-bitplane VSYNC frame at the end of each kernel cycle, or disable it explicitly.                                  |
-| `--kernel-leader-frames`                                   | int                                                                                                                                                                                                  | `3`                | Prepend all-black VSYNC frames to each kernel cycle. DAQ should ignore these leader trigger pulses before kernel index 0.                |
-| `--exposure-us`                                            | int µs                                                                                                                                                                                               | paired/camera: required; single: auto | DLPC900 LUT-entry exposure. Required for paired and camera LUT workflows; single-DMD LUT modes may still calculate it automatically. Ignored by dynamic wall-clock modes that do not use LUT exposure timing. |
-| `--dark-time-us`                                           | int µs                                                                                                                                                                                               | `0`                | Unreliable for visible off-time in DLPC900 Video Pattern Mode. Prefer explicit blank frames or blank bitplanes.                            |
-| `-v`, `--verbose`                                          | repeatable                                                                                                                                                                                           | basic              | Logging level: basic = INFO, `-v` = DEBUG + 2s watchdog, `-vv` = DEBUG with source paths + 1s watchdog + full board snapshots.           |
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `--dmd-config` | `dmd_devices.json` | Alternate A/B USB and DisplayPort mapping file. |
+| `--test` | `checkerboard` | Select a paired static, dynamic, or recipe mode. |
+| `--test-a` / `--test-b` | mode default | Override the A/B pattern for static paired modes. |
+| `--runtime-seconds` | `60` | Total paired render-loop duration; `0` runs until the window closes. |
+| `--exposure-us` | required | Per-entry DLPC900 LUT exposure in microseconds. |
+| `--dark-time-us` | `0` | Programmed LUT dark time; explicit blank frames are preferred for visible off-time. |
+| `--wake-dp` | off | Wake both DisplayPort receivers from inside the runtime. |
+| `--dual-pixel` | off | Force P1-P2 dual-pixel input mode on both controllers. |
+| `--seq-utilization` | `0.90` | Fraction of the safe VSYNC budget available to LUT entries. |
+| `--trig2-frame-zero` | off | Emit `TRIG_OUT_2` only on bitplane/frame-zero anchor entries. |
+| `--paired-startup-leader-vsyncs` | `16` | Non-semantic paired source frames after sequencer start; camera artifacts skip these triggers. |
+| `--trigger-out-2-rising-delay-us` | `0` | `TRIG_OUT_2` rising-edge delay; valid range is -20 to 19980 µs. |
+| `--kernel-px` | `30` | A-side 3x3 kernel width for `a-kernel-b-static`. |
+| `--kernel-single-shot` | off | Play one A-side kernel cycle, then hold A black. |
+| `--kernel-leader-frames` | `3` | Black VSYNC frames prepended to an A-side kernel cycle. |
+| `--count-start` / `--count-end` | `1` / `100` | Inclusive number range for `a-count-b-static`. |
+| `--count-slots-per-frame` | `auto` | Number of count labels packed into each source VSYNC. |
+| `--count-blank-after-each-count` | off | Insert an all-black A frame after every displayed count. |
+| `--preview-url` / `--preview-fps` | none / `1` | Opt-in rate-limited paired live-preview posting. |
+| `-v`, `--verbose` | basic | Increase logging detail; repeat for source paths and full board snapshots. |
 
-## Test modes
+## Paired test modes
 
-| `--test`                 | Description                                                                                                                                                                                    |
-|--------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `checkerboard`           | Static checkerboard. Default.                                                                                                                                                                  |
-| `grid`                   | Human-visible grid with about 75 px spacing and thick strokes. Recommended for paired optical alignment checks.                                                                                |
-| `bands`                  | Human-visible thick vertical/horizontal bands.                                                                                                                                                 |
-| `calibr-square`          | Interactive calibration square. Use `./run_calibr_square.sh` for terminal controls: W/A/S/D move, Q/E rotate, R/F resize.                                                                      |
-| `snake`                  | High-speed randomly moving snake. Tests dynamic refresh + trigger stability.                                                                                                                   |
-| `clock`                  | Massive microsecond clock. Visual stutter / latency check.                                                                                                                                     |
-| `kernel`                 | 3x3 convolution kernel rotation — cycles through 512 kernel masks. Configurable via `--kernel-px`, `--exposure-us`, `--kernel-single-shot`, `--kernel-blank-end-frame`, `--invert-dmd`.        |
+| `--test` | Description |
+|----------|-------------|
+| `checkerboard` | Static checkerboard on both DMDs, with independent `--test-a` / `--test-b` overrides. |
+| `grid` | Thick paired alignment grid with route markers. |
+| `bands` | Thick vertical/horizontal alignment bands. |
+| `dot` | Static dot aperture on both routes. |
+| `snake` | Dynamic grayscale snake on both routes. |
+| `a-calibr-square-b-dot` | Interactive calibration square on A and a static dot on B. |
+| `a-kernel-b-static` | 512-mask 3x3 kernel sequence on A and a selected static pattern on B. |
+| `a-count-b-static` | Decimal count sequence on A and a selected static pattern on B. |
+| `static-images` | Aspect-preserving static image on each DMD. |
 
-`--trigger` only supports patterns with a static frame (anything except `calibr-square` / `snake` / `clock` /
-`kernel`). Dynamic modes fall back to `checkerboard` when used with `--trigger`.
-
-`--exposure-us` is the uniform exposure for each active DLPC900 LUT entry. If no mode-defined entry count is required,
-the runtime uses `floor(usable_frame_us / (exposure_us + dark_time_us))`, capped at 24 entries. At the fixed 60 Hz DMD
-source rate, the effective binary pattern rate is `60 * entries`; for example `--exposure-us 4000 --dark-time-us 250`
-fits 3 entries per VSYNC and runs at 180 Hz.
+Every paired mode requires `--exposure-us`. Static and recipe modes build explicit per-controller LUTs; dynamic modes
+use the same configured timing while advancing the shared 3840x1080 source frame.
 
 `--dark-time-us` is kept for LUT timing and budget accounting, but it does not work reliably as visible off-time in
 DLPC900 Video Pattern Mode. For camera-visible off frames, use explicit blank frames or blank bitplanes instead. For
@@ -308,7 +295,7 @@ the circle before semantic count playback begins. DMD A retains the requested co
 timing source. Connect the event camera to A `TRIG_OUT_2`; use B `TRIG_OUT_2` only to measure paired-controller skew.
 Camera global hold is preserved unless `--camera-global-hold on` or `--camera-global-hold off` is explicit, and supported
 camera readbacks are stored under `camera_ready.camera_configuration`. Follow
-[the count/static optical verification runbook](docs/count-static-optical-verification.md) for controlled runs.
+[the count/static optical verification runbook](documentation/COUNT_STATIC_OPTICAL_VERIFICATION.md) for controlled runs.
 
 
 For local camera-flow debugging without hardware, run `python -m pytest tests/test_camera_live_plumbing.py -q`. Those tests use fake camera/runtime objects while still exercising the live metadata, timing, trigger, and artifact plumbing paths.
@@ -334,24 +321,12 @@ Board-specific paired controller logs are tagged `[DMD A]` or `[DMD B]`, includi
 setup, LUT-load, sequencer-start, and cleanup messages. Shared renderer and synchronization
 messages remain untagged.
 
-`--test numbers` is a dynamic DisplayPort-frame mode, not a custom LUT sequence. `TRIG_OUT_2` remains the real
-acquisition/index signal from the Video Pattern Mode LUT and may pulse multiple times per displayed digit. `TRIG_OUT_1`
-is advisory only.
 
-`--test calibr-square` is also a dynamic DisplayPort-frame mode. Use `./run_calibr_square.sh` instead of the normal
-`run_dmd.sh` path when you want terminal keyboard control; it keeps a separate control file open while X is running and
-prints center, pixel bounds, size, and angle after edits. Use W/A/S/D to move the square across the DMD surface, Q/E to
-rotate it, R/F to resize it, and ESC or X to exit. `TRIG_OUT_2` remains the real acquisition/index signal from the Video
-Pattern Mode LUT and does not mark keyboard edits or square edges.
 
-`--invert-dmd` is for optical setups where the effective bright/dark polarity is reversed. It is applied after frame
-packing, so it flips the entire DMD output for every displayed bitplane. In inverted mode, the normal black leader, pad,
-blank-end, and trigger-idle frames output as full-white frames.
-
-Kernel mode prepends `--kernel-leader-frames` all-black VSYNC frames to every cycle. With default fast timing, `3`
-leader frames × `24` LUT entries means the first `72` `TRIG_OUT_2` pulses after kernel-cycle start are leader pulses;
-kernel index 0 starts after that. These leader pulses are black normally and white with `--invert-dmd`. Local timing
-coverage lives in `tests/test_kernel_runtime.py`; live runtime logs print the active timing summary once hardware setup starts.
+The A-side kernel recipe prepends `--kernel-leader-frames` all-black VSYNC frames to every cycle. With default fast
+timing, `3` leader frames × `24` LUT entries means the first `72` `TRIG_OUT_2` pulses after kernel-cycle start are
+leader pulses; kernel index 0 starts after that. Local timing coverage lives in `tests/test_kernel_runtime.py`; live
+runtime logs print the active timing summary once hardware setup starts.
 
 ## Standalone tools
 
@@ -441,7 +416,6 @@ cosmetic ABORT) are set. I think its a fine pattern
 
 ```
 dmdcontrol/         Package CLI, runtime, hardware, preview, and pattern modules
-run_dmd.sh          Single-DMD Linux DMD launcher
 run_dmd_pair.sh     Paired Linux DMD launcher
 run_dmd_pair_calibr_square.sh  Paired calibration launcher with terminal input
 run_camera_sync_check.sh       Camera sync-check launcher
@@ -459,7 +433,6 @@ documentation/      DLPC900 / DLPT028 / DLPU018J PDFs + extracted text
 
 ```bash
 python -m dmdcontrol --help
-python -m dmdcontrol single run --help
 python -m dmdcontrol pair run --help
 python -m dmdcontrol pair calibrate --help
 python -m dmdcontrol preview serve --help

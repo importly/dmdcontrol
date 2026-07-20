@@ -340,8 +340,8 @@ class PairFrameProvider:
         raise NotImplementedError
 
 
-class SingleDmdFrameAdapter:
-    """Small adapter exposing PatternEngine packing for one half of a paired window."""
+class HalfFramePackingAdapter:
+    """Pack bitplanes for one half of a paired display sequence."""
 
     def __init__(self, width: int = DMD_WIDTH, height: int = DMD_HEIGHT, window: object = None):
         self.width = width

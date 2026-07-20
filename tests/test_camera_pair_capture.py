@@ -2,10 +2,8 @@ import numpy as np
 import pytest
 
 from dmdcontrol.camera.event_records import BoundedArtifactBuffer
-from dmdcontrol.camera.pair_capture import (
-    _to_pair_runtime_args,
-    build_parser,
-)
+from dmdcontrol.camera.pair_capture import build_parser
+from dmdcontrol.camera.sync_check_runtime import pair_runtime_args_from_capture
 
 
 def _parse_args(args=None):
@@ -141,11 +139,12 @@ def test_pair_capture_runtime_args_forward_paired_startup_leader_vsyncs():
         [
             "--paired-startup-leader-vsyncs",
             "20",
-        ])
+        ]
+    )
 
-    pair_args = _to_pair_runtime_args(args)
+    pair_args = pair_runtime_args_from_capture(args)
 
-    assert pair_args[pair_args.index("--paired-startup-leader-vsyncs") + 1] == "20"
+    assert pair_args.paired_startup_leader_vsyncs == 20
 
 
 @pytest.mark.parametrize("value", ["-21", "19981"])
@@ -201,11 +200,11 @@ def test_pair_capture_runtime_args_forward_generic_exposure():
             "100",
             "--trigger-out-2-rising-delay-us",
             "-20",
-        ])
+        ]
+    )
 
-    pair_args = _to_pair_runtime_args(args)
+    pair_args = pair_runtime_args_from_capture(args)
 
-    assert "--kernel-exposure-us" not in pair_args
-    assert pair_args[pair_args.index("--exposure-us") + 1] == "3000"
-    assert pair_args[pair_args.index("--dark-time-us") + 1] == "100"
-    assert pair_args[pair_args.index("--trigger-out-2-rising-delay-us") + 1] == "-20"
+    assert pair_args.exposure_us == 3000
+    assert pair_args.dark_time_us == 100
+    assert pair_args.trigger_out_2_rising_delay_us == -20

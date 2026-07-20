@@ -40,7 +40,7 @@ class DmdPreviewRenderTests(unittest.TestCase):
         )
         from dmdcontrol.preview.render import render_offline_frame
 
-        frame = render_offline_frame(layout="pair", test="grid")
+        frame = render_offline_frame(test="grid")
 
         self.assertEqual(frame.shape, (DMD_HEIGHT, DMD_WIDTH * 2, 3))
         np.testing.assert_array_equal(
@@ -60,7 +60,7 @@ class DmdPreviewRenderTests(unittest.TestCase):
         )
         from dmdcontrol.preview.render import render_offline_frame
 
-        frame = render_offline_frame(layout="pair", test="a-count-b-static")
+        frame = render_offline_frame(test="a-count-b-static")
 
         self.assertEqual(frame.shape, (DMD_HEIGHT, DMD_WIDTH * 2, 3))
         np.testing.assert_array_equal(
@@ -75,7 +75,7 @@ class DmdPreviewRenderTests(unittest.TestCase):
             render_offline_frame,
         )
 
-        frame = render_offline_frame(layout="pair", test="grid")
+        frame = render_offline_frame(test="grid")
         bitplane = render_bitplane_image(frame, plane=0)
 
         self.assertEqual(bitplane.shape, frame.shape[:2])

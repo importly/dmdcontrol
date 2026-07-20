@@ -26,7 +26,7 @@ dmd_wait_for_hotplug "Xorg and GPU to detect both DP hotplug events" 2
 echo "=== Launching Interactive Paired Calibration Square + B Dot ==="
 dmd_start_calibr_square_control_reader "$CONTROL_FILE" "dmdcontrol pair calibrate"
 
-dmd_run_xinit_python_module "$SCRIPT_DIR" pair dmdcontrol pair calibrate -- \
+dmd_run_xinit_python_module "$SCRIPT_DIR" dmdcontrol pair calibrate -- \
     --test a-calibr-square-b-dot \
     --a-calibr-square-control-file "$CONTROL_FILE" \
     --runtime-seconds 0 \

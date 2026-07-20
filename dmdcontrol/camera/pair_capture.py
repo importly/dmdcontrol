@@ -30,8 +30,10 @@ from dmdcontrol.camera.session import (
 from dmdcontrol.camera.session import (
     open_ready_camera as _open_ready_camera,
 )
-from dmdcontrol.camera.sync_check_runtime import PairRuntimeRequest
-from dmdcontrol.runtime.lifecycle import compute_trigger_out_2_timing
+from dmdcontrol.camera.sync_check_runtime import (
+    pair_runtime_args_from_capture,
+    trigger_policy,
+)
 from dmdcontrol.support.argparse_types import (
     nonnegative_int,
     positive_int,
@@ -171,31 +173,10 @@ def dmd_config(args: argparse.Namespace) -> dict[str, int | str | None]:
     }
 
 
-def trigger_policy(args: argparse.Namespace) -> dict[str, str | int]:
-    timing = compute_trigger_out_2_timing(
-        rising_delay_us=args.trigger_out_2_rising_delay_us
-    )
-    return {
-        "channel": "TRIG_OUT_2",
-        "source_dmd": "A",
-        "edge": "rising",
-        "rising_delay_us": timing["rising_delay_us"],
-        "falling_delay_us": timing["falling_delay_us"],
-    }
-
-
-def _to_pair_runtime_args(args: argparse.Namespace) -> list[str]:
-    return PairRuntimeRequest.from_pair_capture_args(args).to_argv()
-
-
 def _accumulation_window_us(args: argparse.Namespace) -> int:
     if args.exposure_us is not None:
         return args.exposure_us
     return 0
-
-
-def _run_pair_with_callback(pair_request, before_start):
-    return run_pair_runtime(pair_request.to_namespace(), before_start=before_start)
 
 
 def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int:
@@ -283,8 +264,8 @@ def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int
                 artifacts=["raw.aedat4", "metadata.json"],
             )
 
-        _run_pair_with_callback(
-            PairRuntimeRequest.from_pair_capture_args(args), before_start
+        run_pair_runtime(
+            pair_runtime_args_from_capture(args), before_start=before_start
         )
         if recording is not None:
             recording.stop()

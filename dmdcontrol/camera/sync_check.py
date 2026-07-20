@@ -39,10 +39,9 @@ from dmdcontrol.camera.sync_check_metadata import (
 from dmdcontrol.camera.sync_check_runtime import (
     A_COUNT_B_STATIC_TEST,
     _pair_runtime_seconds,
-    _requested_accumulation_window_us,
-    _trigger_policy,
+    trigger_policy,
     expected_trigger_count,
-    pair_runtime_request_from_args,
+    pair_runtime_args_from_sync,
 )
 from dmdcontrol.runtime.count_slots import (
     CountSequenceConfig,
@@ -70,64 +69,36 @@ from dmdcontrol.support.constants import (
 )
 
 
-def _requested_accumulation_cycles(args: argparse.Namespace) -> int | None:
-    if args.accumulation_cycles is not None:
-        return args.accumulation_cycles
-    if args.test == A_COUNT_B_STATIC_TEST:
-        return None
-    return 1
-
-
-def _resolve_count_mode_slots(args: argparse.Namespace) -> None:
-    if args.test != A_COUNT_B_STATIC_TEST:
-        return
-    mode = "auto" if args.count_slots_per_frame is None else "explicit"
-    if mode == "auto":
-        args.count_slots_per_frame = resolve_count_slots_per_frame(
-            count_start=args.count_start,
-            count_end=args.count_end,
-            exposure_us=args.exposure_us,
-            dark_time_us=args.dark_time_us,
-            count_blank_between_frames=args.count_blank_between_frames,
-            sequence_utilization=args.seq_utilization,
-        )
-    args.count_slots_per_frame_mode = mode
-
-
-def _validate_count_mode_args(
-    args: argparse.Namespace, *, require_resolved_slots: bool = True
-) -> None:
-    if args.test != A_COUNT_B_STATIC_TEST:
-        return
-    if args.count_start > args.count_end:
-        raise ValueError("--count-start must be <= --count-end")
-    config = CountSequenceConfig.from_args(
-        args,
-        require_resolved_slots=require_resolved_slots,
-    )
-    if config is None:
-        return
-    config.validate_shape()
-
-
-def _validate_count_blank_between_frames_mode(args: argparse.Namespace) -> None:
-    if args.test != A_COUNT_B_STATIC_TEST and args.count_blank_between_frames:
-        raise ValueError(
-            "count blank insertion is only valid for --test a-count-b-static"
-        )
-
-
 class SyncCheckArgumentParser(argparse.ArgumentParser):
     def parse_args(self, *args: Any, **kwargs: Any) -> argparse.Namespace:
         parsed = cast(argparse.Namespace, super().parse_args(*args, **kwargs))
         try:
-            _validate_count_blank_between_frames_mode(parsed)
-            _validate_count_mode_args(parsed, require_resolved_slots=False)
-            _resolve_count_mode_slots(parsed)
-            _validate_count_mode_args(parsed)
+            if parsed.test == A_COUNT_B_STATIC_TEST:
+                slots_mode = (
+                    "auto" if parsed.count_slots_per_frame is None else "explicit"
+                )
+                if parsed.count_slots_per_frame is None:
+                    parsed.count_slots_per_frame = resolve_count_slots_per_frame(
+                        count_start=parsed.count_start,
+                        count_end=parsed.count_end,
+                        exposure_us=parsed.exposure_us,
+                        dark_time_us=parsed.dark_time_us,
+                        count_blank_between_frames=parsed.count_blank_between_frames,
+                        sequence_utilization=parsed.seq_utilization,
+                    )
+                parsed.count_slots_per_frame_mode = slots_mode
+                CountSequenceConfig.from_args(parsed).validate_shape()
+            elif parsed.count_blank_between_frames:
+                raise ValueError(
+                    "count blank insertion is only valid for --test a-count-b-static"
+                )
         except ValueError as exc:
             self.error(str(exc))
-        parsed.requested_accumulation_cycles = _requested_accumulation_cycles(parsed)
+
+        requested_cycles = parsed.accumulation_cycles
+        if requested_cycles is None and parsed.test != A_COUNT_B_STATIC_TEST:
+            requested_cycles = 1
+        parsed.requested_accumulation_cycles = requested_cycles
         return parsed
 
 
@@ -245,95 +216,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _run_pair_with_callback(pair_request, before_start):
-    return run_pair_runtime(pair_request.to_namespace(), before_start=before_start)
-
-
-def _copy_sweep_metadata(args: argparse.Namespace, metadata: dict[str, object]) -> None:
-    for source_name, metadata_name in (
-        ("sweep_id", "sweep_id"),
-        ("sweep_index", "sweep_index"),
-        ("sweep_repeat", "sweep_repeat"),
-        ("sweep_manifest", "sweep_manifest"),
-    ):
-        if hasattr(args, source_name):
-            metadata[metadata_name] = getattr(args, source_name)
-
-
-def _start_recording(
-    args,
-    capture,
-    writer,
-    event_records,
-    trigger_records,
-    accumulation_window_us,
-):
-    recording = AsyncCapture(
-        capture,
-        writer,
-        expected_trigger_count=None,
-        timeout_s=max(1, _pair_runtime_seconds(args)),
-        on_events=lambda batch: append_batch_records(
-            event_records, batch, as_numpy=True
-        ),
-        on_triggers=lambda batch: append_batch_records(trigger_records, batch),
-        record_fn=record_until_trigger_count,
-        post_trigger_event_batches=args.camera_post_trigger_event_batches,
-        post_trigger_event_time_us=accumulation_window_us or 0,
-    )
-    recording.start()
-    return recording
-
-
-def _update_before_start_metadata(metadata, ready, context, accumulation_window_us):
-    metadata.update(
-        {
-            "camera_ready": metadata_dict(ready),
-            "dmd_ready": True,
-            "timing_a": context.get("state_a", {}).get("timing"),
-            "timing_b": context.get("state_b", {}).get("timing"),
-        }
-    )
-    if accumulation_window_us is None:
-        timing = context.get("state_a", {}).get("timing") or {}
-        accumulation_window_us = timing.get("exposure_us")
-    metadata["accumulation_window_us"] = accumulation_window_us
-    startup_leader = context.get("startup_leader")
-    if startup_leader is not None:
-        metadata["startup_leader"] = startup_leader
-    display_sequence = context.get("display_sequence")
-    if display_sequence is not None:
-        metadata["display_sequence"] = display_sequence
-    return accumulation_window_us
-
-
-def _write_capture_artifacts_for_sync_check(
-    args,
-    run,
-    ready,
-    event_records,
-    trigger_records,
-    event_filter,
-    accumulation_window_us,
-    startup_leader_trigger_count=0,
-):
-    return write_capture_artifacts(
-        run,
-        events=event_records,
-        triggers=trigger_records,
-        resolution=tuple(ready.event_resolution),
-        window_us=accumulation_window_us or 0,
-        polarity_mode=args.polarity_mode,
-        event_noise_filter=event_filter,
-        save_filtered_events=args.save_filtered_events,
-        trigger_cycle_length=expected_trigger_count(args),
-        accumulation_cycles=args.requested_accumulation_cycles,
-        window_start_offset_us=args.accumulation_start_offset_us,
-        contact_sheet_columns=expected_trigger_count(args),
-        startup_leader_trigger_count=startup_leader_trigger_count,
-    )
-
-
 @dataclass
 class SyncCheckCaptureSession:
     args: argparse.Namespace
@@ -344,7 +226,7 @@ class SyncCheckCaptureSession:
     event_filter: LocalSupportFilterConfig
     command: list[str]
     metadata: dict[str, object]
-    accumulation_window_us: int | None
+    accumulation_window_us: int
     event_records: list = field(default_factory=list)
     trigger_records: list = field(default_factory=list)
     startup_leader_trigger_count: int = 0
@@ -369,7 +251,6 @@ class SyncCheckCaptureSession:
             event_filter,
             command=command,
         )
-        _copy_sweep_metadata(args, metadata)
         return cls(
             args=args,
             run=run,
@@ -379,41 +260,63 @@ class SyncCheckCaptureSession:
             event_filter=event_filter,
             command=command,
             metadata=metadata,
-            accumulation_window_us=_requested_accumulation_window_us(args),
+            accumulation_window_us=args.exposure_us,
         )
 
     def write_initial_files(self) -> None:
-        write_json(self.run.timing_path, _trigger_policy(self.args))
+        write_json(self.run.timing_path, trigger_policy(self.args))
         self.run.command_path.write_text(command_text(self.command), encoding="utf-8")
         self.run.log_path.write_text("live\n", encoding="utf-8")
 
     def before_pair_start(self, context: Mapping[str, object]) -> None:
-        self.accumulation_window_us = _update_before_start_metadata(
-            self.metadata,
-            self.ready,
-            context,
-            self.accumulation_window_us,
+        state_a = context.get("state_a")
+        state_b = context.get("state_b")
+        timing_a = state_a.get("timing") if isinstance(state_a, Mapping) else None
+        timing_b = state_b.get("timing") if isinstance(state_b, Mapping) else None
+        self.metadata.update(
+            {
+                "camera_ready": metadata_dict(self.ready),
+                "dmd_ready": True,
+                "timing_a": timing_a,
+                "timing_b": timing_b,
+                "accumulation_window_us": self.accumulation_window_us,
+            }
         )
-        startup_leader = context.get("startup_leader") or {}
+
+        startup_leader = context.get("startup_leader")
         if not isinstance(startup_leader, Mapping):
             startup_leader = {}
+        if startup_leader:
+            self.metadata["startup_leader"] = startup_leader
         self.startup_leader_trigger_count = int(
             startup_leader.get("trigger_count") or 0
         )
+        display_sequence = context.get("display_sequence")
+        if display_sequence is not None:
+            self.metadata["display_sequence"] = display_sequence
+
         self.metadata["camera_pre_capture_flush"] = flush_stale_batches(
             self.capture,
             reads=self.args.camera_flush_reads,
             include_triggers=True,
         )
         if self.recording is None:
-            self.recording = _start_recording(
-                self.args,
+            self.recording = AsyncCapture(
                 self.capture,
                 self.writer,
-                self.event_records,
-                self.trigger_records,
-                self.accumulation_window_us,
+                expected_trigger_count=None,
+                timeout_s=max(1, _pair_runtime_seconds(self.args)),
+                on_events=lambda batch: append_batch_records(
+                    self.event_records, batch, as_numpy=True
+                ),
+                on_triggers=lambda batch: append_batch_records(
+                    self.trigger_records, batch
+                ),
+                record_fn=record_until_trigger_count,
+                post_trigger_event_batches=self.args.camera_post_trigger_event_batches,
+                post_trigger_event_time_us=self.accumulation_window_us,
             )
+            self.recording.start()
         write_run_metadata(
             self.run,
             self.metadata,
@@ -425,14 +328,20 @@ class SyncCheckCaptureSession:
             return
         self.recording.stop()
         self.capture_result = self.recording.join()
-        self.artifact_summary = _write_capture_artifacts_for_sync_check(
-            self.args,
+        trigger_count = expected_trigger_count(self.args)
+        self.artifact_summary = write_capture_artifacts(
             self.run,
-            self.ready,
-            self.event_records,
-            self.trigger_records,
-            self.event_filter,
-            self.accumulation_window_us,
+            events=self.event_records,
+            triggers=self.trigger_records,
+            resolution=tuple(self.ready.event_resolution),
+            window_us=self.accumulation_window_us,
+            polarity_mode=self.args.polarity_mode,
+            event_noise_filter=self.event_filter,
+            save_filtered_events=self.args.save_filtered_events,
+            trigger_cycle_length=trigger_count,
+            accumulation_cycles=self.args.requested_accumulation_cycles,
+            window_start_offset_us=self.args.accumulation_start_offset_us,
+            contact_sheet_columns=trigger_count,
             startup_leader_trigger_count=self.startup_leader_trigger_count,
         )
         self.metadata["artifact_summary"] = self.artifact_summary
@@ -460,10 +369,10 @@ class SyncCheckCaptureSession:
 
 def live_capture(
     args: argparse.Namespace,
-    run,
-    capture,
-    writer,
-    ready,
+    run: CameraRunDirectory,
+    capture: object,
+    writer: object,
+    ready: CameraReadyState,
     command_argv: list[str] | None = None,
 ) -> int:
     session = SyncCheckCaptureSession.create(
@@ -471,8 +380,8 @@ def live_capture(
     )
     try:
         session.write_initial_files()
-        _run_pair_with_callback(
-            pair_runtime_request_from_args(args), session.before_pair_start
+        run_pair_runtime(
+            pair_runtime_args_from_sync(args), before_start=session.before_pair_start
         )
         session.complete_recording_and_artifacts()
         return 0

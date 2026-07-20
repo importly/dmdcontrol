@@ -63,6 +63,7 @@ class DmdPreviewServerTests(unittest.TestCase):
         self.assertIn('id="lutSummary"', html)
         self.assertIn('id="lutEntries"', html)
         self.assertIn('id="planeButtons"', html)
+        self.assertNotIn('id="layout"', html)
         self.assertIn('class="plane-grid"', html)
         self.assertIn("els.offlineControls.hidden = live", html)
         self.assertIn("els.liveControls.hidden = !live", html)
@@ -85,9 +86,9 @@ class DmdPreviewServerTests(unittest.TestCase):
 
         self.assertEqual(response.status, 200)
         self.assertIn("grid", data["pair_tests"])
-        self.assertIn("grid", data["single_tests"])
         self.assertNotIn("coarse-grid", data["pair_tests"])
-        self.assertNotIn("coarse-grid", data["single_tests"])
+        self.assertNotIn("single_tests", data)
+        self.assertNotIn("default_layout", data)
         self.assertEqual(data["bitplanes"][0], "G0")
         self.assertEqual(data["bitplanes"][8], "R0")
         self.assertFalse(data["live_frame_available"])
@@ -95,9 +96,9 @@ class DmdPreviewServerTests(unittest.TestCase):
 
     def test_offline_frame_endpoints_return_png(self):
         for path in (
-                "/api/frame.png?layout=pair&test=grid&view=packed",
-                "/api/frame.png?layout=pair&test=grid&view=bitplane&plane=0",
-                "/api/frame.png?layout=pair&test=a-count-b-static&view=packed",
+                "/api/frame.png?test=grid&view=packed",
+                "/api/frame.png?test=grid&view=bitplane&plane=0",
+                "/api/frame.png?test=a-count-b-static&view=packed",
         ):
             with self.subTest(path=path):
                 with self._get(path) as response:
@@ -109,8 +110,8 @@ class DmdPreviewServerTests(unittest.TestCase):
 
     def test_offline_frame_accepts_plane_labels_from_page_controls(self):
         for path in (
-                "/api/frame.png?layout=pair&test=grid&view=packed&plane=G0&frame=0",
-                "/api/frame.png?layout=pair&test=grid&view=bitplane&plane=G0&frame=0",
+                "/api/frame.png?test=grid&view=packed&plane=G0&frame=0",
+                "/api/frame.png?test=grid&view=bitplane&plane=G0&frame=0",
         ):
             with self.subTest(path=path):
                 with self._get(path) as response:

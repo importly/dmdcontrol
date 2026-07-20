@@ -46,7 +46,6 @@ def _startup_leader(trigger_count=8, entries_count=4):
 
 def test_pair_capture_live_records_while_dmd_runtime_is_active(monkeypatch, tmp_path):
     from dmdcontrol.camera import pair_capture
-    from dmdcontrol.camera.sync_check_runtime import PairRuntimeRequest
 
     events = []
     record_started = Event()
@@ -86,7 +85,7 @@ def test_pair_capture_live_records_while_dmd_runtime_is_active(monkeypatch, tmp_
     monkeypatch.setattr(pair_capture, "record_until_trigger_count", fake_record)
 
     def fake_run(pair_request, before_start):
-        assert isinstance(pair_request, PairRuntimeRequest)
+        assert pair_request.test == "a-kernel-b-static"
         events.append("dmd_prepare")
         before_start({"state_a": {"timing": {}}, "state_b": {"timing": {}}})
         events.append("dmd_active")
@@ -95,7 +94,7 @@ def test_pair_capture_live_records_while_dmd_runtime_is_active(monkeypatch, tmp_
         runtime_can_finish.set()
         events.append("dmd_return")
 
-    monkeypatch.setattr(pair_capture, "_run_pair_with_callback", fake_run)
+    monkeypatch.setattr(pair_capture, "run_pair_runtime", fake_run)
 
     args = _parse_camera_args(pair_capture, 
         [
@@ -152,7 +151,7 @@ def test_pair_capture_live_records_until_dmd_runtime_finishes(monkeypatch, tmp_p
         assert record_started.wait(timeout=1.0)
         runtime_can_finish.set()
 
-    monkeypatch.setattr(pair_capture, "_run_pair_with_callback", fake_run)
+    monkeypatch.setattr(pair_capture, "run_pair_runtime", fake_run)
 
     args = _parse_camera_args(pair_capture, 
         [
@@ -224,7 +223,7 @@ def test_pair_capture_live_writes_capture_artifacts_with_event_filter(monkeypatc
         assert record_started.wait(timeout=1.0)
         runtime_can_finish.set()
 
-    monkeypatch.setattr(pair_capture, "_run_pair_with_callback", fake_run)
+    monkeypatch.setattr(pair_capture, "run_pair_runtime", fake_run)
 
     def fake_write_capture_artifacts(run, **kwargs):
         artifact_call.update(kwargs)
@@ -407,7 +406,7 @@ def test_pair_capture_live_limits_in_memory_artifact_batches(monkeypatch, tmp_pa
         assert record_started.wait(timeout=1.0)
         runtime_can_finish.set()
 
-    monkeypatch.setattr(pair_capture, "_run_pair_with_callback", fake_run)
+    monkeypatch.setattr(pair_capture, "run_pair_runtime", fake_run)
 
     def fake_write_capture_artifacts(run, **kwargs):
         artifact_call.update(kwargs)
@@ -495,7 +494,7 @@ def test_sync_check_live_records_while_dmd_runtime_is_active(monkeypatch, tmp_pa
         runtime_can_finish.set()
         events.append("dmd_return")
 
-    monkeypatch.setattr(sync_check, "_run_pair_with_callback", fake_run)
+    monkeypatch.setattr(sync_check, "run_pair_runtime", fake_run)
 
     def fake_record(*args, **kwargs):
         events.append("record_start")
@@ -575,7 +574,7 @@ def test_live_stops_recording_when_dmd_runtime_raises(monkeypatch, tmp_path):
         assert record_started.wait(timeout=1.0)
         raise RuntimeError("DMD runtime failed")
 
-    monkeypatch.setattr(pair_capture, "_run_pair_with_callback", fake_run)
+    monkeypatch.setattr(pair_capture, "run_pair_runtime", fake_run)
 
     args = _parse_camera_args(pair_capture, 
         [
@@ -646,7 +645,7 @@ def test_sync_check_live_stops_recording_when_dmd_runtime_raises(monkeypatch, tm
         assert record_started.wait(timeout=1.0)
         raise RuntimeError("DMD runtime failed")
 
-    monkeypatch.setattr(sync_check, "_run_pair_with_callback", fake_run)
+    monkeypatch.setattr(sync_check, "run_pair_runtime", fake_run)
 
     args = _parse_camera_args(sync_check, 
         [
@@ -705,7 +704,7 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
             "display_sequence": display_sequence,
         })
 
-    monkeypatch.setattr(sync_check, "_run_pair_with_callback", fake_run)
+    monkeypatch.setattr(sync_check, "run_pair_runtime", fake_run)
 
     def fake_record(*args, **kwargs):
         record_kwargs.update(kwargs)
@@ -838,7 +837,7 @@ def test_sync_check_live_capture_flushes_stale_batches_immediately_before_record
         assert record_started.wait(timeout=1.0)
         events.append("sequencer_start_continued")
 
-    monkeypatch.setattr(sync_check, "_run_pair_with_callback", fake_run)
+    monkeypatch.setattr(sync_check, "run_pair_runtime", fake_run)
     monkeypatch.setattr(sync_check, "write_capture_artifacts", lambda *args, **kwargs: {})
 
     args = _parse_camera_args(sync_check, 

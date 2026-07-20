@@ -246,7 +246,7 @@
     .control-group { min-width: 0; }
     .field-grid {
       display: grid;
-      grid-template-columns: repeat(4, minmax(96px, 1fr));
+      grid-template-columns: repeat(3, minmax(96px, 1fr));
       gap: 0.55rem;
     }
     .view-grid {
@@ -493,12 +493,6 @@
             <section class="control-section control-group">
               <div class="card-title">Pattern</div>
               <div class="field-grid">
-                <label><span class="field-label">Layout</span>
-                  <select id="layout">
-                    <option value="pair">Paired</option>
-                    <option value="single">Single</option>
-                  </select>
-                </label>
                 <label><span class="field-label">Test</span>
                   <select id="test"></select>
                 </label>
@@ -574,7 +568,6 @@
       liveCopy: document.getElementById("liveCopy"),
       lutSummary: document.getElementById("lutSummary"),
       lutEntries: document.getElementById("lutEntries"),
-      layout: document.getElementById("layout"),
       test: document.getElementById("test"),
       testA: document.getElementById("testA"),
       testB: document.getElementById("testB"),
@@ -617,18 +610,12 @@
       });
     }
 
-    function activeTests() {
-      return els.layout.value === "pair" ? config.pair_tests : config.single_tests;
-    }
 
     function refreshModeOptions() {
       const current = els.test.value;
-      const tests = activeTests();
+      const tests = config.pair_tests;
       fillSelect(els.test, tests, false);
       els.test.value = tests.includes(current) ? current : (tests.includes("grid") ? "grid" : tests[0]);
-      const paired = els.layout.value === "pair";
-      els.testA.disabled = !paired;
-      els.testB.disabled = !paired;
     }
 
     function buildPlaneButtons() {
@@ -740,11 +727,10 @@
         els.frameBadge.textContent = "live";
         return;
       }
-      const layout = els.layout.value === "pair" ? "Paired" : "Single";
       const view = currentView === "bitplane" ? currentPlane + " bitplane" : "packed frame";
       els.sourceBadge.textContent = "offline";
       els.sourceBadge.className = "state-token source-offline";
-      els.layoutBadge.textContent = layout.toLowerCase();
+      els.layoutBadge.textContent = "paired";
       els.testBadge.textContent = els.test.value || "test";
       els.viewBadge.textContent = view;
       els.frameBadge.textContent = "frame " + (els.frame.value || "0");
@@ -757,15 +743,12 @@
         params.set("_", String(Date.now()));
         return "/api/live-frame.png?" + params.toString();
       }
-      params.set("layout", els.layout.value);
       params.set("test", els.test.value);
       params.set("frame", els.frame.value || "0");
       params.set("view", currentView);
       params.set("plane", currentPlane);
-      if (els.layout.value === "pair") {
-        if (els.testA.value) params.set("test_a", els.testA.value);
-        if (els.testB.value) params.set("test_b", els.testB.value);
-      }
+      if (els.testA.value) params.set("test_a", els.testA.value);
+      if (els.testB.value) params.set("test_b", els.testB.value);
       params.set("_", String(Date.now()));
       return "/api/frame.png?" + params.toString();
     }
@@ -845,7 +828,6 @@
       refreshImage();
     }
 
-    els.layout.addEventListener("change", () => { refreshModeOptions(); refreshImage(); });
     [els.test, els.testA, els.testB, els.frame].forEach(el => {
       el.addEventListener("change", refreshImage);
     });
