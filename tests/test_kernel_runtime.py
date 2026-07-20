@@ -1,7 +1,6 @@
 import unittest
 
 import numpy as np
-import pytest
 
 from dmdcontrol.patterns.kernel import (
     KernelFrameBuild,
@@ -11,7 +10,6 @@ from dmdcontrol.patterns.kernel import (
     compute_kernel_lut_override,
     generate_kernel_masks,
 )
-from dmdcontrol.runtime import single as single_runtime
 
 
 class _Engine:
@@ -32,10 +30,6 @@ class _Engine:
 
 
 class KernelRuntimeTests(unittest.TestCase):
-
-    def test_single_runtime_parser_rejects_removed_hz_flag(self):
-        with self.assertRaises(SystemExit):
-            single_runtime._build_parser().parse_args(["--hz", "120"])
 
     def test_compute_kernel_lut_override_clamps_to_bitplane_count(self):
         override = compute_kernel_lut_override(
@@ -72,8 +66,7 @@ class KernelRuntimeTests(unittest.TestCase):
                 target_hz=60,
                 sequence_utilization=0.9,
             ),
-            (None,
-             None),
+            (None, None),
         )
 
     def test_generate_kernel_masks_builds_512_centered_masks(self):
@@ -108,16 +101,8 @@ class KernelRuntimeTests(unittest.TestCase):
 
     def test_kernel_frame_provider_loops_or_holds_black_after_single_shot(self):
         frames = [
-            np.full((2,
-                     2,
-                     3),
-                    10,
-                    dtype=np.uint8),
-            np.full((2,
-                     2,
-                     3),
-                    20,
-                    dtype=np.uint8),
+            np.full((2, 2, 3), 10, dtype=np.uint8),
+            np.full((2, 2, 3), 20, dtype=np.uint8),
         ]
         black = np.zeros((2, 2, 3), dtype=np.uint8)
 
@@ -130,45 +115,6 @@ class KernelRuntimeTests(unittest.TestCase):
         np.testing.assert_array_equal(one_shot(), frames[0])
         np.testing.assert_array_equal(one_shot(), frames[1])
         np.testing.assert_array_equal(one_shot(), black)
-
-
-@pytest.mark.parametrize("flag", ["--kernel-exposure-us", "--numbers-exposure-us"])
-def test_single_runtime_parser_rejects_removed_exposure_flags(flag):
-    with pytest.raises(SystemExit):
-        single_runtime._build_parser().parse_args([flag, "3000"])
-
-
-def test_single_runtime_kernel_uses_generic_exposure_for_lut_timing():
-    args = single_runtime._build_parser().parse_args(
-        [
-            "--test",
-            "kernel",
-            "--exposure-us",
-            "3000",
-        ])
-
-    assert single_runtime._compute_kernel_lut_override(args, target_hz=60) == (4, 3000)
-
-
-def test_single_runtime_warns_that_dark_time_is_unreliable_in_video_pattern_mode(caplog):
-    args = single_runtime._build_parser().parse_args(
-        ["--test", "checkerboard", "--dark-time-us", "250"])
-
-    single_runtime._warn_dark_time_video_pattern_mode(args)
-
-    assert "--dark-time-us" in caplog.text
-    assert "does not work as expected with DLPC900 Video Pattern Mode" in caplog.text
-
-
-def test_single_runtime_rejects_removed_numbers_mode():
-    with pytest.raises(SystemExit):
-        single_runtime._build_parser().parse_args(
-            [
-                "--test",
-                "numbers",
-                "--exposure-us",
-                "3000",
-            ])
 
 
 if __name__ == "__main__":

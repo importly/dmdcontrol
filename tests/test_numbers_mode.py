@@ -1,15 +1,8 @@
 import unittest
-from pathlib import Path
-from unittest import mock
 
 import numpy as np
 
-from dmdcontrol.patterns.modes import (
-    PATTERN_NAMES,
-    build_patterns,
-    generate_decimal_number_rgb,
-)
-from dmdcontrol.runtime import single
+from dmdcontrol.patterns.modes import generate_decimal_number_rgb
 
 
 class NumbersModeTests(unittest.TestCase):
@@ -40,47 +33,8 @@ class NumbersModeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             generate_decimal_number_rgb(-1, width=120, height=160)
 
-    def test_numbered_region_static_mode_was_removed(self):
-        repo_root = Path(__file__).resolve().parents[1]
 
-        self.assertNotIn("numbered", PATTERN_NAMES)
-        self.assertFalse((repo_root / "dmdcontrol" / "patterns" / "numbered_regions.py").exists())
-        with self.assertRaises(KeyError):
-            build_patterns(mock.Mock(), "numbered")
 
-    def test_legacy_single_modes_were_removed(self):
-        self.assertEqual(
-            PATTERN_NAMES,
-            [
-                "checkerboard",
-                "grid",
-                "bands",
-                "calibr-square",
-                "snake",
-                "clock",
-                "kernel",
-            ],
-        )
-        for removed_mode in (
-            "ordering",
-            "single-pixel",
-            "2x2",
-            "lines",
-            "colors",
-            "coarse-grid",
-            "coarse-lines",
-            "numbers",
-            "gradient",
-        ):
-            with self.subTest(removed_mode=removed_mode):
-                with self.assertRaises(SystemExit):
-                    single._build_parser().parse_args(
-                        ["--test", removed_mode])
-
-    def test_single_runtime_rejects_removed_numbers_size_option(self):
-        with self.assertRaises(SystemExit):
-            single._build_parser().parse_args(
-                ["--test", "checkerboard", "--numbers-size-px", "80"])
 
 
 if __name__ == "__main__":

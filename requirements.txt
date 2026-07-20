@@ -4,4 +4,3 @@ numpy
 Pillow
 pyusb
 rich
-opencv-python

@@ -8,8 +8,7 @@ from dmdcontrol.camera.local_support_filter import (
 )
 from dmdcontrol.camera.sync_check_runtime import (
     A_COUNT_B_STATIC_TEST,
-    _requested_accumulation_window_us,
-    _trigger_policy,
+    trigger_policy,
     expected_trigger_count,
 )
 from dmdcontrol.runtime.count_slots import CountSequenceConfig
@@ -24,7 +23,7 @@ def _sync_check_test_metadata(args: argparse.Namespace) -> dict[str, object]:
         }
         metadata.update(
             {
-                "accumulation_window_us": _requested_accumulation_window_us(args),
+                "accumulation_window_us": args.exposure_us,
                 "bitplane_count": metadata["count_lut_entries_per_frame"],
             }
         )
@@ -51,7 +50,7 @@ def sync_check_metadata(
         "expected_trigger_count": expected_trigger_count(args),
         "paired_startup_leader_vsyncs": args.paired_startup_leader_vsyncs,
         "seq_utilization": args.seq_utilization,
-        "trigger_policy": _trigger_policy(args),
+        "trigger_policy": trigger_policy(args),
         "bias_sensitivity": args.bias_sensitivity,
         "camera_global_hold": args.camera_global_hold,
         "efps": args.efps,

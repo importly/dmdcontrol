@@ -7,7 +7,6 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from dmdcontrol.patterns.modes import PATTERN_NAMES
 from dmdcontrol.patterns.paired import PAIR_TESTS, STATIC_PAIR_TESTS
 from dmdcontrol.preview.html import INDEX_HTML
 from dmdcontrol.preview.render import (
@@ -73,8 +72,6 @@ class DmdPreviewHandler(BaseHTTPRequestHandler):
     def _config_payload(self):
         metadata, updated_at = self.preview_server.live_store.get_metadata()
         return {
-            "default_layout": "pair",
-            "single_tests": list(PATTERN_NAMES),
             "pair_tests": list(PAIR_TESTS),
             "static_pair_tests": list(STATIC_PAIR_TESTS),
             "bitplanes": list(BITPLANE_LABELS),
@@ -84,7 +81,6 @@ class DmdPreviewHandler(BaseHTTPRequestHandler):
         }
 
     def _send_offline_frame(self, params):
-        layout = _query_value(params, "layout", "pair")
         test = _query_value(params, "test", "grid")
         test_a = _query_value(params, "test_a", None)
         test_b = _query_value(params, "test_b", None)
@@ -92,7 +88,6 @@ class DmdPreviewHandler(BaseHTTPRequestHandler):
         view = _query_value(params, "view", "packed")
         plane = _query_plane(params, "plane", 0)
         png = render_preview_png(
-            layout=layout,
             test=test,
             test_a=test_a,
             test_b=test_b,

@@ -137,9 +137,8 @@ dmd_wait_for_hotplug() {
 
 dmd_run_xinit_python_module() {
     local script_dir="$1"
-    local layout="$2"
-    local module="$3"
-    shift 3
+    local module="$2"
+    shift 2
     local xinitrc="$script_dir/scripts/dmd_xinit_client.sh"
     local xinit_args=()
     local saw_separator=0
@@ -164,7 +163,7 @@ dmd_run_xinit_python_module() {
     chmod +x "$xinitrc"
     local pass_file="$script_dir/.env_pass"
     dmd_require_pass_file "$pass_file"
-    sudo -S xinit "$xinitrc" "$layout" "$module" "${xinit_args[@]}" -- :0 vt1 < "$pass_file"
+    sudo -S xinit "$xinitrc" "$module" "${xinit_args[@]}" -- :0 vt1 < "$pass_file"
 }
 
 dmd_config_field() {

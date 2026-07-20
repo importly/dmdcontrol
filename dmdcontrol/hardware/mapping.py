@@ -14,7 +14,6 @@ class DmdMapping:
     usb_id_path: str
     usb_devpath_contains: str | None = None
     xrandr_output: str | None = None
-    glfw_monitor_index: int | None = None
 
 
 def _clean_optional_string(value):
@@ -49,18 +48,12 @@ def resolve_dmd_mapping(name, config_path=None):
     if not usb_id_path:
         raise ValueError(f"DMD {name!r} config must define usb_id_path")
 
-    monitor = raw.get("glfw_monitor_index")
-    if monitor is not None:
-        monitor = int(monitor)
-        if monitor < 0:
-            raise ValueError(f"DMD {name!r} glfw_monitor_index must be >= 0")
 
     return DmdMapping(
         name=name,
         usb_id_path=usb_id_path,
         usb_devpath_contains=_clean_optional_string(raw.get("usb_devpath_contains")),
         xrandr_output=_clean_optional_string(raw.get("xrandr_output")),
-        glfw_monitor_index=monitor,
     )
 
 
@@ -75,7 +68,6 @@ def _build_parser():
             "usb_id_path",
             "usb_devpath_contains",
             "xrandr_output",
-            "glfw_monitor_index",
         ),
         required=True,
         help="Field to print",

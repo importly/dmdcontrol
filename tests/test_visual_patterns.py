@@ -2,7 +2,6 @@ import unittest
 
 import numpy as np
 
-from dmdcontrol.patterns.modes import PATTERN_MODES
 from dmdcontrol.patterns.visual import (
     DEFAULT_COARSE_GRID_SPACING,
     DEFAULT_COARSE_GRID_THICKNESS,
@@ -58,19 +57,6 @@ class VisualPatternTests(unittest.TestCase):
         self.assertTrue(np.all(horizontal[s:s + t, :, :] == 255))
         self.assertFalse(np.array_equal(vertical, horizontal))
 
-    def test_single_dmd_visual_modes_use_normal_public_names(self):
-        self.assertEqual(
-            set(PATTERN_MODES),
-            {
-                "checkerboard",
-                "grid",
-                "bands",
-                "calibr-square",
-                "snake",
-                "clock",
-                "kernel",
-            },
-        )
 
 
 if __name__ == "__main__":

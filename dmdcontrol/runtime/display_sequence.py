@@ -47,7 +47,7 @@ from dmdcontrol.patterns.paired import (
     FramePair,
     PairFrameProvider,
     RGBFrame,
-    SingleDmdFrameAdapter,
+    HalfFramePackingAdapter,
     as_frame_pair,
     generate_dot_frame,
     generate_static_frame,
@@ -576,7 +576,7 @@ def build_kernel_static_sequence(
         dark_time_us=args.dark_time_us,
     )
     slots = _slots_from_lut_entries(entries, semantic_role="kernel")
-    single_a = SingleDmdFrameAdapter(
+    single_a = HalfFramePackingAdapter(
         width=width,
         height=height,
         window=getattr(engine, "window", None),
@@ -656,7 +656,7 @@ def build_calibration_dot_sequence(
         dark_time_us=args.dark_time_us,
     )
     slots = _slots_from_lut_entries(entries, semantic_role="calibration")
-    single_a = SingleDmdFrameAdapter(
+    single_a = HalfFramePackingAdapter(
         width=width,
         height=height,
         window=getattr(engine, "window", None),

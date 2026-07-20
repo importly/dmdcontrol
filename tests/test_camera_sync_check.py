@@ -12,8 +12,7 @@ from dmdcontrol.camera.sync_check_metadata import (
     sync_check_metadata,
 )
 from dmdcontrol.camera.sync_check_runtime import (
-    PairRuntimeRequest,
-    pair_runtime_request_from_args,
+    pair_runtime_args_from_sync,
 )
 
 
@@ -21,7 +20,7 @@ def test_sync_check_has_focused_helper_modules():
     runtime = importlib.import_module("dmdcontrol.camera.sync_check_runtime")
     metadata = importlib.import_module("dmdcontrol.camera.sync_check_metadata")
 
-    assert hasattr(runtime, "pair_runtime_request_from_args")
+    assert hasattr(runtime, "pair_runtime_args_from_sync")
     assert runtime.expected_trigger_count is expected_trigger_count
     assert metadata._sync_check_test_metadata is _sync_check_test_metadata
     assert hasattr(metadata, "sync_check_metadata")
@@ -38,8 +37,8 @@ def test_sync_check_parser_requires_exposure():
         build_parser().parse_args([])
 
 
-def _pair_runtime_argv(args):
-    return pair_runtime_request_from_args(args).to_argv()
+def _pair_runtime_args(args):
+    return pair_runtime_args_from_sync(args)
 
 
 def _count_args(*args):
@@ -142,21 +141,20 @@ def test_sync_check_runtime_args_use_default_count_recipe():
             "123",
             "--runtime-seconds",
             "7",
-        ])
+        ]
+    )
 
-    pair_args = _pair_runtime_argv(args)
+    pair_args = _pair_runtime_args(args)
 
-    assert pair_args[:4] == ["--test", "a-count-b-static", "--test-b", "dot"]
-    assert "--trig2-frame-zero" not in pair_args
-    assert "--numbers" not in pair_args
-    assert "--numbers-bitplane-order" not in pair_args
-    assert pair_args[pair_args.index("--count-start") + 1] == "1"
-    assert pair_args[pair_args.index("--count-end") + 1] == "5"
-    assert pair_args[pair_args.index("--count-slots-per-frame") + 1] == "5"
-    assert pair_args[pair_args.index("--numbers-size-px") + 1] == "123"
-    assert pair_args[pair_args.index("--b-dot-radius") + 1] == "20"
-    assert pair_args[pair_args.index("--exposure-us") + 1] == "600"
-
+    assert pair_args.test == "a-count-b-static"
+    assert pair_args.test_b == "dot"
+    assert pair_args.count_start == 1
+    assert pair_args.count_end == 5
+    assert pair_args.count_slots_per_frame is None
+    assert pair_args.count_slots_per_frame_mode == "auto"
+    assert pair_args.numbers_size_px == 123
+    assert pair_args.b_dot_radius == 20
+    assert pair_args.exposure_us == 600
 
 def test_sync_check_runtime_args_pass_b_dot_geometry():
     args = _parse_args(
@@ -171,35 +169,38 @@ def test_sync_check_runtime_args_pass_b_dot_geometry():
             "535",
             "--b-dot-radius",
             "12",
-        ])
+        ]
+    )
 
-    pair_args = _pair_runtime_argv(args)
+    pair_args = _pair_runtime_args(args)
 
-    assert pair_args[pair_args.index("--b-dot-x") + 1] == "955"
-    assert pair_args[pair_args.index("--b-dot-y") + 1] == "535"
-    assert pair_args[pair_args.index("--b-dot-radius") + 1] == "12"
+    assert pair_args.b_dot_x == 955
+    assert pair_args.b_dot_y == 535
+    assert pair_args.b_dot_radius == 12
 
 
 def test_sync_check_runtime_args_allow_explicit_bitplane_exposure_override():
-    args = _parse_args([
-        "--exposure-us",
-        "2900",
-        "--trigger-out-2-rising-delay-us",
-        "-20",
-    ])
+    args = _parse_args(
+        [
+            "--exposure-us",
+            "2900",
+            "--trigger-out-2-rising-delay-us",
+            "-20",
+        ]
+    )
 
-    pair_args = _pair_runtime_argv(args)
+    pair_args = _pair_runtime_args(args)
 
-    assert pair_args[pair_args.index("--exposure-us") + 1] == "2900"
-    assert pair_args[pair_args.index("--trigger-out-2-rising-delay-us") + 1] == "-20"
+    assert pair_args.exposure_us == 2900
+    assert pair_args.trigger_out_2_rising_delay_us == -20
 
 
 def test_sync_check_runtime_args_forward_paired_startup_leader_vsyncs():
     args = _parse_args(["--paired-startup-leader-vsyncs", "20"])
 
-    pair_args = _pair_runtime_argv(args)
+    pair_args = _pair_runtime_args(args)
 
-    assert pair_args[pair_args.index("--paired-startup-leader-vsyncs") + 1] == "20"
+    assert pair_args.paired_startup_leader_vsyncs == 20
 
 
 def test_sync_check_parser_accepts_count_mode_options():
@@ -336,7 +337,7 @@ def test_sync_check_metadata_records_count_timing_lut_and_capture_policy():
     assert metadata["save_filtered_events"] is True
 
 
-def test_sync_check_runtime_args_forward_count_options_without_numbers():
+def test_sync_check_runtime_args_forward_count_options():
     args = _count_args(
         "--test-b",
         "dot",
@@ -354,19 +355,17 @@ def test_sync_check_runtime_args_forward_count_options_without_numbers():
         "2",
     )
 
-    pair_args = _pair_runtime_argv(args)
+    pair_args = _pair_runtime_args(args)
 
-    assert pair_args[:4] == ["--test", "a-count-b-static", "--test-b", "dot"]
-    assert "--numbers" not in pair_args
-    assert "--numbers-exposure-us" not in pair_args
-    assert "--count-exposure-us" not in pair_args
-    assert pair_args[pair_args.index("--count-start") + 1] == "1"
-    assert pair_args[pair_args.index("--count-end") + 1] == "100"
-    assert pair_args[pair_args.index("--count-slots-per-frame") + 1] == "2"
-    assert pair_args[pair_args.index("--exposure-us") + 1] == "7000"
-    assert pair_args[pair_args.index("--numbers-size-px") + 1] == "123"
-    assert "--count-blank-after-each-count" not in pair_args
-    assert "--count-blank-between-frames" not in pair_args
+    assert pair_args.test == "a-count-b-static"
+    assert pair_args.test_b == "dot"
+    assert pair_args.count_start == 1
+    assert pair_args.count_end == 100
+    assert pair_args.count_slots_per_frame == 2
+    assert pair_args.count_slots_per_frame_mode == "explicit"
+    assert pair_args.exposure_us == 7000
+    assert pair_args.numbers_size_px == 123
+    assert pair_args.count_blank_between_frames is False
 
 
 def test_sync_check_runtime_args_forward_count_blank_between_frames():
@@ -382,12 +381,12 @@ def test_sync_check_runtime_args_forward_count_blank_between_frames():
         "--count-blank-between-frames",
     )
 
-    pair_args = _pair_runtime_argv(args)
+    pair_args = _pair_runtime_args(args)
 
-    assert "--count-blank-after-each-count" in pair_args
+    assert pair_args.count_blank_between_frames is True
 
 
-def test_sync_check_runtime_args_auto_resolve_count_slots_from_timing():
+def test_sync_check_runtime_args_preserve_auto_count_slot_resolution():
     args = _count_args(
         "--test-b",
         "dot",
@@ -403,36 +402,14 @@ def test_sync_check_runtime_args_auto_resolve_count_slots_from_timing():
         "2",
     )
 
-    pair_args = _pair_runtime_argv(args)
+    pair_args = _pair_runtime_args(args)
 
     assert args.count_slots_per_frame == 2
     assert args.count_slots_per_frame_mode == "auto"
-    assert pair_args[pair_args.index("--count-slots-per-frame") + 1] == "2"
+    assert pair_args.count_slots_per_frame is None
+    assert pair_args.count_slots_per_frame_mode == "auto"
 
 
-def test_sync_check_pair_runtime_request_keeps_auto_count_slots_for_internal_runtime():
-    args = _count_args(
-        "--test-b",
-        "dot",
-        "--count-start",
-        "1",
-        "--count-end",
-        "60",
-        "--exposure-us",
-        "8000",
-        "--seq-utilization",
-        "1.0",
-    )
-
-    request = pair_runtime_request_from_args(args)
-    pair_namespace = request.to_namespace()
-    request_argv = request.to_argv()
-
-    assert args.count_slots_per_frame == 2
-    assert args.count_slots_per_frame_mode == "auto"
-    assert pair_namespace.count_slots_per_frame is None
-    assert pair_namespace.count_slots_per_frame_mode == "auto"
-    assert request_argv[request_argv.index("--count-slots-per-frame") + 1] == "2"
 
 
 def test_sync_check_parser_accepts_event_noise_filter_options():
@@ -515,16 +492,23 @@ def test_live_capture_flushes_queued_triggers_before_recording(monkeypatch, tmp_
             {"reads": reads, "include_triggers": include_triggers}) or {"requested_reads": reads},
     )
 
-    def fake_run_pair(pair_request, before_start):
-        assert isinstance(pair_request, PairRuntimeRequest)
+    def fake_run_pair(pair_args, before_start):
+        assert pair_args.test == "a-count-b-static"
         before_start(
             {
                 "state_a": {"timing": {"exposure_us": 1500}},
                 "state_b": {"timing": {"exposure_us": 1500}},
-            })
+            }
+        )
         return 0
 
     class FakeRecording:
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            pass
 
         def stop(self):
             pass
@@ -537,16 +521,18 @@ def test_live_capture_flushes_queued_triggers_before_recording(monkeypatch, tmp_
                 timed_out=False,
             )
 
-    monkeypatch.setattr(sync_check, "_run_pair_with_callback", fake_run_pair)
-    monkeypatch.setattr(sync_check, "_start_recording", lambda *args, **kwargs: FakeRecording())
+    monkeypatch.setattr(sync_check, "run_pair_runtime", fake_run_pair)
+    monkeypatch.setattr(sync_check, "AsyncCapture", FakeRecording)
     monkeypatch.setattr(
         sync_check,
-        "_write_capture_artifacts_for_sync_check", lambda *args, **kwargs: {
+        "write_capture_artifacts",
+        lambda *args, **kwargs: {
             "frame_artifacts": [],
             "filtered_frame_artifacts": [],
             "filtered_contact_sheet_artifact": None,
             "event_noise_filter": {"enabled": False},
-        })
+        },
+    )
 
     ready = SimpleNamespace(event_resolution=(320, 240))
 

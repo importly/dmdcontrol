@@ -20,7 +20,6 @@ class DmdPreviewPackageTests(unittest.TestCase):
         self.assertTrue(server.BITPLANE_LABELS)
         self.assertTrue(server.PAIR_TESTS)
         self.assertTrue(server.STATIC_PAIR_TESTS)
-        self.assertTrue(server.PATTERN_NAMES)
         self.assertFalse({"glfw", "OpenGL.GL", "dlpc900_hid"} & set(sys.modules))
 
     def test_preview_package_import_is_lightweight(self):

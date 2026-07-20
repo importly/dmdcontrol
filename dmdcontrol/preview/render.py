@@ -17,15 +17,10 @@ from dmdcontrol.patterns.bitplanes import (
     BITPLANE_LABELS,
     extract_bitplane,
     pack_bitplanes_rgb,
-    unpack_rgb_bitplanes,
 )
 from dmdcontrol.patterns.calibration_square import build_calibration_square_frame
 from dmdcontrol.patterns.kernel import build_kernel_frames
-from dmdcontrol.patterns.modes import (
-    PATTERN_NAMES,
-    build_patterns,
-    default_calibration_square_state,
-)
+from dmdcontrol.patterns.modes import default_calibration_square_state
 from dmdcontrol.patterns.paired import (
     A_COUNT_B_STATIC_PAIR_TEST,
     CALIBRATION_DOT_PAIR_TEST,
@@ -143,8 +138,8 @@ def build_lut_preview_metadata(
     }
 
 
-class PreviewEngine:
-    """Small no-GL engine implementing PatternEngine's pure packing API."""
+class PreviewPackingAdapter:
+    """Small no-GL adapter for packing one DMD half of a paired preview."""
 
     def __init__(self, width: int = DMD_WIDTH, height: int = DMD_HEIGHT) -> None:
         self.width = width
@@ -153,39 +148,11 @@ class PreviewEngine:
     def pack_patterns(self, binary_images: Sequence[BinaryMask]) -> RGBFrame:
         return pack_bitplanes_rgb(binary_images, self.width, self.height)
 
-    def rgb_to_binary_patterns(self, rgb_array: RGBFrame) -> list[BinaryMask]:
-        return unpack_rgb_bitplanes(rgb_array, self.width, self.height)
-
-    def generate_checkerboard(self, block_size: int = 32) -> list[BinaryMask]:
-        y, x = np.indices((self.height, self.width))
-        checker = ((x // block_size) + (y // block_size)) % 2
-        checker = checker.astype(np.uint8)
-        return [checker for _ in range(BITPLANES)]
-
-    def generate_snake_frame(
-        self,
-        frame_index: int = 0,
-        grid_w: int = 24,
-        grid_h: int = 13,) -> RGBFrame:
-        grid = np.zeros((grid_h, grid_w), dtype=np.uint8)
-        path_len = grid_w * grid_h
-        head = frame_index % path_len
-        for segment in range(6):
-            pos = (head - segment) % path_len
-            row = pos // grid_w
-            col = pos % grid_w
-            grid[row, col] = max(64, 255 - segment * 32)
-        block_w = max(1, self.width // grid_w)
-        block_h = max(1, self.height // grid_h)
-        frame_2d = np.repeat(np.repeat(grid, block_h, axis=0), block_w, axis=1)
-        padded = np.zeros((self.height, self.width), dtype=np.uint8)
-        h, w = frame_2d.shape
-        padded[:min(h, self.height), :min(w, self.width)] = frame_2d[:min(h, self.height
-                                                                          ), :min(w, self.width)]
-        return np.ascontiguousarray(np.stack([padded, padded, padded], axis=-1))
 
 
-def _kernel_preview_frame(engine: PreviewEngine, frame_index: int) -> RGBFrame:
+
+
+def _kernel_preview_frame(engine: PreviewPackingAdapter, frame_index: int) -> RGBFrame:
     frames, _metadata = build_kernel_frames(
         engine,
         kernel_px=30,
@@ -196,33 +163,6 @@ def _kernel_preview_frame(engine: PreviewEngine, frame_index: int) -> RGBFrame:
     return frames[frame_index % len(frames)]
 
 
-def render_single_frame(
-    test: str = "grid",
-    frame_index: int = 0,
-    width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,) -> RGBFrame:
-    if test not in PATTERN_NAMES:
-        raise ValueError(f"unsupported single-DMD test: {test}")
-    engine = PreviewEngine(width=width, height=height)
-
-    if test == "calibr-square":
-        state = default_calibration_square_state(width, height)
-        return build_calibration_square_frame(engine, state)
-    if test == "snake":
-        return engine.generate_snake_frame(frame_index=frame_index)
-    if test == "clock":
-        frame = np.zeros((height, width, 3), dtype=np.uint8)
-        stripe = max(1, width // 16)
-        x0 = (frame_index % 16) * stripe
-        frame[:, x0:min(width, x0 + stripe), :] = 255
-        return np.ascontiguousarray(frame)
-    if test == "kernel":
-        return _kernel_preview_frame(engine, frame_index)
-
-    _label, patterns, dynamic_kind = build_patterns(engine, test)
-    if patterns is None or dynamic_kind is not None:
-        raise ValueError(f"unsupported preview mode: {test}")
-    return engine.pack_patterns(patterns)
 
 
 def render_pair_frame(
@@ -253,13 +193,13 @@ def render_pair_frame(
         frame_b = generate_static_frame(test_b or "dot", route_label="B")
         return compose_pair_frame(frame_a, frame_b)
     if test == CALIBRATION_DOT_PAIR_TEST:
-        engine = PreviewEngine()
+        engine = PreviewPackingAdapter()
         state = default_calibration_square_state(DMD_WIDTH, DMD_HEIGHT)
         frame_a = build_calibration_square_frame(engine, state)
         frame_b = generate_dot_frame()
         return compose_pair_frame(frame_a, frame_b)
     if test == KERNEL_STATIC_PAIR_TEST:
-        engine = PreviewEngine()
+        engine = PreviewPackingAdapter()
         frame_a = _kernel_preview_frame(engine, frame_index)
         frame_b = generate_static_frame(test_b or "checkerboard", route_label="B")
         return compose_pair_frame(frame_a, frame_b)
@@ -268,16 +208,12 @@ def render_pair_frame(
 
 
 def render_offline_frame(
-    layout: str = "pair",
     test: str = "grid",
     test_a: str | None = None,
     test_b: str | None = None,
-    frame_index: int = 0,) -> RGBFrame:
-    if layout == "pair":
-        return render_pair_frame(test=test, test_a=test_a, test_b=test_b, frame_index=frame_index)
-    if layout == "single":
-        return render_single_frame(test=test, frame_index=frame_index)
-    raise ValueError("layout must be 'pair' or 'single'")
+    frame_index: int = 0,
+) -> RGBFrame:
+    return render_pair_frame(test=test, test_a=test_a, test_b=test_b, frame_index=frame_index)
 
 
 def render_bitplane_image(packed_frame: RGBFrame, plane: int) -> BinaryMask:
@@ -302,15 +238,14 @@ def render_png_bytes(image_array: ImageArray) -> bytes:
 
 
 def render_preview_png(
-    layout: str = "pair",
     test: str = "grid",
     test_a: str | None = None,
     test_b: str | None = None,
     frame_index: int = 0,
     view: str = "packed",
-    plane: int = 0,) -> bytes:
+    plane: int = 0,
+) -> bytes:
     packed = render_offline_frame(
-        layout=layout,
         test=test,
         test_a=test_a,
         test_b=test_b,

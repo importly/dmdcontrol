@@ -24,8 +24,8 @@ class MainPairConfigTests(unittest.TestCase):
             config_path = Path(tmp) / "dmd_devices.json"
             config_path.write_text(
                 json.dumps({"dmds": {
-                    "A": {"usb_id_path": "pci-a", "usb_devpath_contains": "/usb1/1-1/", "xrandr_output": "DP-2", "glfw_monitor_index": 1},
-                    "B": {"usb_id_path": "pci-b", "usb_devpath_contains": "/usb1/1-8/", "xrandr_output": "DP-0", "glfw_monitor_index": 0},
+                    "A": {"usb_id_path": "pci-a", "usb_devpath_contains": "/usb1/1-1/", "xrandr_output": "DP-2"},
+                    "B": {"usb_id_path": "pci-b", "usb_devpath_contains": "/usb1/1-8/", "xrandr_output": "DP-0"},
                 }}),
                 encoding="utf-8",
             )

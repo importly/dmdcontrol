@@ -332,7 +332,6 @@ source = { virtual = "." }
 dependencies = [
     { name = "glfw" },
     { name = "numpy" },
-    { name = "opencv-python" },
     { name = "pillow" },
     { name = "pyopengl" },
     { name = "pyusb" },
@@ -340,6 +339,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+analysis = [
+    { name = "opencv-python" },
+]
 camera = [
     { name = "dv-processing" },
     { name = "pyyaml" },
@@ -359,14 +361,14 @@ requires-dist = [
     { name = "dv-processing", marker = "extra == 'camera'" },
     { name = "glfw" },
     { name = "numpy" },
-    { name = "opencv-python" },
+    { name = "opencv-python", marker = "extra == 'analysis'" },
     { name = "pillow" },
     { name = "pyopengl" },
     { name = "pyusb" },
     { name = "pyyaml", marker = "extra == 'camera'" },
     { name = "rich" },
 ]
-provides-extras = ["camera"]
+provides-extras = ["analysis", "camera"]
 
 [package.metadata.requires-dev]
 dev = [

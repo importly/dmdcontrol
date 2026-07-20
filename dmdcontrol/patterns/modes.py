@@ -1,23 +1,13 @@
-"""Pattern mode registry. Maps --test name -> (label, builder).
-
-Each builder takes the PatternEngine and returns (patterns_or_None, dynamic_kind).
-- patterns: passed to engine.pack_patterns(); None for dynamic modes that generate frames directly.
-- dynamic_kind: None for static; otherwise selects a dynamic frame provider.
-"""
+"""Pair-shared calibration and decimal count pattern primitives."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, NamedTuple
 
 import numpy as np
 from numpy.typing import NDArray
 
-from dmdcontrol.patterns.visual import (
-    generate_coarse_grid_rgb,
-    generate_coarse_lines_rgb,
-)
 from dmdcontrol.support.constants import (
     DEFAULT_CALIBRATION_SQUARE_FRACTION,
     DMD_HEIGHT,
@@ -29,23 +19,6 @@ BinaryMask = NDArray[np.uint8]
 RGBFrame = NDArray[np.uint8]
 
 
-class PatternBuildResult(NamedTuple):
-    patterns: list[BinaryMask] | None
-    dynamic_kind: str | None
-
-
-class PatternMode(NamedTuple):
-    label: str
-    builder: "PatternBuilder"
-
-
-class BuiltPattern(NamedTuple):
-    label: str
-    patterns: list[BinaryMask] | None
-    dynamic_kind: str | None
-
-
-PatternBuilder = Callable[[Any], PatternBuildResult]
 
 _DIGIT_SEGMENTS = {
     1: ("b",
@@ -373,43 +346,3 @@ def generate_decimal_number_rgb(
     return img
 
 
-def _grid(engine: Any) -> PatternBuildResult:
-    rgb = generate_coarse_grid_rgb(width=engine.width, height=engine.height)
-    return PatternBuildResult(engine.rgb_to_binary_patterns(rgb), None)
-
-
-def _bands(engine: Any) -> PatternBuildResult:
-    rgb = generate_coarse_lines_rgb(width=engine.width, height=engine.height)
-    return PatternBuildResult(engine.rgb_to_binary_patterns(rgb), None)
-
-
-PATTERN_MODES: dict[str, PatternMode] = {
-    #    label                                   pattern generator          dynamic or not
-    "checkerboard": PatternMode(
-        "Static Checkerboard",
-        lambda e: PatternBuildResult(e.generate_checkerboard(), None),
-    ),
-    "grid": PatternMode("Grid", _grid),
-    "bands": PatternMode("Bands", _bands),
-    "calibr-square": PatternMode(
-        "Interactive Calibration Square",
-        lambda e: PatternBuildResult(None, "calibr-square"),
-    ),
-    "snake": PatternMode("60FPS Snake", lambda e: PatternBuildResult(None, "snake")),
-    "clock": PatternMode("Microsecond Clock", lambda e: PatternBuildResult(None, "clock")),
-    "kernel": PatternMode(
-        "3x3 Kernel Variations (512 patterns)",
-        lambda e: PatternBuildResult(None, "kernel"),
-    ),
-}
-
-PATTERN_NAMES = list(PATTERN_MODES.keys())
-
-
-def build_patterns(
-    engine: Any,
-    mode: str,) -> BuiltPattern:
-    """Returns (label, patterns_or_None, dynamic_kind) for the given mode name."""
-    pattern_mode = PATTERN_MODES[mode]
-    result = pattern_mode.builder(engine)
-    return BuiltPattern(pattern_mode.label, result.patterns, result.dynamic_kind)

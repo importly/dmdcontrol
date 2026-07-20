@@ -62,7 +62,16 @@ def test_function_local_imports_are_limited_to_explicit_boundaries():
         "dmdcontrol/camera/discovery.py": {"dv_processing"},
         "dmdcontrol/camera/reprocess_aedat4.py": {"dv_processing"},
         "dmdcontrol/camera/session.py": {"dv_processing"},
-        "dmdcontrol/cli/main.py": {"dmdcontrol.camera", "dmdcontrol.cli"},
+        "dmdcontrol/cli/main.py": {
+            "dmdcontrol.camera",
+            "dmdcontrol.camera.discovery",
+            "dmdcontrol.hardware.dlpc900",
+            "dmdcontrol.hardware.mapping",
+            "dmdcontrol.hardware.usb",
+            "dmdcontrol.preview.server",
+            "dmdcontrol.runtime.pair",
+            "dmdcontrol.support.logging",
+        },
         "dmdcontrol/patterns/calibration_square.py": {"glfw"},
         "dmdcontrol/patterns/paired.py": {"OpenGL.GL", "glfw"},
         "dmdcontrol/preview/__init__.py": {"dmdcontrol.preview"},
@@ -96,18 +105,26 @@ def test_function_local_imports_are_limited_to_explicit_boundaries():
 
     assert offenders == []
 
-def test_single_run_delegates_passthrough_args(monkeypatch):
-    runtime = Mock(return_value=7)
-    monkeypatch.setattr("dmdcontrol.cli.single.runtime_main", runtime)
 
-    assert run_cli(["single", "run", "--test", "checkerboard"]) == 7
+def test_cli_package_has_one_implementation_module():
+    cli_dir = Path(__file__).resolve().parents[1] / "dmdcontrol" / "cli"
 
-    runtime.assert_called_once_with(["--test", "checkerboard"])
+    assert sorted(path.name for path in cli_dir.glob("*.py")) == [
+        "__init__.py",
+        "main.py",
+    ]
+
+def test_single_dmd_runtime_is_not_exposed(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        run_cli(["single", "run"])
+
+    assert exc_info.value.code == 2
+    assert "invalid choice: 'single'" in capsys.readouterr().err
 
 
 def test_pair_run_translates_preferred_flags(monkeypatch):
     runtime = Mock(return_value=0)
-    monkeypatch.setattr("dmdcontrol.cli.pair.runtime_main", runtime)
+    monkeypatch.setattr("dmdcontrol.runtime.pair.main", runtime)
 
     assert run_cli(
         [
@@ -134,7 +151,7 @@ def test_pair_run_translates_preferred_flags(monkeypatch):
 
 def test_pair_calibrate_injects_test_and_default_zero_runtime(monkeypatch):
     runtime = Mock(return_value=0)
-    monkeypatch.setattr("dmdcontrol.cli.pair.runtime_main", runtime)
+    monkeypatch.setattr("dmdcontrol.runtime.pair.main", runtime)
 
     assert run_cli(["pair", "calibrate", "--b-dot-x", "10"]) == 0
 
@@ -151,7 +168,7 @@ def test_pair_calibrate_injects_test_and_default_zero_runtime(monkeypatch):
 
 def test_pair_calibrate_preserves_essential_preview_dot_args(monkeypatch):
     runtime = Mock(return_value=0)
-    monkeypatch.setattr("dmdcontrol.cli.pair.runtime_main", runtime)
+    monkeypatch.setattr("dmdcontrol.runtime.pair.main", runtime)
 
     assert (
         run_cli(
@@ -191,7 +208,7 @@ def test_pair_calibrate_preserves_essential_preview_dot_args(monkeypatch):
 
 def test_pair_calibrate_preserves_user_runtime_seconds(monkeypatch):
     runtime = Mock(return_value=0)
-    monkeypatch.setattr("dmdcontrol.cli.pair.runtime_main", runtime)
+    monkeypatch.setattr("dmdcontrol.runtime.pair.main", runtime)
 
     assert run_cli(["pair", "calibrate", "--runtime-seconds=5"]) == 0
 
@@ -211,7 +228,7 @@ def test_preview_serve_help_exits_zero(capsys):
 
 def test_usb_discover_delegates_passthrough(monkeypatch):
     usb = Mock(return_value=3)
-    monkeypatch.setattr("dmdcontrol.cli.usb_discover.usb_main", usb)
+    monkeypatch.setattr("dmdcontrol.hardware.usb.main", usb)
 
     assert run_cli(["usb", "discover", "--verbose"]) == 3
 
@@ -219,7 +236,10 @@ def test_usb_discover_delegates_passthrough(monkeypatch):
 
 
 def test_usb_wake_uses_direct_dependencies(monkeypatch):
-    from dmdcontrol.cli import usb as usb_cli
+    import dmdcontrol.cli.main as cli_main
+    import dmdcontrol.hardware.dlpc900 as dlpc900_module
+    import dmdcontrol.hardware.mapping as mapping_module
+    import dmdcontrol.support.logging as logging_module
 
     calls = []
 
@@ -243,11 +263,11 @@ def test_usb_wake_uses_direct_dependencies(monkeypatch):
     resolver = Mock(return_value=Mapping(name="A", usb_id_path="pci-0000:00", usb_devpath_contains="/usb1/1-1/"))
     setup_logger = Mock()
     logger = SimpleNamespace(info=Mock())
-    monkeypatch.setattr(usb_cli, "DLPC900", FakeDLPC900)
-    monkeypatch.setattr(usb_cli, "resolve_dmd_mapping", resolver)
-    monkeypatch.setattr(usb_cli, "setup_logger", setup_logger)
-    monkeypatch.setattr(usb_cli, "logger", logger)
-    monkeypatch.setattr(usb_cli.time, "sleep", Mock())
+    monkeypatch.setattr(dlpc900_module, "DLPC900", FakeDLPC900)
+    monkeypatch.setattr(mapping_module, "resolve_dmd_mapping", resolver)
+    monkeypatch.setattr(logging_module, "setup_logger", setup_logger)
+    monkeypatch.setattr(logging_module, "logger", logger)
+    monkeypatch.setattr(cli_main.time, "sleep", Mock())
 
     assert run_cli(["usb", "wake", "--dmd", "A", "--dmd-config", "devices.json"]) == 0
 
@@ -282,12 +302,11 @@ class Mapping:
     usb_id_path: str = "pci-0000:00"
     usb_devpath_contains: str | None = None
     xrandr_output: str | None = "DP-2"
-    glfw_monitor_index: int | None = 1
 
 
 def test_config_show_prints_json(monkeypatch, capsys):
     resolver = Mock(return_value=Mapping())
-    monkeypatch.setattr("dmdcontrol.cli.config.resolve_dmd_mapping", resolver)
+    monkeypatch.setattr("dmdcontrol.hardware.mapping.resolve_dmd_mapping", resolver)
 
     assert run_cli(["config", "show", "--dmd", "A"]) == 0
 
@@ -297,13 +316,12 @@ def test_config_show_prints_json(monkeypatch, capsys):
         "usb_id_path": "pci-0000:00",
         "usb_devpath_contains": None,
         "xrandr_output": "DP-2",
-        "glfw_monitor_index": 1,
     }
 
 
 def test_config_show_prints_one_field(monkeypatch, capsys):
     resolver = Mock(return_value=Mapping())
-    monkeypatch.setattr("dmdcontrol.cli.config.resolve_dmd_mapping", resolver)
+    monkeypatch.setattr("dmdcontrol.hardware.mapping.resolve_dmd_mapping", resolver)
 
     assert run_cli(["config", "show", "--dmd", "A", "--field", "xrandr_output"]) == 0
 
