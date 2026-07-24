@@ -15,3 +15,4 @@ runs
 .tmp_*/
 .tmp_pytest_*/
 .tmp_sync_check_dry_run*/
+typings
