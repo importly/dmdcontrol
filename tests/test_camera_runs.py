@@ -21,12 +21,14 @@ def test_camera_runs_is_package_with_focused_modules():
         importlib.import_module("dmdcontrol.camera.runs.image_artifacts"),
     }
 
-    assert {module.__name__.rsplit(".", 1)[-1] for module in modules} == {
-        "directory",
-        "capture_artifacts",
-        "accumulation_artifacts",
-        "image_artifacts",
-    }
+    assert {module.__name__.rsplit(".",
+                                   1)[-1]
+            for module in modules} == {
+                "directory",
+                "capture_artifacts",
+                "accumulation_artifacts",
+                "image_artifacts",
+            }
 
 
 def test_create_run_directory_uses_mode_and_timestamp(tmp_path):
@@ -39,6 +41,7 @@ def test_create_run_directory_uses_mode_and_timestamp(tmp_path):
     assert run.path == tmp_path / "20260527-120102-sync-check"
     assert run.path.is_dir()
     assert run.raw_recording_path.name == "raw.aedat4"
+    assert run.raw_full_recording_path.name == "raw_full.aedat4"
     assert run.metadata_path.name == "metadata.json"
 
 
@@ -590,10 +593,7 @@ def test_write_capture_artifacts_skips_startup_leader_before_cycle_selection(tmp
         output_root=tmp_path,
         timestamp="20260603-120112",
     )
-    triggers = [
-        TriggerRecord(timestamp=1000 + index * 100,
-                      edge="rising") for index in range(6)
-    ]
+    triggers = [TriggerRecord(timestamp=1000 + index * 100, edge="rising") for index in range(6)]
     events = [
         EventRecord(timestamp=1001,
                     x=0,
@@ -658,10 +658,7 @@ def test_write_capture_artifacts_skips_startup_leader_before_event_alignment(tmp
         output_root=tmp_path,
         timestamp="20260603-120113",
     )
-    triggers = [
-        TriggerRecord(timestamp=1000 + index * 100,
-                      edge="rising") for index in range(4)
-    ]
+    triggers = [TriggerRecord(timestamp=1000 + index * 100, edge="rising") for index in range(4)]
     events = [
         EventRecord(timestamp=1201,
                     x=1,

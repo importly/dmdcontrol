@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 
 class FakeCapture:
+
     def __init__(self):
         self.event_reads = 0
         self.trigger_reads = 0
@@ -44,9 +45,18 @@ class FakeCapture:
 
 
 class FakeWriter:
+
     def __init__(self, path, capture):
         self.path = path
         self.capture = capture
+        self.events = []
+        self.triggers = []
+
+    def writeEvents(self, events, streamName="events"):
+        self.events.append((streamName, events))
+
+    def writeTriggerPacket(self, triggers, streamName="triggers"):
+        self.triggers.append((streamName, triggers))
 
 
 def _args(**overrides):
@@ -69,8 +79,7 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
         io=SimpleNamespace(
             camera=SimpleNamespace(open=lambda: calls.append("open") or capture),
             MonoCameraWriter=FakeWriter,
-        )
-    )
+        ))
     run = SimpleNamespace(raw_recording_path=tmp_path / "raw.aedat4")
     ready = SimpleNamespace(event_resolution=(320, 240))
 
@@ -85,26 +94,20 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
                     opened_capture is capture,
                     bias_sensitivity,
                     efps,
-                    global_hold,
-                )
-            )
-            or {
-                "requested": {
-                    "bias_sensitivity": bias_sensitivity,
-                    "efps": efps,
-                    "global_hold": global_hold,
-                },
-                "applied": {"global_hold": True},
-            }
-        ),
+                    global_hold, )) or {
+                        "requested": {
+                            "bias_sensitivity": bias_sensitivity,
+                            "efps": efps,
+                            "global_hold": global_hold, },
+                        "applied": {
+                            "global_hold": True}, }),
     )
     monkeypatch.setattr(
         session,
         "configure_rising_edge_triggers",
-        lambda opened_capture: (
-            calls.append(("triggers", opened_capture is capture))
-            or {"configured": True}
-        ),
+        lambda opened_capture:
+        (calls.append(("triggers", opened_capture is capture)) or {
+            "configured": True}),
     )
     monkeypatch.setattr(
         session,
@@ -116,11 +119,7 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
                     opened_capture is capture,
                     stream_rearm,
                     trigger_configuration,
-                    camera_configuration,
-                )
-            )
-            or ready
-        ),
+                    camera_configuration, )) or ready),
     )
 
     opened_capture, writer, opened_ready = session.open_ready_camera(
@@ -142,8 +141,13 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
     assert capture.trigger_reads == 1
     assert calls[:3] == [
         "open",
-        ("performance", True, "low", "variable_5000", "off"),
-        ("triggers", True),
+        ("performance",
+         True,
+         "low",
+         "variable_5000",
+         "off"),
+        ("triggers",
+         True),
     ]
     assert calls[3][:4] == ("ready", True, None, {"configured": True})
     assert calls[3][4] == {
@@ -152,7 +156,8 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
             "efps": "variable_5000",
             "global_hold": "off",
         },
-        "applied": {"global_hold": True},
+        "applied": {
+            "global_hold": True},
         "readback": {
             "getCameraName": "DVXplorer_TEST",
             "getContrastThresholdOn": 3,
@@ -164,6 +169,55 @@ def test_open_ready_camera_applies_shared_lifecycle(monkeypatch, tmp_path):
     }
 
 
+def test_open_ready_camera_with_full_recording_archives_initial_flush(monkeypatch, tmp_path):
+    from dmdcontrol.camera import session
+
+    class StartupCapture(FakeCapture):
+
+        def __init__(self):
+            super().__init__()
+            self.events = [[{"timestamp": 1}], None]
+            self.triggers = [[{"timestamp": 2}], None]
+
+        def getNextEventBatch(self):
+            self.event_reads += 1
+            return self.events.pop(0)
+
+        def getNextTriggerBatch(self):
+            self.trigger_reads += 1
+            return self.triggers.pop(0)
+
+    capture = StartupCapture()
+    ready = SimpleNamespace(event_resolution=(320, 240))
+    run = SimpleNamespace(
+        raw_recording_path=tmp_path / "raw.aedat4",
+        raw_full_recording_path=tmp_path / "raw_full.aedat4",
+    )
+    fake_dv = SimpleNamespace(io=SimpleNamespace(MonoCameraWriter=FakeWriter))
+    monkeypatch.setitem(sys.modules, "dv_processing", fake_dv)
+    monkeypatch.setattr(
+        session,
+        "_open_configured_camera_capture",
+        lambda args: (capture, ready),
+    )
+
+    opened_capture, writer, opened_ready, full_writer = (
+        session.open_ready_camera_with_full_recording(
+            run,
+            _args(camera_flush_reads=4),
+        )
+    )
+
+    assert opened_capture is capture
+    assert writer.path == str(run.raw_recording_path)
+    assert writer.events == []
+    assert writer.triggers == []
+    assert full_writer.path == str(run.raw_full_recording_path)
+    assert full_writer.events == [("events", [{"timestamp": 1}])]
+    assert full_writer.triggers == [("triggers", [{"timestamp": 2}])]
+    assert opened_ready.initial_flush["archived_to"] == "raw_full.aedat4"
+
+
 def test_open_ready_camera_cleans_up_when_flush_fails(monkeypatch, tmp_path):
     from dmdcontrol.camera import session
 
@@ -172,6 +226,7 @@ def test_open_ready_camera_cleans_up_when_flush_fails(monkeypatch, tmp_path):
     writers = []
 
     class RecordingWriter(FakeWriter):
+
         def __init__(self, path, capture):
             super().__init__(path, capture)
             writers.append(self)
@@ -180,22 +235,18 @@ def test_open_ready_camera_cleans_up_when_flush_fails(monkeypatch, tmp_path):
         io=SimpleNamespace(
             camera=SimpleNamespace(open=lambda: capture),
             MonoCameraWriter=RecordingWriter,
-        )
-    )
+        ))
     run = SimpleNamespace(raw_recording_path=tmp_path / "raw.aedat4")
 
     monkeypatch.setitem(sys.modules, "dv_processing", fake_dv)
     monkeypatch.setattr(
         session,
         "configure_camera_performance",
-        lambda *args, **kwargs: {"requested": {}, "applied": {}},
+        lambda *args, **kwargs: {
+            "requested": {}, "applied": {}},
     )
-    monkeypatch.setattr(
-        session, "configure_rising_edge_triggers", lambda *args, **kwargs: None
-    )
-    monkeypatch.setattr(
-        session, "validate_camera_ready", lambda *args, **kwargs: SimpleNamespace()
-    )
+    monkeypatch.setattr(session, "configure_rising_edge_triggers", lambda *args, **kwargs: None)
+    monkeypatch.setattr(session, "validate_camera_ready", lambda *args, **kwargs: SimpleNamespace())
     monkeypatch.setattr(
         session,
         "flush_stale_batches",
