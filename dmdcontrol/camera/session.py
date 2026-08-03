@@ -41,7 +41,9 @@ def _open_configured_camera_capture(args):
             capture,
             bias_sensitivity=args.bias_sensitivity,
             efps=args.efps,
-            global_hold=getattr(args, "camera_global_hold", "default"),
+            global_hold=getattr(args,
+                                "camera_global_hold",
+                                "default"),
         )
         camera_configuration = _camera_configuration_snapshot(
             capture,
@@ -66,6 +68,12 @@ def open_camera_writer(run, capture):
     import dv_processing as dv
 
     return dv.io.MonoCameraWriter(str(run.raw_recording_path), capture)
+
+
+def open_full_camera_writer(run, capture):
+    import dv_processing as dv
+
+    return dv.io.MonoCameraWriter(str(run.raw_full_recording_path), capture)
 
 
 def _metadata_value(value):
@@ -100,29 +108,60 @@ def _camera_configuration_snapshot(capture, performance_configuration):
     return snapshot
 
 
-def open_ready_camera(run, args):
+def _open_ready_camera(run, args, *, include_full_recording):
     capture = None
     writer = None
+    full_writer = None
     try:
         capture, ready = _open_configured_camera_capture(args)
         writer = open_camera_writer(run, capture)
-        initial_flush = flush_stale_batches(capture, reads=args.camera_flush_reads)
+        if include_full_recording:
+            full_writer = open_full_camera_writer(run, capture)
+        initial_flush = flush_stale_batches(
+            capture,
+            reads=args.camera_flush_reads,
+            archive_writer=full_writer,
+        )
+        if full_writer is not None:
+            initial_flush["archived_to"] = run.raw_full_recording_path.name
         ready = _ready_with_initial_flush(ready, initial_flush)
     except Exception:
         if writer is not None:
             del writer
+        if full_writer is not None:
+            del full_writer
         if capture is not None:
             del capture
         gc.collect()
         raise
+    return capture, writer, ready, full_writer
+
+
+def open_ready_camera(run, args):
+    capture, writer, ready, _ = _open_ready_camera(
+        run,
+        args,
+        include_full_recording=False,
+    )
     return capture, writer, ready
+
+
+def open_ready_camera_with_full_recording(run, args):
+    return _open_ready_camera(
+        run,
+        args,
+        include_full_recording=True,
+    )
 
 
 def close_camera_resources(resources):
     writer = resources.pop("writer", None)
+    full_writer = resources.pop("full_writer", None)
     capture = resources.pop("capture", None)
     if writer is not None:
         del writer
+    if full_writer is not None:
+        del full_writer
     if capture is not None:
         del capture
     gc.collect()

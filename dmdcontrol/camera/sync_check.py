@@ -12,6 +12,7 @@ from dmdcontrol.camera.capture import (
     AsyncCapture,
     CameraReadyState,
     CaptureResult,
+    CameraWriterFanout,
     append_batch_records,
     flush_stale_batches,
     record_until_trigger_count,
@@ -32,7 +33,9 @@ from dmdcontrol.camera.runs import (
     write_run_metadata,
 )
 from dmdcontrol.camera.session import close_camera_resources
-from dmdcontrol.camera.session import open_ready_camera as _open_ready_camera
+from dmdcontrol.camera.session import (
+    open_ready_camera_with_full_recording as _open_ready_camera,
+)
 from dmdcontrol.camera.sync_check_metadata import (
     sync_check_metadata as _sync_check_metadata,
 )
@@ -70,13 +73,12 @@ from dmdcontrol.support.constants import (
 
 
 class SyncCheckArgumentParser(argparse.ArgumentParser):
+
     def parse_args(self, *args: Any, **kwargs: Any) -> argparse.Namespace:
         parsed = cast(argparse.Namespace, super().parse_args(*args, **kwargs))
         try:
             if parsed.test == A_COUNT_B_STATIC_TEST:
-                slots_mode = (
-                    "auto" if parsed.count_slots_per_frame is None else "explicit"
-                )
+                slots_mode = ("auto" if parsed.count_slots_per_frame is None else "explicit")
                 if parsed.count_slots_per_frame is None:
                     parsed.count_slots_per_frame = resolve_count_slots_per_frame(
                         count_start=parsed.count_start,
@@ -89,9 +91,7 @@ class SyncCheckArgumentParser(argparse.ArgumentParser):
                 parsed.count_slots_per_frame_mode = slots_mode
                 CountSequenceConfig.from_args(parsed).validate_shape()
             elif parsed.count_blank_between_frames:
-                raise ValueError(
-                    "count blank insertion is only valid for --test a-count-b-static"
-                )
+                raise ValueError("count blank insertion is only valid for --test a-count-b-static")
         except ValueError as exc:
             self.error(str(exc))
 
@@ -127,12 +127,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Required per-entry LUT exposure in microseconds.",
     )
     parser.add_argument("--count-start", type=positive_int, default=DEFAULT_COUNT_START)
-    parser.add_argument(
-        "--count-end", type=positive_int, default=DEFAULT_SYNC_CHECK_COUNT_END
-    )
-    parser.add_argument(
-        "--count-slots-per-frame", type=count_slots_per_frame, default=None
-    )
+    parser.add_argument("--count-end", type=positive_int, default=DEFAULT_SYNC_CHECK_COUNT_END)
+    parser.add_argument("--count-slots-per-frame", type=count_slots_per_frame, default=None)
     parser.add_argument(
         "--count-blank-after-each-count",
         dest="count_blank_between_frames",
@@ -161,8 +157,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_PAIRED_STARTUP_LEADER_VSYNCS,
         help=(
             "Blank paired source VSYNCs after sequencer start before the first semantic frame. "
-            "Forwarded to the paired DMD runtime and skipped in derived artifacts."
-        ),
+            "Forwarded to the paired DMD runtime and skipped in derived artifacts."),
     )
     parser.add_argument(
         "--seq-utilization",
@@ -177,12 +172,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--b-dot-x", type=int, default=DMD_CENTER_X)
     parser.add_argument("--b-dot-y", type=int, default=DMD_CENTER_Y)
     parser.add_argument(
-        "--b-dot-radius", type=positive_int, default=DEFAULT_SYNC_CHECK_DOT_RADIUS_PX
-    )
+        "--b-dot-radius",
+        type=positive_int,
+        default=DEFAULT_SYNC_CHECK_DOT_RADIUS_PX)
     add_camera_performance_arguments(parser)
     parser.add_argument(
-        "--polarity-mode", default="positive", choices=["positive", "signed", "ignore"]
-    )
+        "--polarity-mode",
+        default="positive",
+        choices=["positive",
+                 "signed",
+                 "ignore"])
     parser.add_argument(
         "--accumulation-start-offset-us",
         type=int,
@@ -208,8 +207,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Number of complete trigger cycles to use for derived accumulation artifacts. "
-            "Count mode defaults to unlimited."
-        ),
+            "Count mode defaults to unlimited."),
     )
     add_event_noise_filter_arguments(parser)
     parser.add_argument("-v", "--verbose", action="count", default=0)
@@ -219,9 +217,19 @@ def build_parser() -> argparse.ArgumentParser:
 @dataclass
 class SyncCheckCaptureSession:
     args: argparse.Namespace
+    run: CameraRunDirectory
+    capture: object
+    writer: object
+    full_writer: object | None
+    ready: CameraReadyState
+    event_filter: LocalSupportFilterConfig
     command: list[str]
     metadata: dict[str, object]
     startup_leader_trigger_count: int = 0
+    full_prefix_recording: AsyncCapture | None = None
+    full_prefix_capture_result: CaptureResult | None = None
+    recording: AsyncCapture | None = None
+    capture_result: CaptureResult | None = None
     artifact_summary: dict[str, object] | None = None
 
     @classmethod
@@ -231,6 +239,7 @@ class SyncCheckCaptureSession:
         run: CameraRunDirectory,
         capture: object,
         writer: object,
+        full_writer: object | None,
         ready: CameraReadyState,
         command_argv: list[str] | None,
     ) -> "SyncCheckCaptureSession":
@@ -246,6 +255,7 @@ class SyncCheckCaptureSession:
             run=run,
             capture=capture,
             writer=writer,
+            full_writer=full_writer,
             ready=ready,
             event_filter=event_filter,
             command=command,
@@ -253,10 +263,29 @@ class SyncCheckCaptureSession:
             accumulation_window_us=args.exposure_us,
         )
 
+    def start_full_recording(self) -> None:
+        if self.full_writer is None or self.full_prefix_recording is not None:
+            return
+        self.full_prefix_recording = AsyncCapture(
+            self.capture,
+            self.full_writer,
+            expected_trigger_count=None,
+            timeout_s=None,
+            record_fn=record_until_trigger_count,
+        )
+        self.full_prefix_recording.start()
+
     def write_initial_files(self) -> None:
         write_json(self.run.timing_path, trigger_policy(self.args))
         self.run.command_path.write_text(command_text(self.command), encoding="utf-8")
         self.run.log_path.write_text("live\n", encoding="utf-8")
+
+    def _complete_full_prefix_recording(self) -> None:
+        if self.full_prefix_recording is None:
+            return
+        self.full_prefix_recording.stop()
+        self.full_prefix_capture_result = self.full_prefix_recording.join()
+        self.full_prefix_recording = None
 
     def before_pair_start(self, context: Mapping[str, object]) -> None:
         state_a = context.get("state_a")
@@ -270,47 +299,60 @@ class SyncCheckCaptureSession:
                 "timing_a": timing_a,
                 "timing_b": timing_b,
                 "accumulation_window_us": self.accumulation_window_us,
-            }
-        )
+            })
 
         startup_leader = context.get("startup_leader")
         if not isinstance(startup_leader, Mapping):
             startup_leader = {}
         if startup_leader:
             self.metadata["startup_leader"] = startup_leader
-        self.startup_leader_trigger_count = int(
-            startup_leader.get("trigger_count") or 0
-        )
+        self.startup_leader_trigger_count = int(startup_leader.get("trigger_count") or 0)
         display_sequence = context.get("display_sequence")
         if display_sequence is not None:
             self.metadata["display_sequence"] = display_sequence
 
-        self.metadata["camera_pre_capture_flush"] = flush_stale_batches(
-            self.capture,
-            reads=self.args.camera_flush_reads,
-            include_triggers=True,
-        )
+        self._complete_full_prefix_recording()
+        if self.full_writer is None:
+            pre_capture_flush = flush_stale_batches(
+                self.capture,
+                reads=self.args.camera_flush_reads,
+                include_triggers=True,
+            )
+            recording_writer = self.writer
+        else:
+            pre_capture_flush = flush_stale_batches(
+                self.capture,
+                reads=self.args.camera_flush_reads,
+                include_triggers=True,
+                archive_writer=self.full_writer,
+            )
+            pre_capture_flush["archived_to"] = self.run.raw_full_recording_path.name
+            recording_writer = CameraWriterFanout(self.full_writer, self.writer)
+        self.metadata["camera_pre_capture_flush"] = pre_capture_flush
+
         if self.recording is None:
             self.recording = AsyncCapture(
                 self.capture,
-                self.writer,
+                recording_writer,
                 expected_trigger_count=None,
-                timeout_s=max(1, _pair_runtime_seconds(self.args)),
+                timeout_s=max(1,
+                              _pair_runtime_seconds(self.args)),
                 on_events=lambda batch: append_batch_records(
-                    self.event_records, batch, as_numpy=True
-                ),
-                on_triggers=lambda batch: append_batch_records(
-                    self.trigger_records, batch
-                ),
+                    self.event_records, batch, as_numpy=True),
+                on_triggers=lambda batch: append_batch_records(self.trigger_records, batch),
                 record_fn=record_until_trigger_count,
                 post_trigger_event_batches=self.args.camera_post_trigger_event_batches,
                 post_trigger_event_time_us=self.accumulation_window_us,
             )
             self.recording.start()
+        artifacts = ["raw.aedat4"]
+        if self.full_writer is not None:
+            artifacts.append("raw_full.aedat4")
+        artifacts.append("metadata.json")
         write_run_metadata(
             self.run,
             self.metadata,
-            artifacts=["raw.aedat4", "metadata.json"],
+            artifacts=artifacts,
         )
 
     def complete_recording_and_artifacts(self) -> None:
@@ -336,9 +378,7 @@ class SyncCheckCaptureSession:
         )
         self.metadata["artifact_summary"] = self.artifact_summary
         if "event_noise_filter" in self.artifact_summary:
-            self.metadata["event_noise_filter"] = self.artifact_summary[
-                "event_noise_filter"
-            ]
+            self.metadata["event_noise_filter"] = self.artifact_summary["event_noise_filter"]
 
     def finalize(self) -> None:
         if self.recording is not None and self.capture_result is None:
@@ -347,14 +387,41 @@ class SyncCheckCaptureSession:
                 self.capture_result = self.recording.join()
             except BaseException as exc:
                 self.metadata["capture_error"] = repr(exc)
+        if (self.full_prefix_recording is not None and self.full_prefix_capture_result is None):
+            self.full_prefix_recording.stop()
+            try:
+                self.full_prefix_capture_result = self.full_prefix_recording.join()
+            except BaseException as exc:
+                self.metadata["raw_full_prefix_capture_error"] = repr(exc)
+
         if self.capture_result is not None:
             self.metadata["capture"] = metadata_dict(self.capture_result)
+        if self.full_writer is not None:
+            raw_full_capture: dict[str,
+                                   object] = {
+                                       "path":
+                                       str(self.run.raw_full_recording_path),
+                                       "scope": (
+                                           "camera initialization backlog through DMD preparation, "
+                                           "synchronized presentation, and DMD shutdown"),
+                                   }
+            if self.full_prefix_capture_result is not None:
+                raw_full_capture["setup_capture"] = metadata_dict(self.full_prefix_capture_result)
+            if self.capture_result is not None:
+                raw_full_capture["synchronized_capture"] = metadata_dict(self.capture_result)
+            self.metadata["raw_full_capture"] = raw_full_capture
+
+        if self.capture_result is not None or self.full_writer is not None:
             write_run_metadata(
                 self.run,
                 self.metadata,
-                artifacts=final_capture_artifacts(self.artifact_summary),
+                artifacts=final_capture_artifacts(
+                    self.artifact_summary,
+                    include_raw_full=self.full_writer is not None,
+                ),
             )
         self.recording = None
+        self.full_prefix_recording = None
 
 
 def live_capture(
@@ -363,16 +430,22 @@ def live_capture(
     capture: object,
     writer: object,
     ready: CameraReadyState,
+    full_writer: object | None = None,
     command_argv: list[str] | None = None,
 ) -> int:
     session = SyncCheckCaptureSession.create(
-        args, run, capture, writer, ready, command_argv
+        args,
+        run,
+        capture,
+        writer,
+        full_writer,
+        ready,
+        command_argv,
     )
     try:
+        session.start_full_recording()
         session.write_initial_files()
-        run_pair_runtime(
-            pair_runtime_args_from_sync(args), before_start=session.before_pair_start
-        )
+        run_pair_runtime(pair_runtime_args_from_sync(args), before_start=session.before_pair_start)
         session.complete_recording_and_artifacts()
         return 0
     finally:
@@ -381,12 +454,28 @@ def live_capture(
 
 def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int:
     run = create_run_directory("sync-check", args.output_root, timestamp=args.timestamp)
+    capture = None
+    writer = None
+    full_writer = None
+    try:
+        capture, writer, ready, full_writer = _open_ready_camera(run, args)
 
-    capture, writer, ready = _open_ready_camera(run, args)
-
-    return live_capture(
-        args, run, capture, writer, ready, command_argv=command_argv
-    )
+        return live_capture(
+            args,
+            run,
+            capture,
+            writer,
+            ready,
+            full_writer=full_writer,
+            command_argv=command_argv,
+        )
+    finally:
+        resources = {
+            "writer": writer,
+            "full_writer": full_writer,
+            "capture": capture,
+        }
+        close_camera_resources(resources)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -189,6 +189,42 @@ class FakeWriter:
         self.triggers.append((streamName, triggers))
 
 
+def test_flush_stale_batches_archives_discarded_batches():
+
+    class StaleCapture:
+
+        def __init__(self):
+            self.events = [[{"timestamp": 1}], None]
+            self.triggers = [[{"timestamp": 2}], None]
+
+        def getNextEventBatch(self):
+            return self.events.pop(0)
+
+        def getNextTriggerBatch(self):
+            return self.triggers.pop(0)
+
+    archive_writer = FakeWriter()
+
+    result = flush_stale_batches(
+        StaleCapture(),
+        reads=4,
+        archive_writer=archive_writer,
+    )
+
+    assert archive_writer.events == [
+        ("events",
+         [{
+             "timestamp": 1}]),
+    ]
+    assert archive_writer.triggers == [
+        ("triggers",
+         [{
+             "timestamp": 2}]),
+    ]
+    assert result["event_count_discarded"] == 1
+    assert result["trigger_count_discarded"] == 1
+
+
 class FakeLiveCapture(FakeCapture):
 
     def __init__(self):

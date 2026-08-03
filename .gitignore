@@ -16,3 +16,4 @@ runs
 .tmp_pytest_*/
 .tmp_sync_check_dry_run*/
 .zed
+typings

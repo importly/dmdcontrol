@@ -7,9 +7,7 @@ import pytest
 
 
 def _parse_camera_args(module, args):
-    return module.build_parser().parse_args(
-        ["--exposure-us", "600", *args]
-    )
+    return module.build_parser().parse_args(["--exposure-us", "600", *args])
 
 
 def test_pair_capture_parser_requires_exposure():
@@ -23,6 +21,7 @@ def _fake_run_directory(tmp_path):
     return SimpleNamespace(
         path=tmp_path,
         raw_recording_path=tmp_path / "raw.aedat4",
+        raw_full_recording_path=tmp_path / "raw_full.aedat4",
         metadata_path=tmp_path / "metadata.json",
         command_path=tmp_path / "command.txt",
         log_path=tmp_path / "run.log",
@@ -96,7 +95,8 @@ def test_pair_capture_live_records_while_dmd_runtime_is_active(monkeypatch, tmp_
 
     monkeypatch.setattr(pair_capture, "run_pair_runtime", fake_run)
 
-    args = _parse_camera_args(pair_capture, 
+    args = _parse_camera_args(
+        pair_capture,
         [
             "--output-root",
             str(tmp_path),
@@ -153,7 +153,8 @@ def test_pair_capture_live_records_until_dmd_runtime_finishes(monkeypatch, tmp_p
 
     monkeypatch.setattr(pair_capture, "run_pair_runtime", fake_run)
 
-    args = _parse_camera_args(pair_capture, 
+    args = _parse_camera_args(
+        pair_capture,
         [
             "--output-root",
             str(tmp_path),
@@ -212,14 +213,15 @@ def test_pair_capture_live_writes_capture_artifacts_with_event_filter(monkeypatc
     }
 
     def fake_run(pair_args, before_start):
-        before_start({
-            "state_a": {
-                "timing": {}},
-            "state_b": {
-                "timing": {}},
-            "startup_leader": startup_leader,
-            "display_sequence": display_sequence,
-        })
+        before_start(
+            {
+                "state_a": {
+                    "timing": {}},
+                "state_b": {
+                    "timing": {}},
+                "startup_leader": startup_leader,
+                "display_sequence": display_sequence,
+            })
         assert record_started.wait(timeout=1.0)
         runtime_can_finish.set()
 
@@ -234,7 +236,8 @@ def test_pair_capture_live_writes_capture_artifacts_with_event_filter(monkeypatc
 
     monkeypatch.setattr(pair_capture, "write_capture_artifacts", fake_write_capture_artifacts)
 
-    args = _parse_camera_args(pair_capture, 
+    args = _parse_camera_args(
+        pair_capture,
         [
             "--output-root",
             str(tmp_path),
@@ -317,6 +320,7 @@ def test_pair_capture_live_writes_capture_artifacts_with_event_filter(monkeypatc
     assert metadata["startup_leader"] == startup_leader
     assert metadata["display_sequence"] == display_sequence
 
+
 def test_pair_capture_live_limits_in_memory_artifact_batches(monkeypatch, tmp_path):
     from dmdcontrol.camera import pair_capture
 
@@ -396,13 +400,14 @@ def test_pair_capture_live_limits_in_memory_artifact_batches(monkeypatch, tmp_pa
     startup_leader = _startup_leader(trigger_count=2, entries_count=1)
 
     def fake_run(pair_args, before_start):
-        before_start({
-            "state_a": {
-                "timing": {}},
-            "state_b": {
-                "timing": {}},
-            "startup_leader": startup_leader,
-        })
+        before_start(
+            {
+                "state_a": {
+                    "timing": {}},
+                "state_b": {
+                    "timing": {}},
+                "startup_leader": startup_leader,
+            })
         assert record_started.wait(timeout=1.0)
         runtime_can_finish.set()
 
@@ -417,7 +422,8 @@ def test_pair_capture_live_limits_in_memory_artifact_batches(monkeypatch, tmp_pa
 
     monkeypatch.setattr(pair_capture, "write_capture_artifacts", fake_write_capture_artifacts)
 
-    args = _parse_camera_args(pair_capture, 
+    args = _parse_camera_args(
+        pair_capture,
         [
             "--output-root",
             str(tmp_path),
@@ -433,9 +439,15 @@ def test_pair_capture_live_limits_in_memory_artifact_batches(monkeypatch, tmp_pa
     assert artifact_call["max_accumulation_triggers"] == 1
     assert artifact_call["startup_leader_trigger_count"] == 2
     assert artifact_call["triggers"] == [
-        {"timestamp": 100, "edge": "rising"},
-        {"timestamp": 200, "edge": "rising"},
-        {"timestamp": 300, "edge": "rising"},
+        {
+            "timestamp": 100,
+            "edge": "rising"},
+        {
+            "timestamp": 200,
+            "edge": "rising"},
+        {
+            "timestamp": 300,
+            "edge": "rising"},
     ]
     assert artifact_call["events"] == [
         {
@@ -482,7 +494,7 @@ def test_sync_check_live_records_while_dmd_runtime_is_active(monkeypatch, tmp_pa
     monkeypatch.setattr(
         sync_check,
         "_open_ready_camera",
-        lambda run, args: events.append("camera_ready") or (Mock(), Mock(), ready),
+        lambda run, args: events.append("camera_ready") or (Mock(), Mock(), ready, None),
     )
 
     def fake_run(pair_args, before_start):
@@ -510,7 +522,8 @@ def test_sync_check_live_records_while_dmd_runtime_is_active(monkeypatch, tmp_pa
 
     monkeypatch.setattr(sync_check, "record_until_trigger_count", fake_record)
 
-    args = _parse_camera_args(sync_check, 
+    args = _parse_camera_args(
+        sync_check,
         [
             "--output-root",
             str(tmp_path),
@@ -521,6 +534,104 @@ def test_sync_check_live_records_while_dmd_runtime_is_active(monkeypatch, tmp_pa
     assert sync_check.live(args) == 0
     assert events.index("record_start") < events.index("dmd_return")
     assert events.index("dmd_active") < events.index("record_stop")
+
+
+def test_sync_check_raw_full_spans_setup_and_active_capture(monkeypatch, tmp_path):
+    from queue import Empty, Queue
+
+    from dmdcontrol.camera import sync_check
+
+    class QueuedCapture:
+
+        def __init__(self):
+            self.events = Queue()
+            self.triggers = Queue()
+
+        def isRunning(self):
+            return True
+
+        def getNextEventBatch(self):
+            try:
+                return self.events.get_nowait()
+            except Empty:
+                return None
+
+        def getNextTriggerBatch(self):
+            try:
+                return self.triggers.get_nowait()
+            except Empty:
+                return None
+
+    class RecordingWriter:
+
+        def __init__(self):
+            self.events = []
+            self.triggers = []
+            self.event_written = Event()
+            self.trigger_written = Event()
+
+        def writeEvents(self, events, streamName="events"):
+            self.events.append((streamName, events))
+            self.event_written.set()
+
+        def writeTriggerPacket(self, triggers, streamName="triggers"):
+            self.triggers.append((streamName, triggers))
+            self.trigger_written.set()
+
+    capture = QueuedCapture()
+    writer = RecordingWriter()
+    full_writer = RecordingWriter()
+    ready = SimpleNamespace(event_resolution=(320, 240))
+
+    def fake_run(pair_args, before_start):
+        capture.events.put([{"timestamp": 10, "phase": "setup"}])
+        capture.triggers.put([{"timestamp": 11, "phase": "setup"}])
+        assert full_writer.event_written.wait(timeout=1.0)
+        assert full_writer.trigger_written.wait(timeout=1.0)
+
+        before_start({"state_a": {"timing": {}}, "state_b": {"timing": {}}})
+
+        capture.events.put([{"timestamp": 20, "phase": "active"}])
+        capture.triggers.put([{"timestamp": 21, "phase": "active"}])
+        assert writer.event_written.wait(timeout=1.0)
+        assert writer.trigger_written.wait(timeout=1.0)
+
+    monkeypatch.setattr(sync_check, "run_pair_runtime", fake_run)
+    monkeypatch.setattr(sync_check, "write_capture_artifacts", lambda *a, **k: {})
+
+    args = _parse_camera_args(
+        sync_check,
+        [
+            "--runtime-seconds",
+            "1",
+            "--camera-flush-reads",
+            "2",
+        ],
+    )
+    run = _fake_run_directory(tmp_path)
+
+    assert sync_check.live_capture(
+        args,
+        run,
+        capture,
+        writer,
+        ready,
+        full_writer=full_writer,
+    ) == 0
+
+    assert [batch[1][0]["phase"] for batch in full_writer.events] == [
+        "setup",
+        "active",
+    ]
+    assert [batch[1][0]["phase"] for batch in writer.events] == ["active"]
+    assert [batch[1][0]["phase"] for batch in full_writer.triggers] == [
+        "setup",
+        "active",
+    ]
+    assert [batch[1][0]["phase"] for batch in writer.triggers] == ["active"]
+    metadata = json.loads(run.metadata_path.read_text(encoding="utf-8"))
+    assert metadata["artifacts"][:2] == ["raw.aedat4", "raw_full.aedat4"]
+    assert metadata["raw_full_capture"]["path"] == str(run.raw_full_recording_path)
 
 
 def test_live_stops_recording_when_dmd_runtime_raises(monkeypatch, tmp_path):
@@ -576,7 +687,8 @@ def test_live_stops_recording_when_dmd_runtime_raises(monkeypatch, tmp_path):
 
     monkeypatch.setattr(pair_capture, "run_pair_runtime", fake_run)
 
-    args = _parse_camera_args(pair_capture, 
+    args = _parse_camera_args(
+        pair_capture,
         [
             "--output-root",
             str(tmp_path),
@@ -614,7 +726,7 @@ def test_sync_check_live_stops_recording_when_dmd_runtime_raises(monkeypatch, tm
     monkeypatch.setattr(
         sync_check,
         "_open_ready_camera",
-        lambda run, args: (Mock(), Mock(), ready),
+        lambda run, args: (Mock(), Mock(), ready, None),
     )
 
     def fake_record(*args, **kwargs):
@@ -647,7 +759,8 @@ def test_sync_check_live_stops_recording_when_dmd_runtime_raises(monkeypatch, tm
 
     monkeypatch.setattr(sync_check, "run_pair_runtime", fake_run)
 
-    args = _parse_camera_args(sync_check, 
+    args = _parse_camera_args(
+        sync_check,
         [
             "--output-root",
             str(tmp_path),
@@ -685,7 +798,7 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
     monkeypatch.setattr(
         sync_check,
         "_open_ready_camera",
-        lambda run, args: (Mock(), Mock(), ready),
+        lambda run, args: (Mock(), Mock(), ready, None),
     )
 
     startup_leader = _startup_leader()
@@ -695,14 +808,15 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
     }
 
     def fake_run(pair_args, before_start):
-        before_start({
-            "state_a": {
-                "timing": {}},
-            "state_b": {
-                "timing": {}},
-            "startup_leader": startup_leader,
-            "display_sequence": display_sequence,
-        })
+        before_start(
+            {
+                "state_a": {
+                    "timing": {}},
+                "state_b": {
+                    "timing": {}},
+                "startup_leader": startup_leader,
+                "display_sequence": display_sequence,
+            })
 
     monkeypatch.setattr(sync_check, "run_pair_runtime", fake_run)
 
@@ -728,7 +842,8 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
 
     monkeypatch.setattr(sync_check, "write_capture_artifacts", fake_write_capture_artifacts)
 
-    args = _parse_camera_args(sync_check, 
+    args = _parse_camera_args(
+        sync_check,
         [
             "--output-root",
             str(tmp_path),
@@ -787,6 +902,7 @@ def test_sync_check_live_writes_capture_artifacts_from_recorded_batches(monkeypa
     assert metadata["startup_leader"] == startup_leader
     assert metadata["display_sequence"] == display_sequence
 
+
 def test_sync_check_live_capture_flushes_stale_batches_immediately_before_recording(
         monkeypatch,
         tmp_path):
@@ -840,7 +956,8 @@ def test_sync_check_live_capture_flushes_stale_batches_immediately_before_record
     monkeypatch.setattr(sync_check, "run_pair_runtime", fake_run)
     monkeypatch.setattr(sync_check, "write_capture_artifacts", lambda *args, **kwargs: {})
 
-    args = _parse_camera_args(sync_check, 
+    args = _parse_camera_args(
+        sync_check,
         [
             "--output-root",
             str(tmp_path),

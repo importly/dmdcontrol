@@ -20,7 +20,12 @@ class CameraRunDirectory:
     contact_sheet_path: Path
     summary_path: Path
 
-def final_capture_artifacts(artifact_summary):
+    @property
+    def raw_full_recording_path(self) -> Path:
+        return self.path / "raw_full.aedat4"
+
+
+def final_capture_artifacts(artifact_summary, *, include_raw_full=False):
     artifacts = [
         "raw.aedat4",
         "metadata.json",
@@ -28,6 +33,8 @@ def final_capture_artifacts(artifact_summary):
         "run.log",
         "timing.json",
     ]
+    if include_raw_full:
+        artifacts.insert(1, "raw_full.aedat4")
     if artifact_summary is None:
         return artifacts
 
@@ -45,8 +52,10 @@ def final_capture_artifacts(artifact_summary):
         artifacts.append(artifact_summary["filtered_events_artifact"])
     return artifacts
 
+
 def default_timestamp() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S")
+
 
 def create_run_directory(mode, output_root=None, timestamp=None):
     root = Path(output_root) if output_root is not None else Path("runs") / "camera"
@@ -65,6 +74,7 @@ def create_run_directory(mode, output_root=None, timestamp=None):
         summary_path=run_path / "summary.json",
     )
 
+
 def write_json(path, payload):
     output_path = Path(path)
     output_path.write_text(
@@ -75,10 +85,12 @@ def write_json(path, payload):
     )
     return payload
 
+
 def metadata_dict(value):
     if not isinstance(value, type) and is_dataclass(value):
         return asdict(cast(Any, value))
     return dict(getattr(value, "__dict__", {}))
+
 
 def write_run_metadata(run_directory, metadata, artifacts=None):
     payload = dict(metadata)
