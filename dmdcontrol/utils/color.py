@@ -1,6 +1,9 @@
 from typing import ClassVar
 
 class Font():
+   """
+   Provides escape codes for text formatting.
+   """
    # Reset
    ENDC: ClassVar[str] = '\033[0m'
    

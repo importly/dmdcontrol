@@ -1,0 +1,6 @@
+"""
+    Static constants
+"""
+# DLPC900 USB VID/PID
+DLPC900_VID = 0x0451
+DLPC900_PID = 0xC900

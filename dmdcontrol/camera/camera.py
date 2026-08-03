@@ -1,4 +1,5 @@
 import os
+import logging
 from typing import Optional, Tuple
 import yaml
 import numpy as np
@@ -104,17 +105,12 @@ class Camera:
         Args:
             config (dict): configuration dictionary containing camera settings.
         """
-        # Verbose?
-        if config.get('verbose', True):
-            self.verbose = True
-            print(Font.VERBOSE)
-            print('Printing verbose statements... Prepare to get wordy...')
-            
+        # Set up logging
+        self.logger = logging.getLogger('Camera')
+        
         # Open camera
         self.camera = dv.io.camera.DAVIS()
-        if self.verbose:
-            print(Font.VERBOSE)
-            print(f'Using {self.camera.getCameraName()}')
+        self.logger.info('Using %s camera', self.camera.getCameraModel())
         
         # Configure camera settings
         # Events and frames
@@ -132,13 +128,7 @@ class Camera:
             self.ROI_WIDTH,
             self.ROI_HEIGHT
         )
-        if self.verbose:
-            print(Font.VERBOSE)
-            print(
-                f'ROI set. \n'
-                f'{Font.BOLD} start_x: {Font.ENDC}{self.roi_start_x}, {Font.BOLD}width: {Font.ENDC}{self.ROI_WIDTH}\n'
-                f'{Font.BOLD} start_y: {Font.ENDC}{self.roi_start_y}, {Font.BOLD}height: {Font.ENDC}{self.ROI_HEIGHT}{Font.ENDC}'
-                )
+        self.logger.info(f'ROI set. \n {Font.BOLD}start_x:{Font.ENDC} %s, {Font.BOLD}width:{Font.ENDC} %s\n {Font.BOLD} start_y:{Font.ENDC} %s, {Font.BOLD}height:{Font.ENDC} %s{Font.ENDC}', self.roi_start_x, self.ROI_WIDTH, self.roi_start_y, self.ROI_HEIGHT)
         
         # Trigger
         self.camera.setDetectorRisingEdges(config.get('Camera', {}).get('Trigger', {}).get('rising_edge', True))
@@ -151,14 +141,15 @@ class Camera:
                 background_activity_duration=config.get('Camera', {}).get('Filter', {}).get('background_activity_duration', 2000),
                 resolution_limits=(self.ROI_WIDTH, self.ROI_HEIGHT)
             )
-            if self.verbose:
-                print(Font.VERBOSE)
-                print(f'Background activity noise filter enabled with duration {self.filter.background_activity_duration} \u03bcs')
+            self.logger.info('Background activity noise filter enabled with duration %s \u03bcs', self.filter.background_activity_duration)
         else:
             self.filter = None
-            if self.verbose:
-                print(Font.VERBOSE)
-                print('Background activity noise filter disabled')
+            self.logger.info('Background activity noise filter disabled')
+                
+        # Accumulation
+        self.window_us = config.get('Camera', {}).get('Accumulation', {}).get('window_us', 16666)
+        self.offset_us = config.get('Camera', {}).get('Accumulation', {}).get('start_time_offset_us', 0)
+        self.logger.info(f'Accumulation settings:\n {Font.BOLD}Time window (\u03bcs):{Font.ENDC} %s\n {Font.BOLD} Start time offset (\u03bcs):{Font.ENDC} %s', self.window_us, self.offset_us)
 
     def record(self, trigger_count: int) -> tuple:
         """Record event data for a set amount of triggers
@@ -182,9 +173,7 @@ class Camera:
         triggers = np.zeros((1,))
         events = np.zeros((3,))
         
-        if self.verbose:
-            print(Font.VERBOSE)
-            print(f'Recording {trigger_count} triggers...')
+        self.logger.debug('Recording %s triggers...', trigger_count)
             
         # Run loop until all data is collected
         while self.camera.isRunning() and len(triggers) <= trigger_count:
@@ -199,13 +188,7 @@ class Camera:
             if trigger_batch is not None and len(trigger_batch) > 0:
                 triggers = np.concatenate((triggers, trigger_batch.timestamp))
             
-        if self.verbose:
-            print(Font.VERBOSE)
-            print(
-                f'Recording complete.\n'
-                f'{Font.BOLD} Triggers:{Font.ENDC} {len(triggers)}\n'
-                f'{Font.BOLD} Events:{Font.ENDC} {len(events)}'
-                )
+        self.logger.debug(f'Recording complete.\n {Font.BOLD}Triggers:{Font.ENDC} %s\n {Font.BOLD}Events:{Font.ENDC} %s', len(triggers), len(events))
         return (triggers, events)
     
     def accumulate(self, triggers: np.ndarray, events: np.ndarray) -> np.ndarray:
@@ -218,9 +201,7 @@ class Camera:
         Returns:
             frames (np.ndarray): numpy array of shape (len(triggers), ROI_HEIGHT, ROI_WIDTH) containing the accumulated frames.
         """
-        if self.verbose:
-            print(Font.VERBOSE)
-            print(f'Accumulating {len(events)} events into {len(triggers)} frames...')
+        self.logger.debug('Accumulating %s events into %s frames...', len(events), len(triggers))
             
         # Reset the filter if it exists
         if self.filter is not None:
@@ -232,20 +213,19 @@ class Camera:
         # Slice up data between timestamps and accumulate
         frames = np.zeros((len(triggers), self.ROI_HEIGHT, self.ROI_WIDTH))
         for idx in range(len(triggers)):
-            # Get the events that occurred between the current trigger and the next trigger
-            event_slice = events[(events[:, 0] >= triggers[idx]) & (events[:, 0] < triggers[idx + 1])]
+            # Clip to window size and offset
+            event_slice = event_slice[
+                (event_slice[:, 0] >= triggers[idx] + self.offset_us) &
+                (event_slice[:, 0] < triggers[idx] + self.offset_us + self.window_us) &
+                (events[:, 0] < triggers[idx + 1])
+            ]
             
             # Accumulate the events into a frame
             for event in event_slice:
                 x, y, polarity = event[1], event[2], event[3]
                 frames[idx, y, x] += 1 if polarity else 0
                 
-        if self.verbose:
-            print(Font.VERBOSE)
-            print(
-                'Accumulation complete.\n'
-                f'{Font.BOLD} `frames` shape: {frames.shape}{Font.ENDC}'
-                )
+        self.logger.debug(f'Accumulation complete.\n {Font.BOLD}`frames` shape:{Font.ENDC} %s', frames.shape)
             
         return frames
     
@@ -269,8 +249,4 @@ class Camera:
                 frame = (frame / np.max(frame) * 255).astype(np.uint8)
                 Image.fromarray(frame).save(f"{folder}/frame_{frames.index(frame)}.jpg")
         
-        if self.verbose:
-            print(Font.VERBOSE)
-            print(f'Saved {len(frames)} frames to {folder}')
-
-Camera({})
+        self.logger.debug('Saved %s frames to %s', len(frames), folder)

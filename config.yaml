@@ -1,4 +1,4 @@
-verbose: True
+log_level: DEBUG
 Camera:
   ROI:
     start_x: 0
@@ -11,4 +11,21 @@ Camera:
   Filter:
     enable: True
     background_activity_duration: 2000
-    
+  Accumulation:
+    window_us: 16666
+    start_time_offset_us: 0
+DMD_TMP:
+  channel: TRIG_OUT_2
+  source_dmd: A
+  edge: rising
+  rising_delay_us: timing["rising_delay_us"]
+  falling_delay_us: timing["falling_delay_us"]
+DMD:
+  A:
+    usb_id_path: pci-0000:03:00.0-usb-0:1:1.0
+    usb_devpath: /usb1/1-1/1-1:1.0/
+    xrandr_output: DP-2
+  B:
+    usb_id_path: pci-0000:03:00.0-usb-0:8:1.0
+    usb_devpath: /usb1/1-8/1-8:1.0/
+    xrandr_output: DP-0

@@ -17,3 +17,4 @@ runs
 .tmp_sync_check_dry_run*/
 .zed
 typings
+*tmp.py
