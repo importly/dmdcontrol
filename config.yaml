@@ -1,0 +1,14 @@
+verbose: True
+Camera:
+  ROI:
+    start_x: 0
+    start_y: 0
+    width: 346
+    height: 260
+  Trigger:
+    rising_edge: True
+    falling_edge: False
+  Filter:
+    enable: True
+    background_activity_duration: 2000
+    

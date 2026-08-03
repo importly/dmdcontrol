@@ -219,19 +219,9 @@ def build_parser() -> argparse.ArgumentParser:
 @dataclass
 class SyncCheckCaptureSession:
     args: argparse.Namespace
-    run: CameraRunDirectory
-    capture: object
-    writer: object
-    ready: CameraReadyState
-    event_filter: LocalSupportFilterConfig
     command: list[str]
     metadata: dict[str, object]
-    accumulation_window_us: int
-    event_records: list = field(default_factory=list)
-    trigger_records: list = field(default_factory=list)
     startup_leader_trigger_count: int = 0
-    recording: AsyncCapture | None = None
-    capture_result: CaptureResult | None = None
     artifact_summary: dict[str, object] | None = None
 
     @classmethod
@@ -391,17 +381,12 @@ def live_capture(
 
 def live(args: argparse.Namespace, command_argv: list[str] | None = None) -> int:
     run = create_run_directory("sync-check", args.output_root, timestamp=args.timestamp)
-    capture = None
-    writer = None
-    try:
-        capture, writer, ready = _open_ready_camera(run, args)
 
-        return live_capture(
-            args, run, capture, writer, ready, command_argv=command_argv
-        )
-    finally:
-        resources = {"writer": writer, "capture": capture}
-        close_camera_resources(resources)
+    capture, writer, ready = _open_ready_camera(run, args)
+
+    return live_capture(
+        args, run, capture, writer, ready, command_argv=command_argv
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
