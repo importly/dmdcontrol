@@ -38,3 +38,17 @@ class Font():
    
    # Helpers
    VERBOSE: ClassVar[str] = f'{BOLD + PURPLE}[VERBOSE]{ENDC}'
+   
+   @staticmethod
+   def colors():
+      """
+      Iterator that cycles through colors.
+      """
+      return iter([
+         Font.RED,
+         Font.GREEN,
+         Font.YELLOW,
+         Font.BLUE,
+         Font.PURPLE,
+         Font.TEAL,
+      ])

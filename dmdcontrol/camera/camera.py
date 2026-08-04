@@ -5,8 +5,7 @@ import yaml
 import numpy as np
 from PIL import Image
 import dv_processing as dv
-from dmdcontrol.utils import WORKSPACE
-from dmdcontrol.utils import Font
+from dmdcontrol.utils import Font, WORKSPACE, WIDTH, HEIGHT
 
 class BackgroundActivityNoiseFilter:
     """
@@ -29,7 +28,6 @@ class BackgroundActivityNoiseFilter:
         self.resolution_limits = resolution_limits
         self.time_surface = np.zeros((self.resolution_limits[1], self.resolution_limits[0]), dtype=np.int64)
         self.background_activity_duration = background_activity_duration
-    
     
     def _background_activity_lookup(self, x: int, y: int, timestamp: int) -> bool:
         """
@@ -56,7 +54,6 @@ class BackgroundActivityNoiseFilter:
         mask[y - y_start, x - x_start] = False
     
         return np.any(timestamp_diff[mask] < self.background_activity_duration)
-    
     
     def accept(self, events: np.ndarray) -> np.ndarray:
         """
@@ -89,18 +86,16 @@ class BackgroundActivityNoiseFilter:
     
 
 class Camera:
-    """Class to control DAVIS346.
-
-    Attributes:
-        WIDTH (int): Width of the camera frame.
-        HEIGHT (int): Height of the camera frame.
-        camera: The camera object.
     """
-    WIDTH = 346
-    HEIGHT = 260
+    Class to control DAVIS346.
+    """
     
     def __init__(self, config: dict):
-        """Class to control DAVIS346.
+        """
+        Initialize the Camera class.
+        
+        Raises:
+            ValueError: If the ROI exceeds the camera resolution.
 
         Args:
             config (dict): configuration dictionary containing camera settings.
@@ -120,8 +115,12 @@ class Camera:
         # ROI
         self.roi_start_x = config.get('Camera', {}).get('ROI', {}).get('start_x', 0)
         self.roi_start_y = config.get('Camera', {}).get('ROI', {}).get('start_y', 0)
-        self.ROI_WIDTH = config.get('Camera', {}).get('ROI', {}).get('width', 346)
-        self.ROI_HEIGHT = config.get('Camera', {}).get('ROI', {}).get('height', 260)
+        self.ROI_WIDTH = config.get('Camera', {}).get('ROI', {}).get('width', WIDTH)
+        self.ROI_HEIGHT = config.get('Camera', {}).get('ROI', {}).get('height', HEIGHT)
+        # Error checking for ROI exceeding camera resolution
+        if (self.roi_start_x + self.ROI_WIDTH > WIDTH) or (self.roi_start_y + self.ROI_HEIGHT > HEIGHT):
+            self.logger.error(f"ROI exceeds camera resolution. ROI: ({self.roi_start_x}, {self.roi_start_y}, {self.ROI_WIDTH}, {self.ROI_HEIGHT}), Camera Resolution: ({WIDTH}, {HEIGHT})")
+            raise ValueError(f"ROI exceeds camera resolution. ROI: ({self.roi_start_x}, {self.roi_start_y}, {self.ROI_WIDTH}, {self.ROI_HEIGHT}), Camera Resolution: ({WIDTH}, {HEIGHT})")
         self.camera.setCropAreaEvents(
             self.roi_start_x,
             self.roi_start_y,
@@ -217,7 +216,7 @@ class Camera:
             event_slice = event_slice[
                 (event_slice[:, 0] >= triggers[idx] + self.offset_us) &
                 (event_slice[:, 0] < triggers[idx] + self.offset_us + self.window_us) &
-                (events[:, 0] < triggers[idx + 1])
+                (events[:, 0] < triggers[idx + 1]) # TODO: Check if this works for the very last idx
             ]
             
             # Accumulate the events into a frame

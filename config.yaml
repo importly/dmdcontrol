@@ -14,12 +14,14 @@ Camera:
   Accumulation:
     window_us: 16666
     start_time_offset_us: 0
+    
+# Anything below is WIP
 DMD_TMP:
   channel: TRIG_OUT_2
   source_dmd: A
   edge: rising
-  rising_delay_us: timing["rising_delay_us"]
-  falling_delay_us: timing["falling_delay_us"]
+  rising_delay_us: timing["rising_delay_us"] # 0
+  falling_delay_us: timing["falling_delay_us"] # 20
 DMD:
   A:
     usb_id_path: pci-0000:03:00.0-usb-0:1:1.0
