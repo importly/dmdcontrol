@@ -19,7 +19,6 @@ from dmdcontrol.support.constants import (
     TRIGGER_OUT_PULSE_WIDTH_US,
     TRIGGER_OUT_RISING_DELAY_MAX_US,
 )
-from dmdcontrol.support.logging import logger
 
 
 @dataclass(frozen=True)

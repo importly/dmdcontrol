@@ -5,7 +5,7 @@ import yaml
 import numpy as np
 from PIL import Image
 import dv_processing as dv
-from dmdcontrol.utils import Font, WORKSPACE, WIDTH, HEIGHT
+from dmdcontrol.utils import Font, WORKSPACE, CONFIG
 
 class BackgroundActivityNoiseFilter:
     """
@@ -90,15 +90,12 @@ class Camera:
     Class to control DAVIS346.
     """
     
-    def __init__(self, config: dict):
+    def __init__(self):
         """
         Initialize the Camera class.
         
         Raises:
             ValueError: If the ROI exceeds the camera resolution.
-
-        Args:
-            config (dict): configuration dictionary containing camera settings.
         """
         # Set up logging
         self.logger = logging.getLogger('Camera')
@@ -113,10 +110,10 @@ class Camera:
         self.camera.setFramesRunning(False)
         
         # ROI
-        self.roi_start_x = config.get('Camera', {}).get('ROI', {}).get('start_x', 0)
-        self.roi_start_y = config.get('Camera', {}).get('ROI', {}).get('start_y', 0)
-        self.ROI_WIDTH = config.get('Camera', {}).get('ROI', {}).get('width', WIDTH)
-        self.ROI_HEIGHT = config.get('Camera', {}).get('ROI', {}).get('height', HEIGHT)
+        self.roi_start_x = CONFIG.get('Camera', {}).get('ROI', {}).get('start_x', 0)
+        self.roi_start_y = CONFIG.get('Camera', {}).get('ROI', {}).get('start_y', 0)
+        self.ROI_WIDTH = CONFIG.get('Camera', {}).get('ROI', {}).get('width', CONFIG.get('Camera', {}).get('width', 346))
+        self.ROI_HEIGHT = CONFIG.get('Camera', {}).get('ROI', {}).get('height', CONFIG.get('Camera', {}).get('height', 260))
         # Error checking for ROI exceeding camera resolution
         if (self.roi_start_x + self.ROI_WIDTH > WIDTH) or (self.roi_start_y + self.ROI_HEIGHT > HEIGHT):
             self.logger.error(f"ROI exceeds camera resolution. ROI: ({self.roi_start_x}, {self.roi_start_y}, {self.ROI_WIDTH}, {self.ROI_HEIGHT}), Camera Resolution: ({WIDTH}, {HEIGHT})")
@@ -130,14 +127,14 @@ class Camera:
         self.logger.info(f'ROI set. \n {Font.BOLD}start_x:{Font.ENDC} %s, {Font.BOLD}width:{Font.ENDC} %s\n {Font.BOLD} start_y:{Font.ENDC} %s, {Font.BOLD}height:{Font.ENDC} %s{Font.ENDC}', self.roi_start_x, self.ROI_WIDTH, self.roi_start_y, self.ROI_HEIGHT)
         
         # Trigger
-        self.camera.setDetectorRisingEdges(config.get('Camera', {}).get('Trigger', {}).get('rising_edge', True))
-        self.camera.setDetectorFallingEdges(config.get('Camera', {}).get('Trigger', {}).get('falling_edge', False))
+        self.camera.setDetectorRisingEdges(CONFIG.get('Camera', {}).get('Trigger', {}).get('rising_edge', True))
+        self.camera.setDetectorFallingEdges(CONFIG.get('Camera', {}).get('Trigger', {}).get('falling_edge', False))
         self.camera.setDetectorRunning(False)
         
         # Filter
-        if config.get('Camera', {}).get('Filter', {}).get('enable', True):
+        if CONFIG.get('Camera', {}).get('Filter', {}).get('enable', True):
             self.filter = BackgroundActivityNoiseFilter(
-                background_activity_duration=config.get('Camera', {}).get('Filter', {}).get('background_activity_duration', 2000),
+                background_activity_duration=CONFIG.get('Camera', {}).get('Filter', {}).get('background_activity_duration', 2000),
                 resolution_limits=(self.ROI_WIDTH, self.ROI_HEIGHT)
             )
             self.logger.info('Background activity noise filter enabled with duration %s \u03bcs', self.filter.background_activity_duration)
@@ -146,8 +143,8 @@ class Camera:
             self.logger.info('Background activity noise filter disabled')
                 
         # Accumulation
-        self.window_us = config.get('Camera', {}).get('Accumulation', {}).get('window_us', 16666)
-        self.offset_us = config.get('Camera', {}).get('Accumulation', {}).get('start_time_offset_us', 0)
+        self.window_us = CONFIG.get('Camera', {}).get('Accumulation', {}).get('window_us', 16666)
+        self.offset_us = CONFIG.get('Camera', {}).get('Accumulation', {}).get('start_time_offset_us', 0)
         self.logger.info(f'Accumulation settings:\n {Font.BOLD}Time window (\u03bcs):{Font.ENDC} %s\n {Font.BOLD} Start time offset (\u03bcs):{Font.ENDC} %s', self.window_us, self.offset_us)
 
     def record(self, trigger_count: int) -> tuple:

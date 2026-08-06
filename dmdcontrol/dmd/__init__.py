@@ -1,6 +1,6 @@
 """DMD (Digital Micromirror Device) control classes and utilities."""
 
-from .dlpc900 import DMD, DLPC900
+from .dlpc900 import DMD, DLPC900, load_from_config
 from .helper import (
     UsbDevice,
     parse_physical_usb_path,

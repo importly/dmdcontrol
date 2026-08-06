@@ -15,12 +15,12 @@ import time
 import logging
 from pathlib import Path
 from dataclasses import dataclass
-from typing import cast
+from typing import cast, get_type_hints
+import yaml
 import usb.core
 import usb.util
-import yaml
-from dmdcontrol.hardware.helper import select_pyusb_device
-from dmdcontrol.utils import DLPC900_PID, DLPC900_VID
+from .helper import select_pyusb_device
+from dmdcontrol.utils import CONFIG
 from dmdcontrol.runtime.lut import LutEntry
 
 @dataclass
@@ -28,10 +28,56 @@ class DMD:
     name: str
     usb_id_path: str
     usb_devpath: Path
-    xrandr_output: str | None
+    xrandr_output: str
+    width: int
+    height: int
+    offset: tuple[int, int]
+    target_hz: int
     hid_intf: int | None = None
     dev: usb.core.Device | None = None
     
+
+def load_from_config() -> list[DMD]:
+    """
+    Load DMDs from dictionary config.
+    
+    **Required Keys:**
+    - `name`: The name of the DMD device.
+        - `usb_id_path`: The USB ID path of the DMD device.
+        - `usb_devpath`: The USB devpath of the DMD device.
+        - `xrandr_output`: The xrandr output name for the DMD device.
+        - `width`: The width of the DMD device.
+        - `height`: The height of the DMD device.
+        - `offset`: The offset of the DMD device.
+        - `target_hz`: The target refresh rate in Hz.
+
+    Raises:
+        RuntimeError: Raises if any required key is missing in the config.
+
+    Returns:
+        list[DMD]: A list of loaded DMD objects.
+    """
+    dmds = []
+    # Check for required keys
+    for name in CONFIG.get('DMD', {}):
+        try:
+            dmds.append(
+                DMD(
+                    name=CONFIG['DMD'][name],
+                    usb_id_path=CONFIG['DMD'][name]['usb_id_path'],
+                    usb_devpath=Path(CONFIG['DMD'][name]['usb_devpath']),
+                    xrandr_output=CONFIG['DMD'][name]['xrandr_output'],
+                    width=int(CONFIG['DMD']['width']),
+                    height=int(CONFIG['DMD']['height']),
+                    offset=tuple(CONFIG['DMD']['offset']),
+                    target_hz=int(CONFIG['DMD']['target_hz'])
+                )
+            )
+        except KeyError as e:
+            raise RuntimeError(f"Missing required key in config for DMD '{name}': {e}")
+
+    return dmds
+
 
 class DLPC900:
     """

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 import usb.core
-from dmdcontrol.utils import Font, DLPC900_PID, DLPC900_VID
+from dmdcontrol.utils import Font, CONFIG
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ class UsbDevice:
     id_path: str
     devpath: Path
     physical_path: Path
-    
+
 
 def parse_physical_usb_path(physical_path) -> PhysicalUsbPath | None:
     match = re.fullmatch(r"usb(\d+)/\d+-([0-9.]+)", physical_path or "")
@@ -102,7 +102,7 @@ def discover_dlpc900_usb() -> list[UsbDevice]:
         props = _udevadm_properties_for_hidraw(hidraw)
         vendor = int(props.get("ID_VENDOR_ID"), 16)
         model = int(props.get("ID_MODEL_ID"), 16)
-        if vendor != DLPC900_VID or model != DLPC900_PID:
+        if vendor != CONFIG['DMD']['VID'] or model != CONFIG['DMD']['PID']:
             continue
         else:
             # Get the DEVPATH, then strip it back to the parent USB device path
@@ -171,8 +171,8 @@ def select_pyusb_device(usb_id_path: str, usb_devpath: Path | str) -> usb.core.D
 
     # Select the PyUSB device that matches the candidate
     device = usb.core.find(
-        idVendor=DLPC900_VID,
-        idProduct=DLPC900_PID,
+        idVendor=CONFIG['DMD']['VID'],
+        idProduct=CONFIG['DMD']['PID'],
         custom_match=lambda d: d.bus == candidates[0].bus and d.address == candidates[0].address,
         )
     

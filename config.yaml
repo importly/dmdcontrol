@@ -14,6 +14,8 @@ Camera:
   Accumulation:
     window_us: 16666
     start_time_offset_us: 0
+  width: 346
+  height: 260
     
 # Anything below is WIP
 DMD_TMP:
@@ -26,8 +28,15 @@ DMD:
   A:
     usb_id_path: pci-0000:03:00.0-usb-0:1:1.0
     usb_devpath: /usb1/1-1/1-1:1.0/
-    xrandr_output: DP-2
+    xrandr_output: DP-2    
   B:
     usb_id_path: pci-0000:03:00.0-usb-0:8:1.0
     usb_devpath: /usb1/1-8/1-8:1.0/
     xrandr_output: DP-0
+  width: 1920
+  height: 1080
+  offset: [0, 0]
+  target_hz: 60
+  VID: 0x0451
+  PID: 0xC900
+  wake_dp: False
