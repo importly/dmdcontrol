@@ -37,6 +37,12 @@ DMD:
   height: 1080
   offset: [0, 0]
   target_hz: 60
+  wake_dp: False
+  safe_margin_us: 250.0
+  min_exposure_us: 150
+  frame_utilization: 1.0
+  # constants
+  dark_time_us: 0
+  bitplanes: 24
   VID: 0x0451
   PID: 0xC900
-  wake_dp: False

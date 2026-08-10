@@ -7,18 +7,19 @@ from dataclasses import dataclass
 from typing import Any, NotRequired, TypedDict
 
 from dmdcontrol.support.constants import (
-    BITPLANES,
-    DEFAULT_SEQUENCE_UTILIZATION,
+    CONFIG.get('bitplanes', 24),
+    DEFAULT_CONFIG.get('frame_utilization', 1.0),
     INTER_PATTERN_DARK_US,
     MAX_BINARY_RATE_HZ_DLP6500,
     MAX_MEASURED_VSYNC_DEVIATION_RATIO,
-    MIN_EXPOSURE_US,
-    SAFE_MARGIN_US,
+    CONFIG.get('min_exposure_us', 0),
+    CONFIG.get('safe_margin_us', 0),
     TRIGGER_OUT_DELAY_MAX_US,
     TRIGGER_OUT_DELAY_MIN_US,
     TRIGGER_OUT_PULSE_WIDTH_US,
     TRIGGER_OUT_RISING_DELAY_MAX_US,
 )
+from dmdcontrol.utils import CONFIG
 
 
 @dataclass(frozen=True)
@@ -50,12 +51,12 @@ class TriggerOutTiming(TypedDict):
 
 class LutTimingMetadata(TypedDict):
     timing_source: str
-    sequence_utilization: float
+    CONFIG.get('frame_utilization', 1.0): float
     trig2_mode: str
     frame_period_us: float
     safe_frame_period_us: float
     usable_frame_period_us: float
-    safe_margin_us: float
+    CONFIG.get('safe_margin_us', 0): float
     measured_frame_hz: float | None
     effective_frame_hz: float
     requested_binary_rate_hz: float
@@ -79,23 +80,12 @@ DisplayDimensions = Mapping[str, Any]
 
 
 def build_lut_entries(
-    target_hz: float,
-    sequence_utilization: float = DEFAULT_SEQUENCE_UTILIZATION,
     trig2_frame_zero: bool = False,
     entries_count: int | None = None,
     per_entry_exposure_us: int | None = None,
-    dark_time_us: int | None = None,
     clear_last_after_exposure: bool = True,
     display_dimensions: DisplayDimensions | None = None,
 ) -> tuple[list[LutEntry], LutTimingMetadata]:
-    if target_hz <= 0:
-        raise ValueError("target_hz must be positive")
-    if sequence_utilization <= 0.0 or sequence_utilization > 1.0:
-        raise ValueError("sequence_utilization must be in the interval (0, 1].")
-
-    actual_dark_us = INTER_PATTERN_DARK_US if dark_time_us is None else dark_time_us
-    if actual_dark_us < 0:
-        raise ValueError("dark_time_us must be non-negative")
 
     measured_frame_hz = None
     dd = display_dimensions
@@ -113,13 +103,13 @@ def build_lut_entries(
             measured_frame_hz = pixel_clock_hz / total_pixels
 
     if measured_frame_hz is not None:
-        rel_err = abs(measured_frame_hz - float(target_hz)) / float(target_hz)
+        rel_err = abs(measured_frame_hz - float(CONFIG.get('target_hz', 0))) / float(CONFIG.get('target_hz', 0))
         if rel_err > MAX_MEASURED_VSYNC_DEVIATION_RATIO:
             logger.warning(
                 "Ignoring unstable measured VSYNC %.3f Hz (target %.3f Hz, deviation %.1f%%). "
                 "Using target Hz for LUT timing. Display dims at measurement: total=%sx%s, active=%sx%s, pclk=%skHz",
                 measured_frame_hz,
-                float(target_hz),
+                float(CONFIG.get('target_hz', 0)),
                 rel_err * 100.0,
                 dd.get("total_pixels_per_line") if dd else "?",
                 dd.get("total_lines_per_frame") if dd else "?",
@@ -129,35 +119,36 @@ def build_lut_entries(
             )
             measured_frame_hz = None
 
-    effective_frame_hz = measured_frame_hz if measured_frame_hz else float(target_hz)
-    timing_source = "measured" if measured_frame_hz else "target_fallback"
-    frame_period_us = 1_000_000.0 / effective_frame_hz
-    safe_frame_period_us = frame_period_us - SAFE_MARGIN_US
+    effective_frame_hz = measured_frame_hz if measured_frame_hz else float(CONFIG.get('target_hz', 0))
+    timing_source = 'measured' if measured_frame_hz else 'target_fallback'
+    frame_period_us = 1000000.0 / effective_frame_hz
+    safe_frame_period_us = frame_period_us - CONFIG.get('safe_margin_us', 0)
     if safe_frame_period_us <= 0:
+        logger.error('Frame period %.2f us is not larger than safety margin %.2f us.', frame_period_us, CONFIG.get('safe_margin_us', 0))
         raise ValueError(
-            f"Frame period {frame_period_us:.2f} us is not larger than safety margin {SAFE_MARGIN_US:.2f} us."
+            f"Frame period {frame_period_us:.2f} us is not larger than safety margin {CONFIG.get('safe_margin_us', 0):.2f} us."
         )
 
-    min_segment_us = MIN_EXPOSURE_US + actual_dark_us
-    usable_frame_period_us = safe_frame_period_us * sequence_utilization
+    min_segment_us = CONFIG.get('min_exposure_us', 0) + CONFIG.get('dark_time_us', 0)
+    usable_frame_period_us = safe_frame_period_us * CONFIG.get('frame_utilization', 1.0)
 
     if entries_count is None and per_entry_exposure_us is not None:
-        if per_entry_exposure_us < MIN_EXPOSURE_US:
+        if per_entry_exposure_us < CONFIG.get('min_exposure_us', 0):
             raise ValueError(
-                f"per_entry_exposure_us ({per_entry_exposure_us}) is below MIN_EXPOSURE_US "
-                f"({MIN_EXPOSURE_US})."
+                f"per_entry_exposure_us ({per_entry_exposure_us}) is below 'min_exposure_us', 0) "
+                f"({CONFIG.get('min_exposure_us', 0)})."
             )
-        requested_segment_us = per_entry_exposure_us + actual_dark_us
+        requested_segment_us = per_entry_exposure_us + CONFIG.get('dark_time_us', 0)
         entries_count = int(usable_frame_period_us // requested_segment_us)
-        entries_count = max(1, min(BITPLANES, entries_count))
+        entries_count = max(1, min(CONFIG.get('bitplanes', 24), entries_count))
     elif entries_count is None:
-        entries_count = BITPLANES
-    if entries_count < 1 or entries_count > BITPLANES:
+        entries_count = CONFIG.get('bitplanes', 24)
+    if entries_count < 1 or entries_count > CONFIG.get('bitplanes', 24):
         raise ValueError(
-            f"entries_count ({entries_count}) must be in [1, {BITPLANES}]."
+            f"entries_count ({entries_count}) must be in [1, {CONFIG.get('bitplanes', 24)}]."
         )
 
-    requested_binary_rate_hz = float(target_hz) * entries_count
+    requested_binary_rate_hz = float(CONFIG.get('target_hz', 0)) * entries_count
     if requested_binary_rate_hz > MAX_BINARY_RATE_HZ_DLP6500:
         raise ValueError(
             f"Requested binary rate {requested_binary_rate_hz:.1f} Hz exceeds "
@@ -172,44 +163,44 @@ def build_lut_entries(
         )
 
     if per_entry_exposure_us is not None:
-        if per_entry_exposure_us < MIN_EXPOSURE_US:
+        if per_entry_exposure_us < CONFIG.get('min_exposure_us', 0):
             raise ValueError(
-                f"per_entry_exposure_us ({per_entry_exposure_us}) is below MIN_EXPOSURE_US "
-                f"({MIN_EXPOSURE_US})."
+                f"per_entry_exposure_us ({per_entry_exposure_us}) is below CONFIG.get('min_exposure_us', 0) "
+                f"({CONFIG.get('min_exposure_us', 0)})."
             )
-        total_needed_us = (per_entry_exposure_us + actual_dark_us) * entries_count
+        total_needed_us = (per_entry_exposure_us + CONFIG.get('dark_time_us', 0)) * entries_count
         if total_needed_us > usable_frame_period_us:
             raise ValueError(
                 f"{entries_count} LUT entries at {per_entry_exposure_us} us exposure need "
                 f"{total_needed_us:.1f} us per VSYNC but only {usable_frame_period_us:.1f} us is "
-                f"usable (frame_period {frame_period_us:.1f} us, margin {SAFE_MARGIN_US} us, "
-                f"utilization {sequence_utilization})."
+                f"usable (frame_period {frame_period_us:.1f} us, margin {CONFIG.get('safe_margin_us', 0)} us, "
+                f"utilization {CONFIG.get('frame_utilization', 1.0)})."
             )
         exposure_us = int(per_entry_exposure_us)
     else:
         segment_budget_us = usable_frame_period_us / entries_count
         if segment_budget_us < min_segment_us:
             max_safe_hz = 1_000_000.0 / (
-                (entries_count * min_segment_us / sequence_utilization) + SAFE_MARGIN_US
+                (entries_count * min_segment_us / CONFIG.get('frame_utilization', 1.0)) + CONFIG.get('safe_margin_us', 0)
             )
             raise ValueError(
                 f"Requested sequence exceeds VSYNC budget: each pattern has {segment_budget_us:.2f} us "
-                f"but needs >= {min_segment_us} us (exposure {MIN_EXPOSURE_US} us + dark {actual_dark_us} us). "
+                f"but needs >= {min_segment_us} us (exposure {CONFIG.get('min_exposure_us', 0)} us + dark {CONFIG.get('dark_time_us', 0)} us). "
                 f"Reduce source frame rate to <= {max_safe_hz:.2f} Hz."
             )
 
         segment_us = int(usable_frame_period_us / entries_count)
-        exposure_us = segment_us - actual_dark_us
-        if exposure_us < MIN_EXPOSURE_US:
+        exposure_us = segment_us - CONFIG.get('dark_time_us', 0)
+        if exposure_us < CONFIG.get('min_exposure_us', 0):
             max_safe_hz = 1_000_000.0 / (
-                (entries_count * min_segment_us / sequence_utilization) + SAFE_MARGIN_US
+                (entries_count * min_segment_us / CONFIG.get('frame_utilization', 1.0)) + CONFIG.get('safe_margin_us', 0)
             )
             raise ValueError(
-                f"Computed exposure {exposure_us} us is below minimum {MIN_EXPOSURE_US} us. "
+                f"Computed exposure {exposure_us} us is below minimum {CONFIG.get('min_exposure_us', 0)} us. "
                 f"Reduce source frame rate to <= {max_safe_hz:.2f} Hz."
             )
 
-    total_sequence_us = (exposure_us + actual_dark_us) * entries_count
+    total_sequence_us = (exposure_us + CONFIG.get('dark_time_us', 0)) * entries_count
     idle_headroom_us = frame_period_us - total_sequence_us
 
     entries: list[LutEntry] = []
@@ -223,7 +214,7 @@ def build_lut_entries(
                 clear_after=clear_flag,
                 bit_depth=1,
                 led_select=7,
-                dark_us=actual_dark_us,
+                dark_us=CONFIG.get('dark_time_us', 0),
                 trig2_disabled=trig2_disable,
                 bit_position=bit_pos,
                 image_pattern_index=0,
@@ -233,18 +224,18 @@ def build_lut_entries(
 
     timing: LutTimingMetadata = {
         "timing_source": timing_source,
-        "sequence_utilization": sequence_utilization,
+        "CONFIG.get('frame_utilization', 1.0)": CONFIG.get('frame_utilization', 1.0),
         "trig2_mode": "frame_zero" if trig2_frame_zero else "per_bitplane",
         "frame_period_us": frame_period_us,
         "safe_frame_period_us": safe_frame_period_us,
         "usable_frame_period_us": usable_frame_period_us,
-        "safe_margin_us": SAFE_MARGIN_US,
+        "CONFIG.get('safe_margin_us', 0)": CONFIG.get('safe_margin_us', 0),
         "measured_frame_hz": measured_frame_hz,
         "effective_frame_hz": effective_frame_hz,
         "requested_binary_rate_hz": requested_binary_rate_hz,
         "effective_binary_rate_hz": effective_binary_rate_hz,
         "exposure_us": exposure_us,
-        "dark_us": actual_dark_us,
+        "dark_us": CONFIG.get('dark_time_us', 0),
         "total_sequence_us": total_sequence_us,
         "idle_headroom_us": idle_headroom_us,
         "entries_count": entries_count,
