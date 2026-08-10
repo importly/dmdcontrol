@@ -38,19 +38,16 @@ PAIR_HEIGHT = DMD_HEIGHT
 OFFSET_B = (0, 0)
 OFFSET_A = (DMD_WIDTH, 0)
 
-STATIC_PAIR_TESTS = ("checkerboard", "grid", "bands", "dot")
+STATIC_PAIR_TESTS = ("checkerboard", "dot")
 A_COUNT_B_STATIC_PAIR_TEST = "a-count-b-static"
 STATIC_IMAGES_PAIR_TEST = "static-images"
-DYNAMIC_PAIR_TESTS = ("snake",)
-CALIBRATION_DOT_PAIR_TEST = "a-calibr-square-b-dot"
 KERNEL_STATIC_PAIR_TEST = "a-kernel-b-static"
 RECIPE_PAIR_TESTS = (
-    CALIBRATION_DOT_PAIR_TEST,
     KERNEL_STATIC_PAIR_TEST,
     A_COUNT_B_STATIC_PAIR_TEST,
     STATIC_IMAGES_PAIR_TEST,
 )
-PAIR_TESTS = STATIC_PAIR_TESTS + DYNAMIC_PAIR_TESTS + RECIPE_PAIR_TESTS
+PAIR_TESTS = STATIC_PAIR_TESTS + RECIPE_PAIR_TESTS
 MAX_COUNT_SEQUENCE_FRAMES = 128
 
 RGBFrame = NDArray[np.uint8]
@@ -263,30 +260,6 @@ def generate_dot_frame(
     return np.ascontiguousarray(frame)
 
 
-def _route_mark(frame: RGBFrame, label: str) -> RGBFrame:
-    marked = frame.copy()
-    height, width = marked.shape[:2]
-    if min(width, height) < 32:
-        return marked
-
-    max_cell_w = max(1, width // 7)
-    max_cell_h = max(1, height // 7)
-    cell = max(1, min(DEFAULT_ROUTE_MARKER_SIZE // 7, max_cell_w, max_cell_h))
-    letter_w = 5 * cell
-    letter_h = 7 * cell
-    margin = cell
-    x0 = min(margin, max(0, width - margin - letter_w))
-    if label == "A":
-        y0 = min(margin, max(0, height - margin - letter_h))
-    else:
-        y0 = max(0, height - margin - letter_h)
-
-    pad = max(1, cell // 2)
-    _fill_rect_rgb(marked, x0 - pad, y0 - pad, x0 + letter_w + pad, y0 + letter_h + pad, value=0)
-    _draw_block_letter(marked, label, x0, y0, cell)
-    return marked
-
-
 def generate_static_frame(
     mode: str,
     width: int = DMD_WIDTH,
@@ -298,8 +271,8 @@ def generate_static_frame(
     dot_shape: str = "circle",
     dot_invert: bool = False,) -> RGBFrame:
     if mode == "checkerboard":
-        frame = _checkerboard(width, height)
-    elif mode == "dot":
+        return _checkerboard(width, height)
+    if mode == "dot":
         return generate_dot_frame(
             width=width,
             height=height,
@@ -309,27 +282,7 @@ def generate_static_frame(
             shape=dot_shape,
             invert=dot_invert,
         )
-    elif mode == "grid":
-        offset = 0 if route_label == "A" else DEFAULT_COARSE_GRID_SPACING // 2
-        frame = generate_coarse_grid_rgb(
-            width=width,
-            height=height,
-            offset_x=offset,
-            offset_y=offset,
-        )
-    elif mode == "bands":
-        if route_label == "A":
-            frame = generate_coarse_lines_rgb(width=width, height=height, orientation="vertical")
-        else:
-            frame = generate_coarse_lines_rgb(
-                width=width,
-                height=height,
-                orientation="horizontal",
-                offset=DEFAULT_COARSE_LINE_SPACING // 2,
-            )
-    else:
-        raise ValueError(f"Unsupported static pair mode: {mode}")
-    return _route_mark(frame, route_label)
+    raise ValueError(f"Unsupported static pair mode: {mode}")
 
 
 def _static_frame(
@@ -464,80 +417,6 @@ class DynamicAStaticBPairFrameProvider(PairFrameProvider):
         return FramePair(a=self._next_a(), b=self._frame_b)
 
 
-class CalibrationSquareDotPairFrameProvider(DynamicAStaticBPairFrameProvider):
-
-    def __init__(
-        self,
-        frame_provider_a: FrameProvider,
-        frame_b: RGBFrame,
-        initial_frame_a: RGBFrame | None = None,
-        flicker_a: bool = False,) -> None:
-        super().__init__(frame_provider_a, frame_b, initial_frame_a=initial_frame_a)
-        self.flicker_a = flicker_a
-        self.frame_index = 0
-        self._black_frame_a = (
-            np.zeros_like(initial_frame_a) if initial_frame_a is not None else None)
-
-    def _remember_black_frame(self, frame_a: RGBFrame) -> None:
-        if self._black_frame_a is None:
-            self._black_frame_a = np.zeros_like(frame_a)
-
-    def initial_pair(self) -> FramePair:
-        frame_pair = as_frame_pair(super().initial_pair())
-        self._remember_black_frame(frame_pair.a)
-        return frame_pair
-
-    def next_pair(self) -> FramePair:
-        self.frame_index += 1
-        frame_a = self._next_a()
-        self._remember_black_frame(frame_a)
-        if self.flicker_a and self.frame_index % 2 == 1:
-            assert self._black_frame_a is not None
-            return FramePair(a=self._black_frame_a, b=self._frame_b)
-        return FramePair(a=frame_a, b=self._frame_b)
-
-
-class DynamicSnakePairFrameProvider(PairFrameProvider):
-
-    def __init__(
-        self,
-        width: int = DMD_WIDTH,
-        height: int = DMD_HEIGHT,
-        cells_x: int = 24,
-        cells_y: int = 13,) -> None:
-        self.width = width
-        self.height = height
-        self.cells_x = cells_x
-        self.cells_y = cells_y
-        self.frame_index = 0
-
-    def _frame_for_index(self, index: int) -> FramePair:
-        frame_a = np.zeros((self.height, self.width, 3), dtype=np.uint8)
-        frame_b = np.zeros((self.height, self.width, 3), dtype=np.uint8)
-        cell_w = max(1, self.width // self.cells_x)
-        cell_h = max(1, self.height // self.cells_y)
-        path_len = self.cells_x * self.cells_y
-        head = index % path_len
-        for route, frame in (("A", frame_a), ("B", frame_b)):
-            offset = 0 if route == "A" else self.cells_x // 2
-            for segment in range(6):
-                pos = (head - segment + offset) % path_len
-                row = pos // self.cells_x
-                col = pos % self.cells_x
-                x0 = col * cell_w
-                y0 = row * cell_h
-                level = max(64, 255 - segment * 32)
-                frame[y0:y0 + cell_h, x0:x0 + cell_w, :] = level
-        return FramePair(a=_route_mark(frame_a, "A"), b=_route_mark(frame_b, "B"))
-
-    def initial_pair(self) -> FramePair:
-        return self._frame_for_index(self.frame_index)
-
-    def next_pair(self) -> FramePair:
-        self.frame_index += 1
-        return self._frame_for_index(self.frame_index)
-
-
 def pack_count_sequence_frames(
         count_start: int,
         count_end: int,
@@ -664,8 +543,6 @@ def make_pair_frame_provider(
             height=height,
             size_px=static_image_size_px,
         )
-    if test == "snake":
-        return DynamicSnakePairFrameProvider(width=width, height=height)
     raise ValueError(f"Unsupported paired test mode: {test}")
 
 
@@ -808,7 +685,7 @@ class PairedPatternEngine:
         frame_end = time.perf_counter()
         
         # Check and record stutters
-        if cadence_dt is not None or cadence_dt > self.expected_frame_time * 1.5:
+        if cadence_dt is not None and cadence_dt > self.expected_frame_time * 1.5:
             self.dropped_frames += 1
             if frame_end - self.last_stutter_log > 2.0:
                 phases = {
@@ -851,7 +728,9 @@ class PairedPatternEngine:
         Returns:
             RGBFrame: The prepared frame.
         """
-        logger.debug('%s shape: %s, dtype: %s', label, getattr(frame, 'shape', None), getattr(frame, 'dtype', None))
+        # Type / rank / dtype first: a non-array or a non-uint8 frame must be
+        # rejected here rather than reaching glTexSubImage2D as garbage bytes.
+        _validate_rgb_frame(frame, label)
         if frame.shape != (self.height, self.half_width, 3):
             raise ValueError(f'{label} shape {frame.shape} does not match expected {self.height}x{self.half_width}x3')
         if frame.flags.c_contiguous:
@@ -866,7 +745,6 @@ class PairedPatternEngine:
             texture_id (int): Texture ID
             frame (RGBFrame): Frame
         """
-        gl = gl
         gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id)
         gl.glTexSubImage2D(
             gl.GL_TEXTURE_2D,
@@ -889,7 +767,6 @@ class PairedPatternEngine:
             left (int): Left coordinate
             right (int): Right coordinate
         """
-        gl = gl
         gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id)
         gl.glBegin(gl.GL_QUADS)
         gl.glTexCoord2f(1, 0)

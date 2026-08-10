@@ -15,9 +15,10 @@ from dmdcontrol.patterns.paired import (
     RGBFrame,
     as_frame_pair,
 )
-from dmdcontrol.preview.render import LivePreviewPoster
-from dmdcontrol.runtime.pair_reporting import _live_preview_metadata_for_frame
-from dmdcontrol.support.constants import DMD_HEIGHT, DMD_WIDTH
+from dmdcontrol.utils import CONFIG
+
+DMD_WIDTH = CONFIG.get('DMD', {}).get('width')
+DMD_HEIGHT = CONFIG.get('DMD', {}).get('height')
 
 
 def _blank_dmd_frame() -> RGBFrame:
