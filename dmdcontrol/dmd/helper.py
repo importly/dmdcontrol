@@ -1,16 +1,15 @@
 """DLPC900 USB discovery and explicit physical-port selection helpers."""
 
 import logging
-import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NamedTuple
 import usb.core
 from dmdcontrol.utils import Font, CONFIG
 
 # Set up logging
 logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class UsbDevice:
@@ -23,15 +22,6 @@ class UsbDevice:
     id_path: str
     devpath: Path
     physical_path: Path
-
-
-def parse_physical_usb_path(physical_path) -> PhysicalUsbPath | None:
-    match = re.fullmatch(r"usb(\d+)/\d+-([0-9.]+)", physical_path or "")
-    if not match:
-        return None
-    bus = int(match.group(1))
-    ports = tuple(int(part) for part in match.group(2).split(".") if part)
-    return PhysicalUsbPath(bus, ports)
 
 
 def _udevadm_properties_for_hidraw(hidraw: Path | str) -> dict[str, str]:
