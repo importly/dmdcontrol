@@ -6,7 +6,9 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from dmdcontrol.support.constants import BITPLANES
+from dmdcontrol.utils import CONFIG
+
+BITPLANES = CONFIG.get('DMD', {}).get('bitplanes')
 
 BITPLANE_LABELS = tuple(
     [f"G{bit}" for bit in range(8)]
