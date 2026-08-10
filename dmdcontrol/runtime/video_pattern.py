@@ -416,9 +416,7 @@ def configure_dlpc900_for_video_pattern(
     pre_arm_callback: Callable[[], None] | None = None,
     frame_pump: Callable[[], None] | None = None,
     entries_count: int | None = None,
-    per_entry_exposure_us: int | None = None,
-    trigger_out_2_rising_delay_us: int = 0,
-    dark_time_us: int | None = None,) -> PreparedSequenceState:
+    per_entry_exposure_us: int | None = None,) -> PreparedSequenceState:
     sequence_state = prepare_dlpc900_for_video_pattern(
         dlpc,
         target_hz=target_hz,
