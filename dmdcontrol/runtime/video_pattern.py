@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from argparse import Namespace
 from collections.abc import Callable, Sequence
+import logging
 import threading
 import time
 from typing import TYPE_CHECKING
@@ -22,17 +22,12 @@ from dmdcontrol.runtime.lut import (
     build_lut_entries,
     compute_trigger_out_2_timing,
 )
-from dmdcontrol.support.constants import (
-    BITPLANES,
-    DEFAULT_HZ,
-    DEFAULT_SEQUENCE_UTILIZATION,
-    DMD_HEIGHT,
-    DMD_WIDTH,
-)
-from dmdcontrol.support.logging import log_context, logger
+from dmdcontrol.utils import CONFIG
 
 if TYPE_CHECKING:
-    from dmdcontrol.hardware.dlpc900 import DLPC900
+    from dmdcontrol.dmd.dlpc900 import DLPC900
+
+logger = logging.getLogger('VideoPattern')
 
 
 def load_pattern_sequence(dlpc: DLPC900, entries: Sequence[LutEntry]) -> None:
@@ -99,10 +94,8 @@ def start_loaded_pattern_sequences(
         time.sleep(post_start_delay_s)
 
     if verify:
-        with log_context("DMD A"):
-            verify_started_pattern_sequence(dlpc_a, label="DMD A")
-        with log_context("DMD B"):
-            verify_started_pattern_sequence(dlpc_b, label="DMD B")
+        verify_started_pattern_sequence(dlpc_a, label="DMD A")
+        verify_started_pattern_sequence(dlpc_b, label="DMD B")
 
 
 def verify_started_pattern_sequence(
@@ -197,17 +190,18 @@ def apply_pattern_sequence(
 
 def prepare_dlpc900_for_video_pattern(
     dlpc: "DLPC900",
-    target_hz: float = DEFAULT_HZ,
-    dual_pixel: bool = False,
-    sequence_utilization: float = DEFAULT_SEQUENCE_UTILIZATION,
-    trig2_frame_zero: bool = False,
-    entries_count: int | None = None,
-    per_entry_exposure_us: int | None = None,
-    trigger_out_2_rising_delay_us: int = 0,
-    dark_time_us: int | None = None,) -> PreparedSequenceState:
-    actual_entries = entries_count if entries_count is not None else BITPLANES
+    entries_count: int | None = None,) -> PreparedSequenceState:
+    # Note: dark_time_us (config) does not produce visible off-time in DLPC900 Video
+    # Pattern Mode — use explicit blank frames or blank bitplanes. It is carried
+    # through only for LUT timing/budget accounting.
+    dmd_width = CONFIG.get('DMD', {}).get('width')
+    dmd_height = CONFIG.get('DMD', {}).get('height')
+    target_hz = CONFIG.get('DMD', {}).get('target_hz')
+    dual_pixel = CONFIG.get('DMD', {}).get('dual_pixel')
+    actual_entries = (entries_count if entries_count is not None
+                      else CONFIG.get('DMD', {}).get('bitplanes'))
     logger.info(
-        f"[+] Configuring DLPC900 for {DMD_WIDTH}x{DMD_HEIGHT} @ {target_hz}Hz Video Pattern Mode "
+        f"[+] Configuring DLPC900 for {dmd_width}x{dmd_height} @ {target_hz}Hz Video Pattern Mode "
         f"({actual_entries} LUT entr{'y' if actual_entries == 1 else 'ies'} per VSYNC)...")
 
 
@@ -246,8 +240,8 @@ def prepare_dlpc900_for_video_pattern(
     logger.info(f"[+] Parallel input pixel mode: {'Dual P1-P2' if dual_pixel else 'Single P1'}")
 
     # Force full active area — otherwise DLPC900 may use a stale Flash-resident crop.
-    logger.debug(f"  - Forcing Input Display Resolution to {DMD_WIDTH}x{DMD_HEIGHT}...")
-    dlpc.set_input_display_resolution(0, 0, DMD_WIDTH, DMD_HEIGHT)
+    logger.debug(f"  - Forcing Input Display Resolution to {dmd_width}x{dmd_height}...")
+    dlpc.set_input_display_resolution(0, 0, dmd_width, dmd_height)
 
     dlpc.apply_block_lock_workaround()
 
