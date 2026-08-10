@@ -35,16 +35,7 @@ if TYPE_CHECKING:
     from dmdcontrol.hardware.dlpc900 import DLPC900
 
 
-def warn_dark_time_video_pattern_mode(args: Namespace) -> None:
-    if getattr(args, "dark_time_us", None) is None:
-        return
-    logger.warning(
-        "--dark-time-us does not work as expected with DLPC900 Video Pattern Mode. "
-        "Use explicit blank frames or blank bitplanes for visible off-time; this value is only "
-        "kept for LUT timing/budget accounting.")
-
-
-def load_pattern_sequence(dlpc: "DLPC900", entries: Sequence[LutEntry]) -> None:
+def load_pattern_sequence(dlpc: DLPC900, entries: Sequence[LutEntry]) -> None:
     # DLPU018J §2.4.4.3.4: Pattern Display LUT Reorder (0x1A32) is "only applicable
     # in Pre-stored Pattern Mode and Pattern On-The-Fly Mode" — NOT Video Pattern Mode.
 
