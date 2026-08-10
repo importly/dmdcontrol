@@ -13,6 +13,7 @@ Packet layout:
 import struct
 import time
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 from dataclasses import dataclass
 from typing import cast, get_type_hints
@@ -346,7 +347,7 @@ class DLPC900:
         **Dictionary keys:**
         - `dmd_parked`: True if the DMD is parked, False otherwise.
         - `sequencer_running`: True if the sequencer is running, False otherwise.
-        - `DLPC900_VIDeo_frozen`: True if the DLPC900_VIDeo is frozen, False otherwise.
+        - `video_frozen`: True if the video is frozen, False otherwise.
         - `external_source_locked`: True if the external source is locked, False otherwise.
         - `port1_syncs_valid`: True if port 1 syncs are valid, False otherwise.
         - `port2_syncs_valid`: True if port 2 syncs are valid, False otherwise.
@@ -362,7 +363,7 @@ class DLPC900:
             return {
                 "dmd_parked": bool(v & 0x01),
                 "sequencer_running": bool(v & 0x02),
-                "DLPC900_VIDeo_frozen": bool(v & 0x04),
+                "video_frozen": bool(v & 0x04),
                 "external_source_locked": bool(v & 0x08),
                 "port1_syncs_valid": bool(v & 0x10),
                 "port2_syncs_valid": bool(v & 0x20),
@@ -796,8 +797,8 @@ class DLPC900:
         0x1A34: Define pattern LUT entries (DLPU018J Table 2-143).
 
         Entries are `LutEntry` objects from the runtime layer. In streaming
-        DLPC900_VIDeo Pattern Mode the image pattern index is normally zero, but the
-        selected DLPC900_VIDeo bit/frame position remains meaningful.
+        Video Pattern Mode the image pattern index is normally zero, but the
+        selected video bit/frame position remains meaningful.
         
         Args:
             entries (Sequence[LutEntry]): A sequence of `LutEntry` objects defining the pattern LUT entries.
