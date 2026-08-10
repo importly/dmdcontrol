@@ -46,7 +46,7 @@ def load_pattern_sequence(dlpc: DLPC900, entries: Sequence[LutEntry]) -> None:
 
 
 def start_loaded_pattern_sequence(
-    dlpc: "DLPC900",
+    dlpc: DLPC900,
     post_start_delay_s: float = 0.2,) -> None:
     dlpc.start_pattern_display(2)
     if post_start_delay_s > 0:
@@ -54,20 +54,19 @@ def start_loaded_pattern_sequence(
 
 
 def start_loaded_pattern_sequences(
-    dlpc_a: "DLPC900",
-    dlpc_b: "DLPC900",
+    dlpc_a: DLPC900,
+    dlpc_b: DLPC900,
     post_start_delay_s: float = 0.2,
     verify: bool = False,) -> None:
     barrier = threading.Barrier(3)
     errors: list[tuple[str, BaseException]] = []
 
-    def _start_one(label: str, dlpc: "DLPC900") -> None:
-        with log_context(f"DMD {label}"):
-            try:
-                barrier.wait()
-                dlpc.start_pattern_display(2)
-            except Exception as exc:
-                errors.append((label, exc))
+    def _start_one(label: str, dlpc: DLPC900) -> None:
+        try:
+            barrier.wait()
+            dlpc.start_pattern_display(2)
+        except Exception as exc:
+            errors.append((label, exc))
 
     threads = [
         threading.Thread(target=_start_one,
@@ -99,7 +98,7 @@ def start_loaded_pattern_sequences(
 
 
 def verify_started_pattern_sequence(
-    dlpc: "DLPC900",
+    dlpc: DLPC900,
     label: str = "DLPC900",) -> int | None:
     if not ensure_video_pattern_mode(dlpc, retries=2, poll_timeout_s=1.0):
         mode, _ = dlpc.get_display_mode()
@@ -128,7 +127,7 @@ def verify_started_pattern_sequence(
 
 
 def apply_pattern_sequence(
-    dlpc: "DLPC900",
+    dlpc: DLPC900,
     entries: Sequence[LutEntry],
     frame_pump: Callable[[], None] | None = None,) -> None:
     load_pattern_sequence(dlpc, entries)
@@ -189,7 +188,7 @@ def apply_pattern_sequence(
 
 
 def prepare_dlpc900_for_video_pattern(
-    dlpc: "DLPC900",
+    dlpc: DLPC900,
     entries_count: int | None = None,) -> PreparedSequenceState:
     # Note: dark_time_us (config) does not produce visible off-time in DLPC900 Video
     # Pattern Mode — use explicit blank frames or blank bitplanes. It is carried
@@ -320,17 +319,10 @@ def prepare_dlpc900_for_video_pattern(
     logger.debug(f"  - TRIG_OUT_1 config sent. Last error: {err}")
 
     entries, timing = build_lut_entries(
-        target_hz,
-        sequence_utilization=sequence_utilization,
-        trig2_frame_zero=trig2_frame_zero,
         entries_count=entries_count,
-        per_entry_exposure_us=per_entry_exposure_us,
-        dark_time_us=dark_time_us,
         display_dimensions=dlpc.get_display_dimensions(),
     )
-    trigger_out_2_timing = compute_trigger_out_2_timing(
-        rising_delay_us=trigger_out_2_rising_delay_us,
-    )
+    trigger_out_2_timing = compute_trigger_out_2_timing()
     dlpc.configure_trigger_out_2(
         polarity_high=True,
         rising_delay_us=trigger_out_2_timing["rising_delay_us"],
@@ -358,20 +350,12 @@ def prepare_dlpc900_for_video_pattern(
         f"idle headroom {timing['idle_headroom_us']:.1f}us from {timing['frame_period_us']:.1f}us VSYNC), "
         f"binary rate req={timing['requested_binary_rate_hz']:.1f}Hz, "
         f"effective={timing['effective_binary_rate_hz']:.1f}Hz")
-    if timing["trig2_mode"] == "frame_zero":
-        logger.info(
-            f"[SCOPE] Expected TRIG_OUT_2: rising delay={trigger_out_2_timing['rising_delay_us']}us, "
-            f"falling={trigger_out_2_timing['falling_delay_us']}us, triggered only on bitplane 0.")
-        logger.info(
-            f"[SCOPE] TRIG_OUT_2 mode: frame_zero anchor (~{timing['effective_frame_hz']:.3f} pulses/s)."
-        )
-    else:
-        logger.info(
-            f"[SCOPE] Expected TRIG_OUT_2: rising delay={trigger_out_2_timing['rising_delay_us']}us, "
-            f"falling={trigger_out_2_timing['falling_delay_us']}us, active at each bitplane start.")
-        logger.info(
-            f"[SCOPE] TRIG_OUT_2 mode: per_bitplane (~{timing['effective_binary_rate_hz']:.1f} pulses/s)."
-        )
+    logger.info(
+        f"[SCOPE] Expected TRIG_OUT_2: rising delay={trigger_out_2_timing['rising_delay_us']}us, "
+        f"falling={trigger_out_2_timing['falling_delay_us']}us, active at each bitplane start.")
+    logger.info(
+        f"[SCOPE] TRIG_OUT_2 mode: per_bitplane (~{timing['effective_binary_rate_hz']:.1f} pulses/s)."
+    )
     logger.info(
         f"[SCOPE] Expected TRIG_OUT_1: ~{timing['effective_frame_hz']:.3f} pulses/s. "
         "With dark=0us, pulse may appear as a wide frame-level gate.")
@@ -393,25 +377,13 @@ def prepare_dlpc900_for_video_pattern(
 
 
 def configure_dlpc900_for_video_pattern(
-    dlpc: "DLPC900",
-    target_hz: float = DEFAULT_HZ,
-    dual_pixel: bool = False,
-    sequence_utilization: float = DEFAULT_SEQUENCE_UTILIZATION,
-    trig2_frame_zero: bool = False,
+    dlpc: DLPC900,
     pre_arm_callback: Callable[[], None] | None = None,
     frame_pump: Callable[[], None] | None = None,
-    entries_count: int | None = None,
-    per_entry_exposure_us: int | None = None,) -> PreparedSequenceState:
+    entries_count: int | None = None,) -> PreparedSequenceState:
     sequence_state = prepare_dlpc900_for_video_pattern(
         dlpc,
-        target_hz=target_hz,
-        dual_pixel=dual_pixel,
-        sequence_utilization=sequence_utilization,
-        trig2_frame_zero=trig2_frame_zero,
         entries_count=entries_count,
-        per_entry_exposure_us=per_entry_exposure_us,
-        trigger_out_2_rising_delay_us=trigger_out_2_rising_delay_us,
-        dark_time_us=dark_time_us,
     )
 
     # GL must be rendering when start_pattern_display(2) fires — stale DP frame -> forced-swap.
