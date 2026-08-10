@@ -8,12 +8,10 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from dmdcontrol.support.constants import (
-    DEFAULT_CALIBRATION_SQUARE_FRACTION,
-    DMD_HEIGHT,
-    DMD_WIDTH,
-    MIN_CALIBRATION_SQUARE_PX,
-)
+from dmdcontrol.utils import CONFIG
+
+DMD_WIDTH = CONFIG.get('DMD', {}).get('width')
+DMD_HEIGHT = CONFIG.get('DMD', {}).get('height')
 
 BinaryMask = NDArray[np.uint8]
 RGBFrame = NDArray[np.uint8]
