@@ -347,62 +347,10 @@ class FrameSequenceProvider(PairFrameProvider):
         self._next_index += 1
         return self._frames[self.frame_index].frame_pair
 
-
-def build_paired_display_sequence(
-    args: ArgsNamespace,
-    *,
-    target_hz: float = DEFAULT_HZ,
-    engine: object | None = None,
-    width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
+def build_dynamic_fm_sequence(
+    fm: np.ndarray,
+    k: np.ndarray,
 ) -> PairedDisplaySequence:
-    if getattr(args, "exposure_us", None) is None:
-        raise ValueError("--exposure-us is required for paired LUT workflows")
-    if args.test == A_COUNT_B_STATIC_PAIR_TEST:
-        return build_count_static_sequence(
-            args,
-            target_hz=target_hz,
-            width=width,
-            height=height,
-        )
-    if args.test == KERNEL_STATIC_PAIR_TEST:
-        return build_kernel_static_sequence(
-            args,
-            target_hz=target_hz,
-            engine=engine,
-            width=width,
-            height=height,
-        )
-    if args.test == CALIBRATION_DOT_PAIR_TEST:
-        return build_calibration_dot_sequence(
-            args,
-            target_hz=target_hz,
-            engine=engine,
-            width=width,
-            height=height,
-        )
-    if (
-        args.test in STATIC_PAIR_TESTS
-        or args.test == STATIC_IMAGES_PAIR_TEST
-        or args.test == "snake"
-    ):
-        return build_provider_backed_sequence(
-            args,
-            target_hz=target_hz,
-            width=width,
-            height=height,
-        )
-    raise ValueError(f"Unsupported paired display sequence mode: {args.test}")
-
-
-def build_count_static_sequence(
-    args: ArgsNamespace,
-    *,
-    target_hz: float,
-    width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-) -> PairedDisplaySequence:
-    count_config = CountSequenceConfig.from_args(args)
     entries, timing = build_lut_entries(
         target_hz,
         sequence_utilization=args.seq_utilization,
@@ -411,31 +359,31 @@ def build_count_static_sequence(
         per_entry_exposure_us=args.exposure_us,
         dark_time_us=args.dark_time_us,
     )
-    base_slots = _slots_from_lut_entries(entries, semantic_role="count")
+    
+    # Make base LUT slots from the entries
+    base_slots: list[LutSlot] = []
+    for entry in entries:
+        base_slots.append(
+            LutSlot(
+                bitplane_index=int(entry.bit_position),
+                exposure_us=int(entry.exposure_us),
+                dark_us=int(entry.dark_us),
+                trig2_enabled=not bool(entry.trig2_disabled),
+                clear_after=bool(entry.clear_after),
+                semantic_role='count',
+                wait_for_trigger=bool(entry.wait_for_trigger),
+            )
+        )
+    base_slots = tuple(base_slots)
+    
     # Count mode owns its frame packing here so LUT slots and RGB bitplanes are built together.
-    frames_a = pack_count_sequence_frames(
-        args.count_start,
-        args.count_end,
-        args.count_slots_per_frame,
-        width=width,
-        height=height,
-        size_px=args.numbers_size_px,
-        count_blank_between_frames=args.count_blank_between_frames,
-    )
-    frame_b = generate_static_frame(
-        args.test_b or "dot",
-        width=width,
-        height=height,
-        route_label="B",
-        dot_x=args.b_dot_x,
-        dot_y=args.b_dot_y,
-        dot_radius=args.b_dot_radius,
-        dot_shape=args.b_dot_shape,
-        dot_invert=args.b_dot_invert,
+    frames_a = pack_sequence_frames(fm)
+    frame_b = pack_static_frames(
+        data = k,
+        batch_size = len(frames_a),
+        pos = True,
     )
     entries_b, timing_b = build_lut_entries(
-        target_hz,
-        sequence_utilization=args.seq_utilization,
         trig2_frame_zero=True,
         entries_count=1,
         # Match A's already-resolved exposure instead of filling B to the
@@ -448,44 +396,23 @@ def build_count_static_sequence(
     )
     frames: list[TimedFramePair] = []
     counts = tuple(range(args.count_start, args.count_end + 1))
-    if args.count_blank_between_frames:
-        if len(base_slots) != 1:
-            raise ValueError(
-                "count blank insertion expects one LUT slot per source frame"
+    if len(base_slots) != 1:
+        raise ValueError(
+            "count blank insertion expects one LUT slot per source frame"
+        )
+    base_slot = base_slots[0]
+    for source_frame_index, frame_a in enumerate(frames_a):
+        labels = [f"frame:{source_frame_index}"]
+
+        frames.append(
+            TimedFramePair(
+                frame_pair=FramePair(a=frame_a, b=frame_b),
+                lut_slots=_slots_with_labels((base_slot,), labels),
+                source_frame_index=source_frame_index,
+                semantic_labels=tuple(labels),
             )
-        base_slot = base_slots[0]
-        for source_frame_index, frame_a in enumerate(frames_a):
-            if source_frame_index % 2 == 0:
-                count = counts[source_frame_index // 2]
-                labels = [f"count:{count}"]
-            else:
-                labels = ["blank"]
-            frames.append(
-                TimedFramePair(
-                    frame_pair=FramePair(a=frame_a, b=frame_b),
-                    lut_slots=_slots_with_labels((base_slot,), labels),
-                    source_frame_index=source_frame_index,
-                    semantic_labels=tuple(labels),
-                )
-            )
-    else:
-        for source_frame_index, (frame_a, offset) in enumerate(
-            zip(frames_a, range(0, len(counts), args.count_slots_per_frame))
-        ):
-            labels = _count_slot_labels(
-                counts[offset : offset + args.count_slots_per_frame],
-                blank_after_each_count=False,
-            )
-            frames.append(
-                TimedFramePair(
-                    frame_pair=FramePair(a=frame_a, b=frame_b),
-                    lut_slots=_slots_with_labels(base_slots, labels),
-                    source_frame_index=source_frame_index,
-                    semantic_labels=tuple(
-                        label for label in labels if label != "blank"
-                    ),
-                )
-            )
+        )
+            
     startup_policy = StartupPolicy(
         "blank_leader",
         args.paired_startup_leader_vsyncs,
@@ -513,199 +440,6 @@ def build_count_static_sequence(
         provider=FrameSequenceProvider(frame_tuple, repeat=True),
         startup_pair=startup_pair,
         b_lut_plan=DmdLutPlan(tuple(entries_b), timing_b, role="static_hold"),
-    )
-
-
-def build_provider_backed_sequence(
-    args: ArgsNamespace,
-    *,
-    target_hz: float,
-    width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-) -> PairedDisplaySequence:
-    entries, timing = build_lut_entries(
-        target_hz,
-        sequence_utilization=args.seq_utilization,
-        trig2_frame_zero=args.trig2_frame_zero,
-        entries_count=None,
-        per_entry_exposure_us=args.exposure_us,
-        dark_time_us=args.dark_time_us,
-    )
-    provider = _make_basic_provider(args, width=width, height=height)
-    slots = _slots_from_lut_entries(entries, semantic_role=args.test)
-    frames = (
-        TimedFramePair(
-            frame_pair=as_frame_pair(provider.initial_pair()),
-            lut_slots=slots,
-            source_frame_index=0,
-            semantic_labels=(args.test,),
-        ),
-    )
-    return PairedDisplaySequence(
-        frames=frames,
-        startup_policy=StartupPolicy("blank_leader", args.paired_startup_leader_vsyncs),
-        repeat=True,
-        target_hz=target_hz,
-        timing=timing,
-        mode_metadata={},
-        provider=provider,
-    )
-
-
-def build_kernel_static_sequence(
-    args: ArgsNamespace,
-    *,
-    target_hz: float,
-    engine: object | None = None,
-    width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-) -> PairedDisplaySequence:
-    entries_count, exposure_us = compute_kernel_lut_override(
-        enabled=True,
-        exposure_us=args.exposure_us,
-        target_hz=target_hz,
-        sequence_utilization=args.seq_utilization,
-        dark_time_us=args.dark_time_us,
-    )
-    entries, timing = build_lut_entries(
-        target_hz,
-        sequence_utilization=args.seq_utilization,
-        trig2_frame_zero=args.trig2_frame_zero,
-        entries_count=entries_count,
-        per_entry_exposure_us=exposure_us,
-        dark_time_us=args.dark_time_us,
-    )
-    slots = _slots_from_lut_entries(entries, semantic_role="kernel")
-    single_a = HalfFramePackingAdapter(
-        width=width,
-        height=height,
-        window=getattr(engine, "window", None),
-    )
-    kernel_frames, metadata = build_kernel_frames(
-        single_a,
-        kernel_px=args.kernel_px,
-        slots_per_frame=len(slots),
-        leader_frames=args.kernel_leader_frames,
-        blank_end_frame=args.kernel_blank_end_frame,
-    )
-    frame_b = generate_static_frame(
-        args.test_b or "checkerboard",
-        width=width,
-        height=height,
-        route_label="B",
-        dot_x=args.b_dot_x,
-        dot_y=args.b_dot_y,
-        dot_radius=args.b_dot_radius,
-        dot_shape=args.b_dot_shape,
-        dot_invert=args.b_dot_invert,
-    )
-    frames = tuple(
-        TimedFramePair(
-            frame_pair=FramePair(a=frame_a, b=frame_b),
-            lut_slots=slots,
-            source_frame_index=index,
-            semantic_labels=(f"kernel-frame:{index}",),
-        )
-        for index, frame_a in enumerate(kernel_frames)
-    )
-    terminal_pair = (
-        FramePair(a=metadata["black_frame"], b=frame_b)
-        if args.kernel_single_shot
-        else None
-    )
-    return PairedDisplaySequence(
-        frames=frames,
-        startup_policy=StartupPolicy("blank_leader", args.paired_startup_leader_vsyncs),
-        repeat=not args.kernel_single_shot,
-        target_hz=target_hz,
-        timing=timing,
-        mode_metadata={
-            "kernel": {
-                **{
-                    key: value
-                    for key, value in metadata.items()
-                    if key != "black_frame"
-                },
-                "kernel_px": args.kernel_px,
-                "single_shot": args.kernel_single_shot,
-                "blank_end_frame": args.kernel_blank_end_frame,
-            }
-        },
-        provider=FrameSequenceProvider(
-            frames,
-            repeat=not args.kernel_single_shot,
-            terminal_pair=terminal_pair,
-        ),
-    )
-
-
-def build_calibration_dot_sequence(
-    args: ArgsNamespace,
-    *,
-    target_hz: float,
-    engine: object | None = None,
-    width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-) -> PairedDisplaySequence:
-    entries, timing = build_lut_entries(
-        target_hz,
-        sequence_utilization=args.seq_utilization,
-        trig2_frame_zero=args.trig2_frame_zero,
-        entries_count=None,
-        per_entry_exposure_us=args.exposure_us,
-        dark_time_us=args.dark_time_us,
-    )
-    slots = _slots_from_lut_entries(entries, semantic_role="calibration")
-    single_a = HalfFramePackingAdapter(
-        width=width,
-        height=height,
-        window=getattr(engine, "window", None),
-    )
-    initial_state = default_calibration_square_state(width, height)
-    initial_frame = build_calibration_square_frame(single_a, initial_state)
-    try:
-        frame_provider_a = make_calibration_square_frame_provider(
-            single_a,
-            initial_frame,
-            control_file=args.a_calibr_square_control_file,
-            initial_state=initial_state,
-        )
-    except ModuleNotFoundError as exc:
-        if exc.name != "glfw":
-            raise
-        frame_provider_a = _StaticFrameProvider(initial_frame)
-    frame_b = generate_dot_frame(
-        width=width,
-        height=height,
-        x=args.b_dot_x,
-        y=args.b_dot_y,
-        radius=args.b_dot_radius,
-        shape=args.b_dot_shape,
-        invert=args.b_dot_invert,
-    )
-    provider = CalibrationSquareDotPairFrameProvider(
-        frame_provider_a,
-        frame_b,
-        initial_frame_a=initial_frame,
-        flicker_a=True,
-    )
-    return PairedDisplaySequence(
-        frames=(
-            TimedFramePair(
-                frame_pair=as_frame_pair(provider.initial_pair()),
-                lut_slots=slots,
-                source_frame_index=0,
-                semantic_labels=("calibration",),
-            ),
-        ),
-        startup_policy=StartupPolicy("blank_leader", args.paired_startup_leader_vsyncs),
-        repeat=True,
-        target_hz=target_hz,
-        timing=timing,
-        mode_metadata={
-            "calibration": {"control_file": args.a_calibr_square_control_file}
-        },
-        provider=provider,
     )
 
 

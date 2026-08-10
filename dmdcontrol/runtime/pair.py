@@ -100,6 +100,8 @@ def _prepare_pair_controllers(
 
 
 def main(
+    fm: np.ndarray,
+    k: np.ndarray,
     args: argparse.Namespace,
     *,
     pair_config: PairConfig | None = None,
@@ -126,12 +128,9 @@ def main(
     preview_poster: LivePreviewPoster | None = None
     try:
         engine = PairedPatternEngine()
-        sequence = build_paired_display_sequence(
-            args,
-            target_hz=pair_config.target_hz,
-            engine=engine,
-            width=DMD_WIDTH,
-            height=DMD_HEIGHT,
+        sequence = build_dynamic_fm_sequence(
+            fm,
+            k,
         )
 
         plan_a = sequence.lut_plan_a()
