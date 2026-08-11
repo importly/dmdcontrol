@@ -62,7 +62,7 @@ class CountSequenceConfig:
         cls,
         args: ArgsNamespace,
         *,
-        require_resolved_slots: Literal[True] = True,) -> "CountSequenceConfig":
+        require_resolved_slots: Literal[True] = True,) -> CountSequenceConfig:
         ...
 
     @classmethod
