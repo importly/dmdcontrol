@@ -1,19 +1,14 @@
-"""Pair-shared calibration and decimal count pattern primitives."""
-
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import NDArray
 
-from dmdcontrol.support.constants import (
-    DEFAULT_CALIBRATION_SQUARE_FRACTION,
-    DMD_HEIGHT,
-    DMD_WIDTH,
-    MIN_CALIBRATION_SQUARE_PX,
-)
+from dmdcontrol.utils import CONFIG
+
+DMD_WIDTH = CONFIG.get('DMD', {}).get('width')
+DMD_HEIGHT = CONFIG.get('DMD', {}).get('height')
 
 BinaryMask = NDArray[np.uint8]
 RGBFrame = NDArray[np.uint8]
@@ -76,173 +71,6 @@ _DECIMAL_DIGIT_SEGMENTS = {
     **_DIGIT_SEGMENTS,
 }
 
-
-@dataclass(frozen=True)
-class CalibrationSquareState:
-    x: float
-    y: float
-    size: float
-    angle_deg: float = 0.0
-
-
-def _clamp(value: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, value))
-
-
-def default_calibration_square_state(
-    width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,) -> CalibrationSquareState:
-    size = max(
-        MIN_CALIBRATION_SQUARE_PX,
-        min(width,
-            height) * DEFAULT_CALIBRATION_SQUARE_FRACTION,
-    )
-    return CalibrationSquareState(
-        x=width / 2.0,
-        y=height / 2.0,
-        size=float(size),
-        angle_deg=0.0,
-    )
-
-
-def clamp_calibration_square_state(
-    state: CalibrationSquareState,
-    width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,) -> CalibrationSquareState:
-    max_size = max(MIN_CALIBRATION_SQUARE_PX, min(width, height))
-    return CalibrationSquareState(
-        x=float(_clamp(state.x,
-                       0.0,
-                       max(0.0,
-                           width - 1.0))),
-        y=float(_clamp(state.y,
-                       0.0,
-                       max(0.0,
-                           height - 1.0))),
-        size=float(_clamp(state.size,
-                          MIN_CALIBRATION_SQUARE_PX,
-                          max_size)),
-        angle_deg=float(state.angle_deg % 360.0),
-    )
-
-
-def calibration_square_bounds(
-    state: CalibrationSquareState,
-    width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,) -> tuple[int, int, int, int]:
-    half = state.size / 2.0
-    angle = np.deg2rad(state.angle_deg)
-    cos_a = np.cos(angle)
-    sin_a = np.sin(angle)
-    xs = []
-    ys = []
-    for local_x, local_y in (
-        (-half, -half),
-        (half, -half),
-        (half, half),
-        (-half, half),
-    ):
-        xs.append(state.x + cos_a * local_x - sin_a * local_y)
-        ys.append(state.y + sin_a * local_x + cos_a * local_y)
-    return (
-        int(_clamp(np.floor(min(xs)),
-                   0,
-                   max(0,
-                       width - 1))),
-        int(_clamp(np.floor(min(ys)),
-                   0,
-                   max(0,
-                       height - 1))),
-        int(_clamp(np.ceil(max(xs)),
-                   0,
-                   max(0,
-                       width - 1))),
-        int(_clamp(np.ceil(max(ys)),
-                   0,
-                   max(0,
-                       height - 1))),
-    )
-
-
-def apply_calibration_square_commands(
-    state: CalibrationSquareState,
-    commands: Iterable[str],
-    width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-    move_px: int = 10,
-    rotation_deg: float = 2,
-    size_step_px: int = 10,) -> CalibrationSquareState:
-    x = state.x
-    y = state.y
-    size = state.size
-    angle = state.angle_deg
-    for command in commands:
-        command = command.lower()
-        if command == "w":
-            y -= move_px
-        elif command == "s":
-            y += move_px
-        elif command == "a":
-            x -= move_px
-        elif command == "d":
-            x += move_px
-        elif command == "q":
-            angle -= rotation_deg
-        elif command == "e":
-            angle += rotation_deg
-        elif command == "r":
-            size += size_step_px
-        elif command == "f":
-            size -= size_step_px
-    return clamp_calibration_square_state(
-        CalibrationSquareState(x=x,
-                               y=y,
-                               size=size,
-                               angle_deg=angle),
-        width=width,
-        height=height,
-    )
-
-
-def generate_calibration_square_mask(
-    width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-    center_x: float | None = None,
-    center_y: float | None = None,
-    size_px: float | None = None,
-    angle_deg: float = 0.0,) -> BinaryMask:
-    if width <= 0 or height <= 0:
-        raise ValueError("width and height must be positive")
-    if center_x is None:
-        center_x = width / 2.0
-    if center_y is None:
-        center_y = height / 2.0
-    if size_px is None:
-        size_px = default_calibration_square_state(width, height).size
-    if size_px <= 0:
-        raise ValueError("size_px must be positive")
-
-    mask = np.zeros((height, width), dtype=np.uint8)
-    half = size_px / 2.0
-    radius = int(np.ceil(half * np.sqrt(2.0))) + 2
-    x0 = max(0, int(np.floor(center_x - radius)))
-    x1 = min(width, int(np.ceil(center_x + radius)) + 1)
-    y0 = max(0, int(np.floor(center_y - radius)))
-    y1 = min(height, int(np.ceil(center_y + radius)) + 1)
-    if x1 <= x0 or y1 <= y0:
-        return mask
-
-    yy, xx = np.ogrid[y0:y1, x0:x1]
-    dx = xx - center_x
-    dy = yy - center_y
-    angle = np.deg2rad(angle_deg)
-    cos_a = np.cos(angle)
-    sin_a = np.sin(angle)
-    local_x = cos_a * dx + sin_a * dy
-    local_y = -sin_a * dx + cos_a * dy
-    local_mask = (np.abs(local_x) <= half) & (np.abs(local_y) <= half)
-    mask[y0:y1, x0:x1][local_mask] = 1
-    return mask
 
 
 def _fill_rect(img: RGBFrame, x0: int, y0: int, x1: int, y1: int) -> None:

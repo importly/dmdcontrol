@@ -17,13 +17,6 @@ Camera:
   width: 346
   height: 260
     
-# Anything below is WIP
-DMD_TMP:
-  channel: TRIG_OUT_2
-  source_dmd: A
-  edge: rising
-  rising_delay_us: timing["rising_delay_us"] # 0
-  falling_delay_us: timing["falling_delay_us"] # 20
 DMD:
   A:
     usb_id_path: pci-0000:03:00.0-usb-0:1:1.0
@@ -41,8 +34,18 @@ DMD:
   safe_margin_us: 250.0
   min_exposure_us: 150
   frame_utilization: 1.0
+  dual_pixel: False
+  exposure_us: 16000
   # constants
   dark_time_us: 0
   bitplanes: 24
   VID: 0x0451
   PID: 0xC900
+  max_binary_rate_hz: 9523
+  max_vsync_deviation_ratio: 0.25
+  trigger_out:
+    channel: TRIG_OUT_2
+    source_dmd: A
+    edge: rising
+    pulse_width_us: 20
+    rising_delay_us: 0
