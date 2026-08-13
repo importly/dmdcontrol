@@ -320,7 +320,6 @@ def prepare_dlpc900_for_video_pattern(
 
     entries, timing = build_lut_entries(
         entries_count=entries_count,
-        display_dimensions=dlpc.get_display_dimensions(),
     )
     trigger_out_2_timing = compute_trigger_out_2_timing()
     dlpc.configure_trigger_out_2(

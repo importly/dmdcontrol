@@ -1,14 +1,12 @@
 """DLPC900 status formatting, polling, and runtime health checks."""
 
 from __future__ import annotations
-
 import time
-from typing import TYPE_CHECKING
+import logging
+from dmdcontrol.dmd import DLPC900
 
-from dmdcontrol.support.logging import logger
 
-if TYPE_CHECKING:
-    from dmdcontrol.hardware.dlpc900 import DLPC900
+logger = logging.getLogger('DLPC900_status')
 
 
 def _format_hw(hw: int | None) -> str:
@@ -36,7 +34,7 @@ def _format_hw(hw: int | None) -> str:
 
 
 
-def wait_for_external_lock(dlpc: "DLPC900", timeout_s: float = 4.0) -> bool:
+def wait_for_external_lock(dlpc: DLPC900, timeout_s: float = 4.0) -> bool:
     start = time.time()
     while time.time() - start < timeout_s:
         ms = dlpc.get_main_status()
@@ -47,7 +45,7 @@ def wait_for_external_lock(dlpc: "DLPC900", timeout_s: float = 4.0) -> bool:
 
 
 def wait_for_stable_external_lock(
-    dlpc: "DLPC900",
+    dlpc: DLPC900,
     *,
     timeout_s: float,
     stable_for_s: float = 0.25,
@@ -95,7 +93,7 @@ def wait_for_stable_external_lock(
         time.sleep(min(poll_interval_s, remaining_s))
 
 
-def wait_for_sequencer_running(dlpc: "DLPC900", timeout_s: float = 1.5) -> bool:
+def wait_for_sequencer_running(dlpc: DLPC900, timeout_s: float = 1.5) -> bool:
     start = time.time()
     while time.time() - start < timeout_s:
         ms = dlpc.get_main_status()
@@ -105,7 +103,7 @@ def wait_for_sequencer_running(dlpc: "DLPC900", timeout_s: float = 1.5) -> bool:
     return False
 
 
-def _bit6_is_cosmetic(dlpc: "DLPC900", hw: int | None) -> bool:
+def _bit6_is_cosmetic(dlpc: DLPC900, hw: int | None) -> bool:
     """Return True when bit 6 is latched but all real health signals are good."""
     if hw is None or not (hw & 0x40):
         return False
@@ -119,7 +117,7 @@ def _bit6_is_cosmetic(dlpc: "DLPC900", hw: int | None) -> bool:
 
 
 def ensure_video_pattern_mode(
-    dlpc: "DLPC900",
+    dlpc: DLPC900,
     retries: int = 3,
     poll_timeout_s: float = 1.2,) -> bool:
     mode, _ = dlpc.get_display_mode()
@@ -127,8 +125,7 @@ def ensure_video_pattern_mode(
         return True
 
     for attempt in range(1, retries + 1):
-        logger.warning(
-            f"Mode readback shows {mode}, not 2! Retrying mode transition ({attempt}/{retries})...")
+        logger.warning('Mode readback shows %d, not 2! Retrying mode transition (%d/%d)...', mode, attempt, retries)
         dlpc.set_display_mode(0x02)
 
         time.sleep(0.35)
@@ -136,11 +133,11 @@ def ensure_video_pattern_mode(
         while time.time() < deadline:
             mode, _ = dlpc.get_display_mode()
             if mode == 2:
-                logger.debug(f"  - After retry {attempt}, mode readback: {mode}")
+                logger.debug('  - After retry %d, mode readback: %d', attempt, mode)
                 return True
             time.sleep(0.1)
 
-        logger.debug(f"  - After retry {attempt}, mode readback: {mode}")
+        logger.debug('  - After retry %d, mode readback: %d', attempt, mode)
 
     return False
 

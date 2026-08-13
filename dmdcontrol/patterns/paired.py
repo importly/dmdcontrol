@@ -427,15 +427,15 @@ def pack_sequence_frames(data: np.ndarray) -> np.ndarray:
     Args:
         data (np.ndarray): A 3D numpy array of shape (batch_size, height, width) containing binary masks.
     '''
-    frames = np.zeros((data.shape[0] * 2, data.shape[1], data.shape[2], 3), dtype=np.uint8)
+    frames = np.zeros((data.shape[0] * 4, data.shape[1], data.shape[2], 3), dtype=np.uint8)
     for i, fm in enumerate(data):
         # Positive 
         pos_mask = pos_img(fm)
-        frames[2*i, :, :, 1] = pos_mask
+        frames[4*i, :, :, 1] = pos_mask
         
         # Negative
         neg_mask = neg_img(fm)
-        frames[2*i + 1, :, :, 1] = neg_mask
+        frames[4*i + 2, :, :, 1] = neg_mask
         
     frames = np.ascontiguousarray(frames)
     return frames
@@ -453,7 +453,7 @@ def pack_static_frames(data: np.ndarray, batch_size: int, pos: bool) -> np.ndarr
         raise ValueError("`data` must be a 2D numpy array")
 
     frames = pos_img(data) if pos else neg_img(data)
-    frames = np.expand_dims(frames, axis=[0,-1])
+    frames = np.expand_dims(frames, axis=(0,-1))
     frames = np.tile(frames, (batch_size, 1, 1, 3))
     frames = np.ascontiguousarray(frames)
     return frames
