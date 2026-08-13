@@ -18,52 +18,20 @@ multiple selected bitplanes from the same live RGB frame.
 
 from __future__ import annotations
 
-from argparse import Namespace
-from collections.abc import Iterable
 from dataclasses import dataclass, field
-from types import SimpleNamespace
-from typing import Literal, TypedDict
+from typing import NotRequired, Literal, TypedDict
+import logging
 
 import numpy as np
 
-from dmdcontrol.preview.render import build_lut_preview_metadata
-
-from dmdcontrol.patterns.calibration_square import (
-    build_calibration_square_frame,
-    make_calibration_square_frame_provider,
-)
-from dmdcontrol.patterns.kernel import (
-    build_kernel_frames,
-    compute_kernel_lut_override,
-)
-from dmdcontrol.patterns.modes import default_calibration_square_state
 from dmdcontrol.patterns.paired import (
-    A_COUNT_B_STATIC_PAIR_TEST,
-    CALIBRATION_DOT_PAIR_TEST,
-    KERNEL_STATIC_PAIR_TEST,
-    STATIC_IMAGES_PAIR_TEST,
-    STATIC_PAIR_TESTS,
-    CalibrationSquareDotPairFrameProvider,
     FramePair,
     PairFrameProvider,
-    RGBFrame,
-    HalfFramePackingAdapter,
-    as_frame_pair,
-    generate_dot_frame,
-    generate_static_frame,
-    make_pair_frame_provider,
-    pack_count_sequence_frames,
 )
-from dmdcontrol.runtime.count_slots import CountSequenceConfig
-from dmdcontrol.runtime.lifecycle import (
-    LutEntry,
-    LutTimingMetadata,
-    build_lut_entries,
-)
-from dmdcontrol.support.constants import DEFAULT_HZ, DMD_HEIGHT, DMD_WIDTH
+from dmdcontrol.patterns import pack_sequence_frames, pack_static_frames
+from dmdcontrol.utils import CONFIG
 
-ArgsNamespace = Namespace | SimpleNamespace
-
+logger = logging.getLogger('DisplaySequence')
 
 class StartupLeaderMetadata(TypedDict):
     vsyncs: int
@@ -139,6 +107,54 @@ class LutSlot:
             image_pattern_index=0,
             wait_for_trigger=bool(frame_change),
         )
+        
+        
+@dataclass(frozen=True)
+class LutEntry:
+    pattern_index: int
+    exposure_us: int
+    clear_after: bool
+    bit_depth: int
+    led_select: int
+    dark_us: int
+    trig2_disabled: bool
+    bit_position: int
+    image_pattern_index: int = 0
+    wait_for_trigger: bool = False
+
+    @property
+    def bitplane_index(self) -> int:
+        """Selected video bit/frame position; kept as a compatibility alias."""
+        return self.bit_position
+
+
+class TriggerOutTiming(TypedDict):
+    channel: str
+    edge: str
+    rising_delay_us: int
+    falling_delay_us: int
+    pulse_width_us: int
+
+
+class LutTimingMetadata(TypedDict):
+    timing_source: str
+    sequence_utilization: float
+    frame_period_us: float
+    safe_frame_period_us: float
+    usable_frame_period_us: float
+    safe_margin_us: float
+    measured_frame_hz: float | None
+    effective_frame_hz: float
+    requested_binary_rate_hz: float
+    effective_binary_rate_hz: float
+    exposure_us: int
+    dark_us: int
+    total_sequence_us: float
+    idle_headroom_us: float
+    entries_count: int
+    clear_last_after_exposure: NotRequired[bool]
+    hold_last_pattern_until_vsync: NotRequired[bool]
+    trigger_out_2: NotRequired[TriggerOutTiming]
 
 
 @dataclass(frozen=True)
@@ -289,21 +305,6 @@ class PairedDisplaySequence:
             ],
         }
 
-    def preview_metadata(self) -> dict[str, object]:
-        metadata = dict(self.mode_metadata)
-        metadata["display_sequence"] = self.metadata()
-        plan_a = self.lut_plan_a()
-        plan_b = self.lut_plan_for_b()
-        preview_a = build_lut_preview_metadata(plan_a.entries, plan_a.timing)
-        preview_b = build_lut_preview_metadata(plan_b.entries, plan_b.timing)
-        metadata["lut"] = preview_a
-        metadata["lut_by_dmd"] = {
-            "A": {"role": plan_a.role, "lut": preview_a},
-            "B": {"role": plan_b.role, "lut": preview_b},
-        }
-        metadata["lut_applies_to"] = ["A", "B"] if self.b_lut_plan is None else ["A"]
-        return metadata
-
     def expected_trigger_count(self) -> int:
         return sum(
             1 for frame in self.frames for slot in frame.lut_slots if slot.trig2_enabled
@@ -347,162 +348,61 @@ class FrameSequenceProvider(PairFrameProvider):
         self._next_index += 1
         return self._frames[self.frame_index].frame_pair
 
-
-def build_paired_display_sequence(
-    args: ArgsNamespace,
-    *,
-    target_hz: float = DEFAULT_HZ,
-    engine: object | None = None,
-    width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
+def build_dynamic_fm_sequence(
+    fm: np.ndarray,
+    k: np.ndarray,
 ) -> PairedDisplaySequence:
-    if getattr(args, "exposure_us", None) is None:
-        raise ValueError("--exposure-us is required for paired LUT workflows")
-    if args.test == A_COUNT_B_STATIC_PAIR_TEST:
-        return build_count_static_sequence(
-            args,
-            target_hz=target_hz,
-            width=width,
-            height=height,
-        )
-    if args.test == KERNEL_STATIC_PAIR_TEST:
-        return build_kernel_static_sequence(
-            args,
-            target_hz=target_hz,
-            engine=engine,
-            width=width,
-            height=height,
-        )
-    if args.test == CALIBRATION_DOT_PAIR_TEST:
-        return build_calibration_dot_sequence(
-            args,
-            target_hz=target_hz,
-            engine=engine,
-            width=width,
-            height=height,
-        )
-    if (
-        args.test in STATIC_PAIR_TESTS
-        or args.test == STATIC_IMAGES_PAIR_TEST
-        or args.test == "snake"
-    ):
-        return build_provider_backed_sequence(
-            args,
-            target_hz=target_hz,
-            width=width,
-            height=height,
-        )
-    raise ValueError(f"Unsupported paired display sequence mode: {args.test}")
-
-
-def build_count_static_sequence(
-    args: ArgsNamespace,
-    *,
-    target_hz: float,
-    width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-) -> PairedDisplaySequence:
-    count_config = CountSequenceConfig.from_args(args)
-    entries, timing = build_lut_entries(
-        target_hz,
-        sequence_utilization=args.seq_utilization,
-        trig2_frame_zero=args.trig2_frame_zero,
-        entries_count=count_config.lut_entries_per_frame,
-        per_entry_exposure_us=args.exposure_us,
-        dark_time_us=args.dark_time_us,
+    # Build LUT entries and slots for one frame
+    entries, base_slots, timing = build_lut_entries(
+        clear_last_after_exposure=True
     )
-    base_slots = _slots_from_lut_entries(entries, semantic_role="count")
+    
     # Count mode owns its frame packing here so LUT slots and RGB bitplanes are built together.
-    frames_a = pack_count_sequence_frames(
-        args.count_start,
-        args.count_end,
-        args.count_slots_per_frame,
-        width=width,
-        height=height,
-        size_px=args.numbers_size_px,
-        count_blank_between_frames=args.count_blank_between_frames,
+    frames_a = pack_sequence_frames(fm)
+    frame_b = pack_static_frames(
+        data = k,
+        batch_size = len(frames_a),
+        pos = True,
     )
-    frame_b = generate_static_frame(
-        args.test_b or "dot",
-        width=width,
-        height=height,
-        route_label="B",
-        dot_x=args.b_dot_x,
-        dot_y=args.b_dot_y,
-        dot_radius=args.b_dot_radius,
-        dot_shape=args.b_dot_shape,
-        dot_invert=args.b_dot_invert,
-    )
-    entries_b, timing_b = build_lut_entries(
-        target_hz,
-        sequence_utilization=args.seq_utilization,
+    # Match A's already-resolved exposure instead of filling B to the
+    # nominal VSYNC budget. The latter is fragile when the controller's
+    # measured VSYNC is a fraction faster than the requested refresh rate.
+    # B still remains continuously visible because clear_after is false.
+    entries_b, timing_b, timing_b = build_lut_entries(
         trig2_frame_zero=True,
-        entries_count=1,
-        # Match A's already-resolved exposure instead of filling B to the
-        # nominal VSYNC budget. The latter is fragile when the controller's
-        # measured VSYNC is a fraction faster than the requested refresh rate.
-        # B still remains continuously visible because clear_after is false.
-        per_entry_exposure_us=timing["exposure_us"],
-        dark_time_us=0,
         clear_last_after_exposure=False,
     )
     frames: list[TimedFramePair] = []
-    counts = tuple(range(args.count_start, args.count_end + 1))
-    if args.count_blank_between_frames:
-        if len(base_slots) != 1:
-            raise ValueError(
-                "count blank insertion expects one LUT slot per source frame"
+    
+    base_slot = base_slots[0]
+    for source_frame_index, frame_a in enumerate(frames_a):
+        labels = [f"frame:{source_frame_index}"]
+
+        frames.append(
+            TimedFramePair(
+                frame_pair=FramePair(a=frame_a, b=frame_b),
+                lut_slots=_slots_with_labels((base_slot,), labels),
+                source_frame_index=source_frame_index,
+                semantic_labels=tuple(labels),
             )
-        base_slot = base_slots[0]
-        for source_frame_index, frame_a in enumerate(frames_a):
-            if source_frame_index % 2 == 0:
-                count = counts[source_frame_index // 2]
-                labels = [f"count:{count}"]
-            else:
-                labels = ["blank"]
-            frames.append(
-                TimedFramePair(
-                    frame_pair=FramePair(a=frame_a, b=frame_b),
-                    lut_slots=_slots_with_labels((base_slot,), labels),
-                    source_frame_index=source_frame_index,
-                    semantic_labels=tuple(labels),
-                )
-            )
-    else:
-        for source_frame_index, (frame_a, offset) in enumerate(
-            zip(frames_a, range(0, len(counts), args.count_slots_per_frame))
-        ):
-            labels = _count_slot_labels(
-                counts[offset : offset + args.count_slots_per_frame],
-                blank_after_each_count=False,
-            )
-            frames.append(
-                TimedFramePair(
-                    frame_pair=FramePair(a=frame_a, b=frame_b),
-                    lut_slots=_slots_with_labels(base_slots, labels),
-                    source_frame_index=source_frame_index,
-                    semantic_labels=tuple(
-                        label for label in labels if label != "blank"
-                    ),
-                )
-            )
+        )
+            
     startup_policy = StartupPolicy(
         "blank_leader",
-        args.paired_startup_leader_vsyncs,
+        CONFIG.get('DMD', {}).get('paired_startup_leader_vsyncs', 16),
         frame_role="a_blank_b_static",
     )
-    startup_pair = FramePair(a=np.zeros((height, width, 3), dtype=np.uint8), b=frame_b)
+    startup_pair = FramePair(a=np.zeros((CONFIG.get('DMD', {}).get('height', 1080), CONFIG.get('DMD', {}).get('width', 1920), 3), dtype=np.uint8), b=frame_b)
     frame_tuple = tuple(frames)
     return PairedDisplaySequence(
         frames=frame_tuple,
         startup_policy=startup_policy,
         repeat=True,
-        target_hz=target_hz,
+        target_hz=CONFIG.get('DMD', {}).get('target_hz', 60.0),
         timing=timing,
         mode_metadata={
             "count": {
-                **count_config.to_pair_preview_metadata(),
-                "exposure_us": args.exposure_us,
+                "exposure_us": CONFIG.get('DMD', {}).get('exposure_us'),
             },
             "static_b": {
                 "continuous_hold": True,
@@ -511,223 +411,9 @@ def build_count_static_sequence(
             },
         },
         provider=FrameSequenceProvider(frame_tuple, repeat=True),
-        startup_pair=startup_pair,
+        startup_pair=startup_pair, # blank start up sequence frames
         b_lut_plan=DmdLutPlan(tuple(entries_b), timing_b, role="static_hold"),
     )
-
-
-def build_provider_backed_sequence(
-    args: ArgsNamespace,
-    *,
-    target_hz: float,
-    width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-) -> PairedDisplaySequence:
-    entries, timing = build_lut_entries(
-        target_hz,
-        sequence_utilization=args.seq_utilization,
-        trig2_frame_zero=args.trig2_frame_zero,
-        entries_count=None,
-        per_entry_exposure_us=args.exposure_us,
-        dark_time_us=args.dark_time_us,
-    )
-    provider = _make_basic_provider(args, width=width, height=height)
-    slots = _slots_from_lut_entries(entries, semantic_role=args.test)
-    frames = (
-        TimedFramePair(
-            frame_pair=as_frame_pair(provider.initial_pair()),
-            lut_slots=slots,
-            source_frame_index=0,
-            semantic_labels=(args.test,),
-        ),
-    )
-    return PairedDisplaySequence(
-        frames=frames,
-        startup_policy=StartupPolicy("blank_leader", args.paired_startup_leader_vsyncs),
-        repeat=True,
-        target_hz=target_hz,
-        timing=timing,
-        mode_metadata={},
-        provider=provider,
-    )
-
-
-def build_kernel_static_sequence(
-    args: ArgsNamespace,
-    *,
-    target_hz: float,
-    engine: object | None = None,
-    width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-) -> PairedDisplaySequence:
-    entries_count, exposure_us = compute_kernel_lut_override(
-        enabled=True,
-        exposure_us=args.exposure_us,
-        target_hz=target_hz,
-        sequence_utilization=args.seq_utilization,
-        dark_time_us=args.dark_time_us,
-    )
-    entries, timing = build_lut_entries(
-        target_hz,
-        sequence_utilization=args.seq_utilization,
-        trig2_frame_zero=args.trig2_frame_zero,
-        entries_count=entries_count,
-        per_entry_exposure_us=exposure_us,
-        dark_time_us=args.dark_time_us,
-    )
-    slots = _slots_from_lut_entries(entries, semantic_role="kernel")
-    single_a = HalfFramePackingAdapter(
-        width=width,
-        height=height,
-        window=getattr(engine, "window", None),
-    )
-    kernel_frames, metadata = build_kernel_frames(
-        single_a,
-        kernel_px=args.kernel_px,
-        slots_per_frame=len(slots),
-        leader_frames=args.kernel_leader_frames,
-        blank_end_frame=args.kernel_blank_end_frame,
-    )
-    frame_b = generate_static_frame(
-        args.test_b or "checkerboard",
-        width=width,
-        height=height,
-        route_label="B",
-        dot_x=args.b_dot_x,
-        dot_y=args.b_dot_y,
-        dot_radius=args.b_dot_radius,
-        dot_shape=args.b_dot_shape,
-        dot_invert=args.b_dot_invert,
-    )
-    frames = tuple(
-        TimedFramePair(
-            frame_pair=FramePair(a=frame_a, b=frame_b),
-            lut_slots=slots,
-            source_frame_index=index,
-            semantic_labels=(f"kernel-frame:{index}",),
-        )
-        for index, frame_a in enumerate(kernel_frames)
-    )
-    terminal_pair = (
-        FramePair(a=metadata["black_frame"], b=frame_b)
-        if args.kernel_single_shot
-        else None
-    )
-    return PairedDisplaySequence(
-        frames=frames,
-        startup_policy=StartupPolicy("blank_leader", args.paired_startup_leader_vsyncs),
-        repeat=not args.kernel_single_shot,
-        target_hz=target_hz,
-        timing=timing,
-        mode_metadata={
-            "kernel": {
-                **{
-                    key: value
-                    for key, value in metadata.items()
-                    if key != "black_frame"
-                },
-                "kernel_px": args.kernel_px,
-                "single_shot": args.kernel_single_shot,
-                "blank_end_frame": args.kernel_blank_end_frame,
-            }
-        },
-        provider=FrameSequenceProvider(
-            frames,
-            repeat=not args.kernel_single_shot,
-            terminal_pair=terminal_pair,
-        ),
-    )
-
-
-def build_calibration_dot_sequence(
-    args: ArgsNamespace,
-    *,
-    target_hz: float,
-    engine: object | None = None,
-    width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-) -> PairedDisplaySequence:
-    entries, timing = build_lut_entries(
-        target_hz,
-        sequence_utilization=args.seq_utilization,
-        trig2_frame_zero=args.trig2_frame_zero,
-        entries_count=None,
-        per_entry_exposure_us=args.exposure_us,
-        dark_time_us=args.dark_time_us,
-    )
-    slots = _slots_from_lut_entries(entries, semantic_role="calibration")
-    single_a = HalfFramePackingAdapter(
-        width=width,
-        height=height,
-        window=getattr(engine, "window", None),
-    )
-    initial_state = default_calibration_square_state(width, height)
-    initial_frame = build_calibration_square_frame(single_a, initial_state)
-    try:
-        frame_provider_a = make_calibration_square_frame_provider(
-            single_a,
-            initial_frame,
-            control_file=args.a_calibr_square_control_file,
-            initial_state=initial_state,
-        )
-    except ModuleNotFoundError as exc:
-        if exc.name != "glfw":
-            raise
-        frame_provider_a = _StaticFrameProvider(initial_frame)
-    frame_b = generate_dot_frame(
-        width=width,
-        height=height,
-        x=args.b_dot_x,
-        y=args.b_dot_y,
-        radius=args.b_dot_radius,
-        shape=args.b_dot_shape,
-        invert=args.b_dot_invert,
-    )
-    provider = CalibrationSquareDotPairFrameProvider(
-        frame_provider_a,
-        frame_b,
-        initial_frame_a=initial_frame,
-        flicker_a=True,
-    )
-    return PairedDisplaySequence(
-        frames=(
-            TimedFramePair(
-                frame_pair=as_frame_pair(provider.initial_pair()),
-                lut_slots=slots,
-                source_frame_index=0,
-                semantic_labels=("calibration",),
-            ),
-        ),
-        startup_policy=StartupPolicy("blank_leader", args.paired_startup_leader_vsyncs),
-        repeat=True,
-        target_hz=target_hz,
-        timing=timing,
-        mode_metadata={
-            "calibration": {"control_file": args.a_calibr_square_control_file}
-        },
-        provider=provider,
-    )
-
-
-def _slots_from_lut_entries(
-    entries: Iterable[LutEntry],
-    *,
-    semantic_role: str,
-) -> tuple[LutSlot, ...]:
-    slots: list[LutSlot] = []
-    for entry in entries:
-        slots.append(
-            LutSlot(
-                bitplane_index=int(entry.bit_position),
-                exposure_us=int(entry.exposure_us),
-                dark_us=int(entry.dark_us),
-                trig2_enabled=not bool(entry.trig2_disabled),
-                clear_after=bool(entry.clear_after),
-                semantic_role=semantic_role,
-                wait_for_trigger=bool(entry.wait_for_trigger),
-            )
-        )
-    return tuple(slots)
 
 
 def _slots_with_labels(
@@ -752,44 +438,163 @@ def _slots_with_labels(
     return tuple(labeled)
 
 
-def _count_slot_labels(
-    counts: Iterable[int], *, blank_after_each_count: bool
-) -> list[str]:
-    labels: list[str] = []
-    for count in counts:
-        labels.append(f"count:{count}")
-        if blank_after_each_count:
-            labels.append("blank")
-    return labels
+def build_lut_entries(
+    clear_last_after_exposure: bool = True,
+    trig2_frame_zero: bool = False,
+    ) -> tuple[list[LutEntry], tuple[LutSlot, ...], LutTimingMetadata]:
+    """
+    Builds the LUT entries for each bitplane
 
+    Args:
+        clear_last_after_exposure (bool, optional): wheter to clear the last entry after each exposure. Defaults to True.
+        trig2_frame_zero (bool, optional): whether to enable trig2 for the first frame. Defaults to False.
 
-def _make_basic_provider(
-    args: ArgsNamespace, *, width: int, height: int
-) -> PairFrameProvider:
-    if args.test in STATIC_PAIR_TESTS:
-        return make_pair_frame_provider(
-            args.test,
-            test_a=args.test_a,
-            test_b=args.test_b,
-            width=width,
-            height=height,
-            dot_radius=args.dot_radius,
+    Returns:
+        tuple[list[LutEntry], tuple[LutSlot], LutTimingMetadata]: list of LutEntry, list of LutSlot, and LutTimingMetadata
+    """
+    dmd = CONFIG.get('DMD', {})
+    target_hz = float(dmd.get('target_hz'))
+    bitplanes = dmd.get('bitplanes')
+    per_entry_exposure_us = int(dmd.get('exposure_us'))
+    min_exposure_us = dmd.get('min_exposure_us')
+    safe_margin_us = dmd.get('safe_margin_us')
+    dark_time_us = dmd.get('dark_time_us')
+    frame_utilization = dmd.get('frame_utilization')
+    max_binary_rate_hz = dmd.get('max_binary_rate_hz')
+    max_vsync_deviation_ratio = dmd.get('max_vsync_deviation_ratio')
+
+    measured_frame_hz = None
+    total_pixels = int(dmd.get('total_pixels_per_line')) * int(dmd.get('total_lines_per_frame'))
+    pixel_clock_hz = int(dmd.get('pixel_clock_khz')) * 1000
+    if total_pixels > 0 and pixel_clock_hz > 0:
+        measured_frame_hz = pixel_clock_hz / total_pixels
+
+    if measured_frame_hz is not None:
+        rel_err = abs(measured_frame_hz - target_hz) / target_hz
+        if rel_err > max_vsync_deviation_ratio:
+            logger.warning(
+                "Ignoring unstable measured VSYNC %.3f Hz (target %.3f Hz, deviation %.1f%%). "
+                "Using target Hz for LUT timing. Display dims at measurement: total=%sx%s, active=%sx%s, pclk=%skHz",
+                measured_frame_hz,
+                target_hz,
+                rel_err * 100.0,
+                dmd.get('total_pixels_per_line'),
+                dmd.get('total_lines_per_frame'),
+                dmd.get('active_pixels_per_line'),
+                dmd.get('active_lines_per_frame'),
+                dmd.get('pixel_clock_khz'),
+            )
+            measured_frame_hz = None
+
+    effective_frame_hz = measured_frame_hz if measured_frame_hz else target_hz
+    timing_source = 'measured' if measured_frame_hz else 'target_fallback'
+    frame_period_us = 1000000.0 / effective_frame_hz
+    safe_frame_period_us = frame_period_us - safe_margin_us
+    if safe_frame_period_us <= 0:
+        logger.error('Frame period %.2f us is not larger than safety margin %.2f us.', frame_period_us, safe_margin_us)
+        raise ValueError(
+            f"Frame period {frame_period_us:.2f} us is not larger than safety margin {safe_margin_us:.2f} us."
         )
-    if args.test == STATIC_IMAGES_PAIR_TEST:
-        return make_pair_frame_provider(
-            args.test,
-            static_image_a=args.static_image_a,
-            static_image_b=args.static_image_b,
-            static_image_size_px=args.static_image_size_px,
-            width=width,
-            height=height,
+
+    usable_frame_period_us = safe_frame_period_us * frame_utilization
+
+    if per_entry_exposure_us < min_exposure_us:
+        logger.error('exposure_us (%s) is below the configured minimum (%s).', per_entry_exposure_us, min_exposure_us)
+        raise ValueError(f'exposure_us ({per_entry_exposure_us}) is below the configured minimum ({min_exposure_us}).')
+
+    # Fit as many entries as the exposure allows within the frame budget.
+    requested_segment_us = per_entry_exposure_us + dark_time_us
+    entries_count = int(usable_frame_period_us // requested_segment_us)
+    entries_count = max(1, min(bitplanes, entries_count))
+
+    requested_binary_rate_hz = target_hz * entries_count
+    if requested_binary_rate_hz > max_binary_rate_hz:
+        logger.error('Requested binary rate %.1f Hz exceeds DLP6500 1-bit limit (~%.1f Hz).', requested_binary_rate_hz, max_binary_rate_hz,)
+        raise ValueError(f'Requested binary rate {requested_binary_rate_hz:.1f} Hz exceeds DLP6500 1-bit limit (~{max_binary_rate_hz} Hz).')
+
+    effective_binary_rate_hz = effective_frame_hz * entries_count
+    if effective_binary_rate_hz > max_binary_rate_hz:
+        logger.error('Measured source binary rate %.1f Hz exceeds DLP6500 1-bit limit (~%.1f Hz).', effective_binary_rate_hz, max_binary_rate_hz,)
+        raise ValueError(f'Measured source binary rate {effective_binary_rate_hz:.1f} Hz exceeds DLP6500 1-bit limit (~{max_binary_rate_hz} Hz).')
+
+    total_sequence_us = requested_segment_us * entries_count
+    if total_sequence_us > usable_frame_period_us:
+        logger.error('%d LUT entries at %d us exposure need %.1f us per VSYNC but only %.1f us is usable.', entries_count, per_entry_exposure_us, total_sequence_us, usable_frame_period_us)
+        raise ValueError(f'{entries_count} LUT entries at {per_entry_exposure_us} us exposure need {total_sequence_us:.1f} us per VSYNC but only {usable_frame_period_us:.1f} us is usable.')
+
+    idle_headroom_us = frame_period_us - total_sequence_us
+
+    entries: list[LutEntry] = []
+    base_slots: list[LutSlot] = []
+    for bit_pos in range(entries_count):
+        trig2_disable = (bit_pos != 0) if trig2_frame_zero else False
+        clear_flag = bool(clear_last_after_exposure and bit_pos == (entries_count - 1))
+        entries.append(
+            LutEntry(
+                pattern_index=bit_pos,
+                exposure_us=per_entry_exposure_us,
+                clear_after=clear_flag,
+                bit_depth=1,
+                led_select=7,
+                dark_us=dark_time_us,
+                trig2_disabled=trig2_disable,
+                bit_position=bit_pos,
+                image_pattern_index=0,
+                wait_for_trigger=(bit_pos == 0),
+            )
         )
-    return make_pair_frame_provider(args.test, width=width, height=height)
+        base_slots.append(
+            LutSlot(
+                bitplane_index=bit_pos,
+                exposure_us=per_entry_exposure_us,
+                dark_us=int(dark_time_us),
+                trig2_enabled=not trig2_disable,
+                clear_after=clear_flag,
+                semantic_role='count',
+                wait_for_trigger=bool(bit_pos == 0),
+            )
+        )
+        
+    timing: LutTimingMetadata = {
+        "timing_source": timing_source,
+        "sequence_utilization": frame_utilization,
+        "frame_period_us": frame_period_us,
+        "safe_frame_period_us": safe_frame_period_us,
+        "usable_frame_period_us": usable_frame_period_us,
+        "safe_margin_us": safe_margin_us,
+        "measured_frame_hz": measured_frame_hz,
+        "effective_frame_hz": effective_frame_hz,
+        "requested_binary_rate_hz": requested_binary_rate_hz,
+        "effective_binary_rate_hz": effective_binary_rate_hz,
+        "exposure_us": per_entry_exposure_us,
+        "dark_us": dark_time_us,
+        "total_sequence_us": total_sequence_us,
+        "idle_headroom_us": idle_headroom_us,
+        "entries_count": entries_count,
+        "clear_last_after_exposure": bool(clear_last_after_exposure),
+        "hold_last_pattern_until_vsync": not bool(clear_last_after_exposure),
+    }
+    return entries, tuple(base_slots), timing
 
 
-class _StaticFrameProvider:
-    def __init__(self, frame: RGBFrame) -> None:
-        self._frame = frame
-
-    def __call__(self) -> RGBFrame:
-        return self._frame
+def compute_trigger_out_2_timing() -> TriggerOutTiming:
+    pulse_width_us = int(CONFIG.get('DMD', {}).get('trigger_out').get('pulse_width_us'))
+    rising_delay_us = int(CONFIG.get('DMD', {}).get('trigger_out').get('rising_delay_us'))
+    falling_delay_us = rising_delay_us + pulse_width_us
+    
+    delay_max_us = int(CONFIG.get('DMD', {}).get('trigger_out').get('delay_max_us'))
+    delay_min_us = int(CONFIG.get('DMD', {}).get('trigger_out').get('delay_min_us'))
+    max_rising_delay_us = delay_max_us - pulse_width_us
+    
+    if rising_delay_us < delay_min_us or rising_delay_us > max_rising_delay_us:
+        raise ValueError(f'rising_delay_us must be between {delay_min_us} and {max_rising_delay_us}')
+    if falling_delay_us < delay_min_us or falling_delay_us > delay_max_us:
+        raise ValueError(f'falling_delay_us must be between {delay_min_us} and {delay_max_us}')
+    
+    return {
+        'channel': 'TRIG_OUT_2',
+        'edge': 'rising',
+        'rising_delay_us': rising_delay_us,
+        'falling_delay_us': falling_delay_us,
+        'pulse_width_us': pulse_width_us,
+    }
