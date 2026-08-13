@@ -60,3 +60,4 @@ DMD:
   first_active_line: 35
   bottom_field_first_line: 1
   pixel_clock_khz: 65000
+  paired_startup_leader_vsyncs: 16
