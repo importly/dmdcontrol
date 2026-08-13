@@ -18,41 +18,15 @@ multiple selected bitplanes from the same live RGB frame.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import NotRequired, Literal, TypedDict
 import logging
 
 import numpy as np
 
-from dmdcontrol.preview.render import build_lut_preview_metadata
-
-from dmdcontrol.patterns.calibration_square import (
-    build_calibration_square_frame,
-    make_calibration_square_frame_provider,
-)
-from dmdcontrol.patterns.kernel import (
-    build_kernel_frames,
-    compute_kernel_lut_override,
-)
-from dmdcontrol.patterns.modes import default_calibration_square_state
 from dmdcontrol.patterns.paired import (
-    CalibrationSquareDotPairFrameProvider,
     FramePair,
     PairFrameProvider,
-    RGBFrame,
-    HalfFramePackingAdapter,
-    as_frame_pair,
-    generate_dot_frame,
-    generate_static_frame,
-    make_pair_frame_provider,
-    pack_count_sequence_frames,
-)
-from dmdcontrol.runtime.count_slots import CountSequenceConfig
-from dmdcontrol.runtime.lifecycle import (
-    LutEntry,
-    LutTimingMetadata,
-    build_lut_entries,
 )
 from dmdcontrol.patterns import pack_sequence_frames, pack_static_frames
 from dmdcontrol.utils import CONFIG
@@ -331,21 +305,6 @@ class PairedDisplaySequence:
             ],
         }
 
-    def preview_metadata(self) -> dict[str, object]:
-        metadata = dict(self.mode_metadata)
-        metadata["display_sequence"] = self.metadata()
-        plan_a = self.lut_plan_a()
-        plan_b = self.lut_plan_for_b()
-        preview_a = build_lut_preview_metadata(plan_a.entries, plan_a.timing)
-        preview_b = build_lut_preview_metadata(plan_b.entries, plan_b.timing)
-        metadata["lut"] = preview_a
-        metadata["lut_by_dmd"] = {
-            "A": {"role": plan_a.role, "lut": preview_a},
-            "B": {"role": plan_b.role, "lut": preview_b},
-        }
-        metadata["lut_applies_to"] = ["A", "B"] if self.b_lut_plan is None else ["A"]
-        return metadata
-
     def expected_trigger_count(self) -> int:
         return sum(
             1 for frame in self.frames for slot in frame.lut_slots if slot.trig2_enabled
@@ -394,7 +353,9 @@ def build_dynamic_fm_sequence(
     k: np.ndarray,
 ) -> PairedDisplaySequence:
     # Build LUT entries and slots for one frame
-    entries, base_slots, timing = build_lut_entries()
+    entries, base_slots, timing = build_lut_entries(
+        clear_last_after_exposure=True
+    )
     
     # Count mode owns its frame packing here so LUT slots and RGB bitplanes are built together.
     frames_a = pack_sequence_frames(fm)
@@ -407,10 +368,8 @@ def build_dynamic_fm_sequence(
     # nominal VSYNC budget. The latter is fragile when the controller's
     # measured VSYNC is a fraction faster than the requested refresh rate.
     # B still remains continuously visible because clear_after is false.
-    entries_b, timing_b = build_lut_entries(
+    entries_b, timing_b, timing_b = build_lut_entries(
         trig2_frame_zero=True,
-        entries_count=1,
-        dark_time_us=0,
         clear_last_after_exposure=False,
     )
     frames: list[TimedFramePair] = []
@@ -430,21 +389,20 @@ def build_dynamic_fm_sequence(
             
     startup_policy = StartupPolicy(
         "blank_leader",
-        args.paired_startup_leader_vsyncs, # default 16
+        CONFIG.get('DMD', {}).get('paired_startup_leader_vsyncs', 16),
         frame_role="a_blank_b_static",
     )
-    startup_pair = FramePair(a=np.zeros((height, width, 3), dtype=np.uint8), b=frame_b)
+    startup_pair = FramePair(a=np.zeros((CONFIG.get('DMD', {}).get('height', 1080), CONFIG.get('DMD', {}).get('width', 1920), 3), dtype=np.uint8), b=frame_b)
     frame_tuple = tuple(frames)
     return PairedDisplaySequence(
         frames=frame_tuple,
         startup_policy=startup_policy,
         repeat=True,
-        target_hz=target_hz,
+        target_hz=CONFIG.get('DMD', {}).get('target_hz', 60.0),
         timing=timing,
         mode_metadata={
             "count": {
-                **count_config.to_pair_preview_metadata(),
-                "exposure_us": args.exposure_us,
+                "exposure_us": CONFIG.get('DMD', {}).get('exposure_us'),
             },
             "static_b": {
                 "continuous_hold": True,
@@ -456,27 +414,6 @@ def build_dynamic_fm_sequence(
         startup_pair=startup_pair, # blank start up sequence frames
         b_lut_plan=DmdLutPlan(tuple(entries_b), timing_b, role="static_hold"),
     )
-
-
-def _slots_from_lut_entries(
-    entries: Iterable[LutEntry],
-    *,
-    semantic_role: str,
-) -> tuple[LutSlot, ...]:
-    slots: list[LutSlot] = []
-    for entry in entries:
-        slots.append(
-            LutSlot(
-                bitplane_index=int(entry.bit_position),
-                exposure_us=int(entry.exposure_us),
-                dark_us=int(entry.dark_us),
-                trig2_enabled=not bool(entry.trig2_disabled),
-                clear_after=bool(entry.clear_after),
-                semantic_role=semantic_role,
-                wait_for_trigger=bool(entry.wait_for_trigger),
-            )
-        )
-    return tuple(slots)
 
 
 def _slots_with_labels(
@@ -501,55 +438,16 @@ def _slots_with_labels(
     return tuple(labeled)
 
 
-def _count_slot_labels(
-    counts: Iterable[int], *, blank_after_each_count: bool
-) -> list[str]:
-    labels: list[str] = []
-    for count in counts:
-        labels.append(f"count:{count}")
-        if blank_after_each_count:
-            labels.append("blank")
-    return labels
-
-
-def _make_basic_provider(
-    args: ArgsNamespace, *, width: int, height: int
-) -> PairFrameProvider:
-    if args.test in STATIC_PAIR_TESTS:
-        return make_pair_frame_provider(
-            args.test,
-            test_a=args.test_a,
-            test_b=args.test_b,
-            width=width,
-            height=height,
-            dot_radius=args.dot_radius,
-        )
-    if args.test == STATIC_IMAGES_PAIR_TEST:
-        return make_pair_frame_provider(
-            args.test,
-            static_image_a=args.static_image_a,
-            static_image_b=args.static_image_b,
-            static_image_size_px=args.static_image_size_px,
-            width=width,
-            height=height,
-        )
-    return make_pair_frame_provider(args.test, width=width, height=height)
-
-
-class _StaticFrameProvider:
-    def __init__(self, frame: RGBFrame) -> None:
-        self._frame = frame
-
-    def __call__(self) -> RGBFrame:
-        return self._frame
-
-
-def build_lut_entries(clear_last_after_exposure: bool = True) -> tuple[list[LutEntry], tuple[LutSlot, ...], LutTimingMetadata]:
+def build_lut_entries(
+    clear_last_after_exposure: bool = True,
+    trig2_frame_zero: bool = False,
+    ) -> tuple[list[LutEntry], tuple[LutSlot, ...], LutTimingMetadata]:
     """
     Builds the LUT entries for each bitplane
 
     Args:
         clear_last_after_exposure (bool, optional): wheter to clear the last entry after each exposure. Defaults to True.
+        trig2_frame_zero (bool, optional): whether to enable trig2 for the first frame. Defaults to False.
 
     Returns:
         tuple[list[LutEntry], tuple[LutSlot], LutTimingMetadata]: list of LutEntry, list of LutSlot, and LutTimingMetadata
@@ -629,7 +527,7 @@ def build_lut_entries(clear_last_after_exposure: bool = True) -> tuple[list[LutE
     entries: list[LutEntry] = []
     base_slots: list[LutSlot] = []
     for bit_pos in range(entries_count):
-        true? trig2_disable = (bit_pos != 0) if trig2_frame_zero else False
+        trig2_disable = (bit_pos != 0) if trig2_frame_zero else False
         clear_flag = bool(clear_last_after_exposure and bit_pos == (entries_count - 1))
         entries.append(
             LutEntry(
@@ -650,13 +548,13 @@ def build_lut_entries(clear_last_after_exposure: bool = True) -> tuple[list[LutE
                 bitplane_index=bit_pos,
                 exposure_us=per_entry_exposure_us,
                 dark_us=int(dark_time_us),
-                trig2_enabled=True,
+                trig2_enabled=not trig2_disable,
                 clear_after=clear_flag,
                 semantic_role='count',
                 wait_for_trigger=bool(bit_pos == 0),
             )
         )
-
+        
     timing: LutTimingMetadata = {
         "timing_source": timing_source,
         "sequence_utilization": frame_utilization,

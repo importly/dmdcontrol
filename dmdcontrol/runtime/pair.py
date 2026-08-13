@@ -14,37 +14,14 @@ from dmdcontrol.preview.render import LivePreviewPoster
 from dmdcontrol.runtime.display_sequence import (
     DisplaySequenceMetadata,
     StartupLeaderMetadata,
-    build_paired_display_sequence,
 )
-from dmdcontrol.runtime.lifecycle import (
-    PreparedSequenceState,
-    load_pattern_sequence,
-    prepare_dlpc900_for_video_pattern,
-    start_loaded_pattern_sequences,
-)
-from dmdcontrol.runtime.lifecycle import (
-    warn_dark_time_video_pattern_mode as _warn_dark_time_video_pattern_mode,
-)
-from dmdcontrol.runtime.pair_args import (
-    _build_parser,
-    _is_count_recipe,
-    _resolve_count_recipe_args,
-    _validate_count_recipe_args,
-    _validate_pair_args,
-)
-from dmdcontrol.runtime.pair_config import PairConfig, resolve_pair_config
+from dmdcontrol.runtime.pair_config import PairConfig
 from dmdcontrol.runtime.pair_render import (
     PairRenderCoordinator,
-    _blank_dmd_frame,
     _blank_pair_frames,
-    _display_frame_pair,
     _start_pair_render_coordinator,
 )
-from dmdcontrol.runtime.pair_reporting import (
-    _build_live_preview_metadata,
-    _live_preview_metadata_for_frame,
-    _metadata_int,
-)
+from dmdcontrol.runtime import build_dynamic_fm_sequence
 from dmdcontrol.utils import CONFIG
 
 logger = logging.getLogger(__name__)
@@ -138,7 +115,7 @@ def main(
         lut_entries_a = list(plan_a.entries)
         lut_entries_b = list(plan_b.entries)
 
-        if CONFIG.wake_dp:
+        if CONFIG.get('DMD', {}).get('wake_dp', False):
             for dlpc in (dlpc_a, dlpc_b):
                 logger.info('Waking DisplayPort receiver for DMD %s.', dlpc.dmd.name)
                 dlpc.wake_displayport_receiver()
@@ -147,9 +124,7 @@ def main(
         prime_first_semantic = sequence.startup_policy.mode == "prime_first_frame"
         startup_leader_pair = sequence.startup_pair or _blank_pair_frames()
         startup_leader_vsyncs = int(sequence.startup_policy.leader_vsyncs)
-        logger.info(
-            "[+] Starting paired continuous GL render coordinator with configured startup frames..."
-        )
+        logger.info('Starting paired continuous GL render coordinator with configured startup frames...')
         render_coordinator = _start_pair_render_coordinator(
             engine,
             provider,
@@ -158,9 +133,9 @@ def main(
             startup_leader_vsyncs=startup_leader_vsyncs,
         )
         if not render_coordinator.wait_until_ready(timeout_s=1.0):
-            raise RuntimeError("Paired render coordinator did not become ready.")
+            raise RuntimeError('Paired render coordinator did not become ready.')
 
-        logger.info("[+] Preparing both DLPC900 controllers concurrently...")
+        logger.info('Preparing both DLPC900 controllers concurrently...')
         _prepare_pair_controllers(
             dlpc_a,
             dlpc_b,
@@ -172,7 +147,7 @@ def main(
             entries_count_b=len(lut_entries_b),
         )
 
-        logger.info("[+] Loading paired pattern LUTs without starting sequencers...")
+        logger.info('Loading paired pattern LUTs without starting sequencers...')
         with log_context("DMD A"):
             load_pattern_sequence(dlpc_a, lut_entries_a)
         with log_context("DMD B"):
@@ -182,7 +157,6 @@ def main(
 
         startup_leader = sequence.startup_leader_metadata()
         render_coordinator.preview_poster = preview_poster
-        render_coordinator.preview_metadata = live_preview_metadata
 
         if before_start is not None:
             before_start_context: BeforeStartContext = {
@@ -197,17 +171,11 @@ def main(
             before_start(before_start_context)
 
         if prime_first_semantic:
-            logger.info(
-                "[+] Priming first count/blank source frame before sequencer start..."
-            )
+            logger.info('Priming first count/blank source frame before sequencer start...')
             if not render_coordinator.prime_first_semantic_frame(timeout_s=1.0):
-                raise RuntimeError(
-                    "Timed out priming first count/blank source frame before sequencer start."
-                )
+                raise RuntimeError('Timed out priming first count/blank source frame before sequencer start.')
 
-        logger.info(
-            "[+] Starting both DLPC900 sequencers from paired software barrier..."
-        )
+        logger.info('Starting both DLPC900 sequencers from paired software barrier...')
         # Keep the startup-critical path short: HID readback verification can add
         # an unpredictable delay after one controller starts. The live GL thread
         # is already showing blanks, so we start both sequencers, release the
@@ -215,9 +183,7 @@ def main(
         start_loaded_pattern_sequences(
             dlpc_a, dlpc_b, post_start_delay_s=0.0, verify=False
         )
-        logger.info(
-            "[SCOPE] Compare TRIG_OUT_2_A and TRIG_OUT_2_B for start skew and drift."
-        )
+        logger.info('[SCOPE] Compare TRIG_OUT_2_A and TRIG_OUT_2_B for start skew and drift.')
         render_coordinator.release_semantic_frames()
         render_coordinator.join()
         render_coordinator = None
