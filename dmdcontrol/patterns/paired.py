@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
@@ -18,20 +19,14 @@ import OpenGL.GL as gl
 
 from dmdcontrol.patterns.bitplanes import BitplaneStack, pack_bitplanes_rgb
 from dmdcontrol.patterns.modes import generate_decimal_number_rgb
-from dmdcontrol.patterns.visual import (
-    DEFAULT_COARSE_GRID_SPACING,
-    DEFAULT_COARSE_LINE_SPACING,
-    generate_coarse_grid_rgb,
-    generate_coarse_lines_rgb,
-)
-from dmdcontrol.support.constants import (
-    BITPLANES,
-    DEFAULT_ROUTE_MARKER_SIZE,
-    DMD_HEIGHT,
-    DMD_WIDTH,
-    TARGET_HZ,
-)
 from dmdcontrol.utils import CONFIG
+
+logger = logging.getLogger('Paired')
+
+BITPLANES = CONFIG.get('DMD', {}).get('bitplanes')
+DMD_WIDTH = CONFIG.get('DMD', {}).get('width')
+DMD_HEIGHT = CONFIG.get('DMD', {}).get('height')
+TARGET_HZ = CONFIG.get('DMD', {}).get('target_hz')
 
 PAIR_WIDTH = DMD_WIDTH * 2
 PAIR_HEIGHT = DMD_HEIGHT

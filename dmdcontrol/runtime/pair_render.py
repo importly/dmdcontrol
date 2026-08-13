@@ -65,16 +65,12 @@ class PairRenderCoordinator:
         *,
         startup_leader_pair: FramePair | tuple[RGBFrame, RGBFrame],
         startup_leader_vsyncs: int,
-        preview_poster: LivePreviewPoster | None = None,
-        preview_metadata: dict[str, object] | None = None,
     ) -> None:
         self.engine = engine
         self.provider = provider
         self.args = args
         self.startup_leader_pair = as_frame_pair(startup_leader_pair)
         self.startup_leader_vsyncs = int(startup_leader_vsyncs)
-        self.preview_poster = preview_poster
-        self.preview_metadata = preview_metadata
         self._ready = threading.Event()
         self._prime_first_semantic = threading.Event()
         self._prime_first_semantic_displayed = threading.Event()
@@ -84,7 +80,7 @@ class PairRenderCoordinator:
         self._primed_first_semantic_pair: FramePair | None = None
         self._thread = threading.Thread(target=self._run, daemon=True)
 
-    def start(self) -> "PairRenderCoordinator":
+    def start(self) -> PairRenderCoordinator:
         self.engine.release_context()
         self._thread.start()
         return self
@@ -176,15 +172,6 @@ class PairRenderCoordinator:
             else:
                 frame_pair = as_frame_pair(self.provider.next_pair())
             _display_frame_pair(self.engine, frame_pair)
-            if self.preview_poster is not None:
-                self.preview_poster.maybe_post_pair(
-                    frame_pair.a,
-                    frame_pair.b,
-                    metadata=_live_preview_metadata_for_frame(
-                        self.preview_metadata,
-                        self.provider,
-                    ),
-                )
 
     def _first_semantic_pair(self) -> FramePair:
         if self._primed_first_semantic_pair is None:
@@ -201,8 +188,6 @@ def _start_pair_render_coordinator(
     *,
     startup_leader_pair: FramePair | tuple[RGBFrame, RGBFrame],
     startup_leader_vsyncs: int,
-    preview_poster: LivePreviewPoster | None = None,
-    preview_metadata: dict[str, object] | None = None,
 ) -> PairRenderCoordinator:
     return PairRenderCoordinator(
         engine,
@@ -210,6 +195,4 @@ def _start_pair_render_coordinator(
         args,
         startup_leader_pair=startup_leader_pair,
         startup_leader_vsyncs=startup_leader_vsyncs,
-        preview_poster=preview_poster,
-        preview_metadata=preview_metadata,
     ).start()
