@@ -10,17 +10,22 @@ Packet layout:
   Bytes 6+    data payload
 """
 
+from __future__ import annotations
+
 import struct
 import time
 import logging
 from collections.abc import Sequence
 from pathlib import Path
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 import usb.core
 import usb.util
 from .helper import select_pyusb_device
 from dmdcontrol.utils import CONFIG
-from dmdcontrol.runtime.lut import LutEntry
+
+if TYPE_CHECKING:
+    from dmdcontrol.runtime.lut import LutEntry
 
 @dataclass
 class DMD:

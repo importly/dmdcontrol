@@ -1,5 +1,21 @@
 log_level: DEBUG
 
+Run:
+  output_root: runs
+  count_start: 5
+  count_end: 15
+  count_slots_per_frame: 1           # positive int, or 'auto' to fit the LUT budget
+  count_blank_after_each_count: True # forces slots=1, doubles triggers per cycle
+  number_size_px: 300
+  test_b: dot                        # B-side static pattern: dot | checkerboard
+  b_dot_x: 960
+  b_dot_y: 540
+  b_dot_radius: 30
+  accumulation_cycles: 20
+  runtime_seconds: 0                 # 0 = derive from accumulation_cycles
+  save_filtered_events: True
+  save_jpg: False
+
 Camera:
   ROI:
     start_x: 0
@@ -13,8 +29,9 @@ Camera:
     enable: True
     background_activity_duration: 2000
   Accumulation:
-    window_us: 16666
+    window_us: 16000       # accumulation window == DMD exposure_us (master tied these)
     start_time_offset_us: 0
+    polarity_mode: positive # positive (ON events only) | signed (+1/-1) | ignore (all +1)
   width: 346
   height: 260
     
@@ -37,6 +54,7 @@ DMD:
   frame_utilization: 1.0
   dual_pixel: False
   exposure_us: 16000
+  paired_startup_leader_vsyncs: 16  # non-semantic blank vsyncs after sequencer start; their triggers are skipped
   # constants
   dark_time_us: 0
   bitplanes: 24
