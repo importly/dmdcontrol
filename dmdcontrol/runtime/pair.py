@@ -156,7 +156,6 @@ def main(
         state_b: PreparedSequenceState = {"entries": lut_entries_b, "timing": plan_b.timing}
 
         startup_leader = sequence.startup_leader_metadata()
-        render_coordinator.preview_poster = preview_poster
 
         if before_start is not None:
             before_start_context: BeforeStartContext = {
@@ -164,7 +163,6 @@ def main(
                 "pair_config": pair_config,
                 "state_a": state_a,
                 "state_b": state_b,
-                "preview_metadata": live_preview_metadata,
                 "startup_leader": startup_leader,
                 "display_sequence": sequence.metadata(),
             }
