@@ -316,66 +316,6 @@ class HalfFramePackingAdapter:
         return pack_bitplanes_rgb(binary_images, self.width, self.height)
 
 
-@dataclass
-class StaticPairFrameProvider(PairFrameProvider):
-    mode_a: str = "checkerboard"
-    mode_b: str = "checkerboard"
-    width: int = DMD_WIDTH
-    height: int = DMD_HEIGHT
-    dot_radius: int = 40
-
-    def __post_init__(self) -> None:
-        self._frame_a = _static_frame(
-            self.mode_a,
-            self.width,
-            self.height,
-            "A",
-            dot_radius=self.dot_radius,
-        )
-        self._frame_b = _static_frame(
-            self.mode_b,
-            self.width,
-            self.height,
-            "B",
-            dot_radius=self.dot_radius,
-        )
-
-    def initial_pair(self) -> FramePair:
-        return FramePair(a=self._frame_a, b=self._frame_b)
-
-    def next_pair(self) -> FramePair:
-        return FramePair(a=self._frame_a, b=self._frame_b)
-
-
-@dataclass
-class StaticImagePairFrameProvider(PairFrameProvider):
-    path_a: str | PathLike[str]
-    path_b: str | PathLike[str]
-    width: int = DMD_WIDTH
-    height: int = DMD_HEIGHT
-    size_px: int = DMD_HEIGHT
-
-    def __post_init__(self) -> None:
-        self._frame_a = load_static_image_frame(
-            self.path_a,
-            width=self.width,
-            height=self.height,
-            size_px=self.size_px,
-        )
-        self._frame_b = load_static_image_frame(
-            self.path_b,
-            width=int(self.width),
-            height=int(self.height),
-            size_px=int(self.size_px),
-        )
-
-    def initial_pair(self) -> FramePair:
-        return FramePair(a=self._frame_a, b=self._frame_b)
-
-    def next_pair(self) -> FramePair:
-        return FramePair(a=self._frame_a, b=self._frame_b)
-
-
 class DynamicAStaticBPairFrameProvider(PairFrameProvider):
 
     def __init__(
@@ -424,35 +364,94 @@ def pack_count_sequence_frames(
         count_start,
         count_end,
         count_slots_per_frame,
-        count_blank_between_frames=count_blank_between_frames,
     )
     frames: list[RGBFrame] = []
     counts = tuple(range(count_start, count_end + 1))
-    if count_blank_between_frames:
-        blank_frame = np.zeros((height, width, 3), dtype=np.uint8)
-        for count in counts:
-            count_mask = _decimal_number_display_masks(
-                (count,),
-                width=width,
-                height=height,
-                size_px=size_px,
-            )
-            stack = BitplaneStack.from_masks(count_mask, width=width, height=height)
-            frames.append(stack.to_rgb_frame().array)
-            frames.append(blank_frame.copy())
-        return tuple(frames)
-
-    for offset in range(0, len(counts), count_slots_per_frame):
-        chunk = counts[offset:offset + count_slots_per_frame]
-        count_masks = _decimal_number_display_masks(
-            chunk,
+    blank_frame = np.zeros((height, width, 3), dtype=np.uint8)
+    for count in counts:
+        count_mask = _decimal_number_display_masks(
+            (count,),
             width=width,
             height=height,
             size_px=size_px,
         )
-        stack = BitplaneStack.from_masks(count_masks, width=width, height=height)
+        stack = BitplaneStack.from_masks(count_mask, width=width, height=height)
         frames.append(stack.to_rgb_frame().array)
+        frames.append(blank_frame.copy())
     return tuple(frames)
+
+def pos_img(a: np.ndarray) -> np.ndarray:
+    '''
+    Makes the positive image of the kernel (pos nums => 255, neg nums => 0)
+    '''
+    if np.max(a)==0:
+        return a
+    new_matrix = np.zeros_like(a)
+    try:
+        new_matrix = a / abs(np.max(a))
+    except FloatingPointError:
+        pass
+    new_matrix += 1
+    new_matrix /= 2
+    new_matrix *= 255
+    return new_matrix.astype(np.uint8)
+
+
+def neg_img(a: np.ndarray) -> np.ndarray:
+    '''
+    Makes the negative image of the kernel (pos nums => 0, neg nums => 255)
+    '''
+    if np.max(a)==0:
+        return np.zeros_like(a)+1
+    new_matrix = np.zeros_like(a)
+    try:
+        new_matrix = a / abs(np.max(a))
+    except FloatingPointError:
+        pass
+    new_matrix *= -1
+    new_matrix += 1
+    new_matrix /= 2
+    tmp = new_matrix * 255
+    return tmp.astype(np.uint8)
+
+
+def pack_sequence_frames(data: np.ndarray) -> np.ndarray:
+    '''
+    Packs a sequence of binary masks into RGB frames. Each mask is split into its positive and negative halfs.
+    
+    Args:
+        data (np.ndarray): A 3D numpy array of shape (batch_size, height, width) containing binary masks.
+    '''
+    frames = np.zeros((data.shape[0] * 4, data.shape[1], data.shape[2], 3), dtype=np.uint8)
+    for i, fm in enumerate(data):
+        # Positive 
+        pos_mask = pos_img(fm)
+        frames[4*i, :, :, 1] = pos_mask
+        
+        # Negative
+        neg_mask = neg_img(fm)
+        frames[4*i + 2, :, :, 1] = neg_mask
+        
+    frames = np.ascontiguousarray(frames)
+    return frames
+
+def pack_static_frames(data: np.ndarray, batch_size: int, pos: bool) -> np.ndarray:
+    '''
+    Packs a sequence of binary masks into RGB frames. Each mask is split into either its positive and negative half.
+    
+    Args:
+        data (np.ndarray): A 3D numpy array of shape (height, width) containing binary masks.
+        batch_size (int): The number of frames to pack.
+        pos (bool): If True, pack the positive half of the masks; if False, pack the negative half.
+    '''
+    if len(data.shape) != 2:
+        raise ValueError("`data` must be a 2D numpy array")
+
+    frames = pos_img(data) if pos else neg_img(data)
+    frames = np.expand_dims(frames, axis=(0,-1))
+    frames = np.tile(frames, (batch_size, 1, 1, 3))
+    frames = np.ascontiguousarray(frames)
+    return frames
 
 
 def count_lut_entries_per_frame(

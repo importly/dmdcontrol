@@ -16,8 +16,6 @@ import logging
 from collections.abc import Sequence
 from pathlib import Path
 from dataclasses import dataclass
-from typing import cast, get_type_hints
-import yaml
 import usb.core
 import usb.util
 from .helper import select_pyusb_device
@@ -60,11 +58,11 @@ def load_from_config() -> list[DMD]:
     """
     dmds = []
     # Check for required keys
-    for name in CONFIG.get('DMD', {}):
+    for name in ['A', 'B']:
         try:
             dmds.append(
                 DMD(
-                    name=CONFIG['DMD'][name],
+                    name=name,
                     usb_id_path=CONFIG['DMD'][name]['usb_id_path'],
                     usb_devpath=Path(CONFIG['DMD'][name]['usb_devpath']),
                     xrandr_output=CONFIG['DMD'][name]['xrandr_output'],
@@ -340,7 +338,7 @@ class DLPC900:
             self.logger.debug('Raw error description bytes: %s', p)
             return repr(bytes(p))
 
-    def get_main_status(self) -> dict[str, bool] | None:
+    def get_main_status(self) -> dict[str, bool | str] | None:
         """
         Get the status of the DMD.
 
@@ -354,7 +352,7 @@ class DLPC900:
         - `raw`: The raw status byte in hexadecimal format.
         
         Returns:
-            dict[str, bool] | None: Status dictionary or None if there's no response.
+            dict[str, bool | str] | None: Status dictionary or None if there's no response.
         """
         resp = self._read(0x1A0C)
         p = self._payload(resp)

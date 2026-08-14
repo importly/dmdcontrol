@@ -15,4 +15,10 @@ if target_hz <= 0:
  raise ValueError("dark_time_us must be non-negative")
  if CONFIG.get('frame_utilization', 1.0) <= 0.0 or CONFIG.get('frame_utilization', 1.0) > 1.0:
         raise ValueError("CONFIG.get('frame_utilization', 1.0) must be in the interval (0, 1].")
+if dark_time_us < 0:
+        raise ValueError("dark_time_us must be non-negative")
+
+if per_entry_exposure_us < CONFIG.get('min_exposure_us', 0):
+            raise ValueError(
+                f"per_entry_exposure_us ({per_entry_exposure_us
 ```
