@@ -85,6 +85,7 @@ for _ in 1 2 3 4 5; do
 done
 echo "$current" | grep -q "+1920+0" || log "WARN: paired MetaMode not applied; CurrentMetaMode: $current"
 nvidia-settings -a "Dithering=0" >/dev/null 2>&1 || log "WARN: nvidia-settings Dithering=0 failed"
+xrandr --output "$OUT_B" --primary >/dev/null 2>&1 || log "WARN: could not set $OUT_B primary"
 sleep 0.5  # let the layout settle; main.py validate_display() checks the result
 
 log "Display setup done: $OUT_B left (primary), $OUT_A right."
