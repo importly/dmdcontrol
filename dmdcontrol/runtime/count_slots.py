@@ -13,6 +13,7 @@ from dmdcontrol.utils import CONFIG
 ArgsNamespace = Namespace | SimpleNamespace
 
 BITPLANES = CONFIG.get('DMD', {}).get('bitplanes')
+MAX_COUNT_SEQUENCE_FRAMES = CONFIG.get('DMD', {}).get('max_count_sequence_frames', 128)
 
 
 class CountSequenceMetadata(TypedDict):
@@ -177,10 +178,7 @@ def validate_count_lut_sequence_timing(
         count_slots_per_frame,
         count_blank_between_frames=count_blank_between_frames,
     )
-    _entries, timing = build_lut_entries(
-        entries_count=entries_count,
-        per_entry_exposure_us=exposure_us,
-    )
+    _, _,  timing = build_lut_entries()
     return timing
 
 
