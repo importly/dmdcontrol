@@ -90,8 +90,11 @@ def discover_dlpc900_usb() -> list[UsbDevice]:
     candidates = []
     for hidraw in hidraw_nodes:
         props = _udevadm_properties_for_hidraw(hidraw)
-        vendor = int(props.get("ID_VENDOR_ID"), 16)
-        model = int(props.get("ID_MODEL_ID"), 16)
+        vendor_hex, model_hex = props.get("ID_VENDOR_ID"), props.get("ID_MODEL_ID")
+        if not vendor_hex or not model_hex:
+            continue  # non-USB HID node (i2c/bluetooth): no USB ids to match
+        vendor = int(vendor_hex, 16)
+        model = int(model_hex, 16)
         if vendor != CONFIG['DMD']['VID'] or model != CONFIG['DMD']['PID']:
             continue
         else:
@@ -115,15 +118,24 @@ def discover_dlpc900_usb() -> list[UsbDevice]:
                 physical_path=Path(*devpath.parts[5:7]),
             )
             candidates.append(candidate)
-        
-        # Sort candidates by id_path, hidraw, bus, and address to ensure consistent ordering
-        candidates = sorted(
-            candidates,
-            key=lambda c: (c.id_path or "", c.hidraw or "", c.bus or -1, c.address or -1),
-        )
-        logging.info(f"Discovered {len(candidates)} DLPC900 USB devices:\n{format_usb_candidates(candidates)}")
-        
+
+    # Sort candidates by id_path, hidraw, bus, and address to ensure consistent ordering
+    candidates = sorted(
+        candidates,
+        key=lambda c: (c.id_path or "", c.hidraw or "", c.bus or -1, c.address or -1),
+    )
+    logger.info(f"Discovered {len(candidates)} DLPC900 USB devices:\n{format_usb_candidates(candidates)}")
+
     return candidates
+
+
+def _devpath_matches(candidate_devpath: Path | str, config_devpath: Path | str) -> bool:
+    fragment_raw = str(config_devpath).strip()
+    if not fragment_raw:
+        return False
+    candidate_text = Path(candidate_devpath).as_posix()
+    fragment = Path(fragment_raw).as_posix()
+    return fragment in candidate_text
 
 
 def select_pyusb_device(usb_id_path: str, usb_devpath: Path | str) -> usb.core.Device:
@@ -143,11 +155,13 @@ def select_pyusb_device(usb_id_path: str, usb_devpath: Path | str) -> usb.core.D
     """
     # Grab matching candidate from the discovered hidraw devices
     candidates = discover_dlpc900_usb()
-    logging.info('Found %s total DLPC900 USB devices', len(candidates))
-    for candidate in candidates:
-        if candidate.id_path != usb_id_path or candidate.devpath != usb_devpath:
-            candidates.remove(candidate)
-    logging.debug('Found %s matching DLPC900 USB devices for id_path=%r and devpath=%r', len(candidates), usb_id_path, usb_devpath)
+    logger.info('Found %s total DLPC900 USB devices', len(candidates))
+    candidates = [
+        candidate
+        for candidate in candidates
+        if candidate.id_path == usb_id_path and _devpath_matches(candidate.devpath, usb_devpath)
+    ]
+    logger.debug('Found %s matching DLPC900 USB devices for id_path=%r and devpath=%r', len(candidates), usb_id_path, usb_devpath)
     
     # Error handling if there's no candidates or if there's more than one candidate
     if not candidates:
