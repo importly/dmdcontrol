@@ -4,14 +4,12 @@ import math
 from dataclasses import dataclass
 from typing import TypedDict
 
-from dmdcontrol.patterns.paired import (
-    MAX_COUNT_SEQUENCE_FRAMES,
-    count_lut_entries_per_frame,
-)
-from dmdcontrol.runtime.lut import LutTimingMetadata, build_lut_entries
+from dmdcontrol.patterns import count_lut_entries_per_frame
+from dmdcontrol.runtime import LutTimingMetadata, build_lut_entries
 from dmdcontrol.utils import CONFIG
 
 BITPLANES = CONFIG.get('DMD', {}).get('bitplanes')
+MAX_COUNT_SEQUENCE_FRAMES = CONFIG.get('DMD', {}).get('max_count_sequence_frames', 128)
 
 
 class CountSequenceMetadata(TypedDict):
@@ -112,7 +110,7 @@ class CountSequenceConfig:
     def blank_lut_entries_per_frame(self) -> int:
         return 0
 
-    def validate_shape(self, *, max_frames: int = MAX_COUNT_SEQUENCE_FRAMES) -> None:
+    def validate_shape(self, *, max_frames: int = CONFIG.get("DMD", {}).get("max_count_sequence_frames", 128)) -> None:
         if self.count_start > self.count_end:
             raise ValueError("Run.count_start must be <= Run.count_end")
         if self.count_slots_per_frame <= 0 or self.count_slots_per_frame > BITPLANES:
@@ -174,10 +172,7 @@ def validate_count_lut_sequence_timing(
         count_slots_per_frame,
         count_blank_between_frames=count_blank_between_frames,
     )
-    _entries, timing = build_lut_entries(
-        entries_count=entries_count,
-        per_entry_exposure_us=exposure_us,
-    )
+    _, _,  timing = build_lut_entries()
     return timing
 
 

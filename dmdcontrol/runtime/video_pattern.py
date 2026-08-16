@@ -8,25 +8,31 @@ import logging
 import threading
 import time
 from typing import TYPE_CHECKING
+from dataclasses import dataclass
 
-from dmdcontrol.runtime.dlpc_status import (
+from dmdcontrol.runtime import (
+    LutEntry,
+    LutTimingMetadata,
+    build_lut_entries,
+    compute_trigger_out_2_timing,
+    _bit6_is_cosmetic,
     _format_hw,
     ensure_video_pattern_mode,
     wait_for_external_lock,
     wait_for_stable_external_lock,
     wait_for_sequencer_running,
 )
-from dmdcontrol.runtime.lut import (
-    LutEntry,
-    build_lut_entries,
-    compute_trigger_out_2_timing,
-)
 from dmdcontrol.utils import CONFIG
 
 if TYPE_CHECKING:
-    from dmdcontrol.dmd.dlpc900 import DLPC900
+    from dmdcontrol.dmd import DLPC900
 
 logger = logging.getLogger('VideoPattern')
+
+@dataclass
+class PreparedSequenceState:
+    entries: list[LutEntry]
+    timing: LutTimingMetadata
 
 
 def load_pattern_sequence(dlpc: DLPC900, entries: Sequence[LutEntry]) -> None:
@@ -256,10 +262,7 @@ def prepare_dlpc900_for_video_pattern(
     err = dlpc.get_last_error()
     logger.debug(f"  - TRIG_OUT_1 config sent. Last error: {err}")
 
-    _entries, timing = build_lut_entries(
-        entries_count=entries_count,
-        display_dimensions=dlpc.get_display_dimensions(),
-    )
+    entries, _, timing = build_lut_entries()
     trigger_out_2_timing = compute_trigger_out_2_timing()
     dlpc.configure_trigger_out_2(
         polarity_high=True,
@@ -311,6 +314,7 @@ def prepare_dlpc900_for_video_pattern(
             "timeout; continuing after the bounded fallback."
         )
 
+    return PreparedSequenceState(entries=entries, timing=timing)
 
 def prepare_pair_controllers(
     dlpc_a: DLPC900,
@@ -332,3 +336,25 @@ def prepare_pair_controllers(
         )
         for future in futures:
             future.result()
+            
+def configure_dlpc900_for_video_pattern(
+    dlpc: DLPC900,
+    pre_arm_callback: Callable[[], None] | None = None,
+    frame_pump: Callable[[], None] | None = None,
+    entries_count: int | None = None,) -> PreparedSequenceState:
+    sequence_state = prepare_dlpc900_for_video_pattern(
+        dlpc,
+        entries_count=entries_count,
+    )
+
+    # GL must be rendering when start_pattern_display(2) fires — stale DP frame -> forced-swap.
+    if pre_arm_callback is not None:
+        pre_arm_callback()
+
+    entries = sequence_state.entries
+    logger.info(f"[+] Applying pattern LUT with {len(entries)} entries...")
+    apply_pattern_sequence(dlpc, entries, frame_pump=frame_pump)
+
+    logger.info("[+] Pattern sequencer start command issued.")
+    verify_started_pattern_sequence(dlpc)
+    return sequence_state

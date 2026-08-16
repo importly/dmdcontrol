@@ -11,6 +11,9 @@ from pathlib import Path
 
 from rich.logging import RichHandler
 
+from dmdcontrol.camera import Camera
+from dmdcontrol.dmd import DLPC900, load_from_config
+from dmdcontrol.patterns import _decimal_number_display_masks, generate_dot_frame
 from dmdcontrol.utils import CONFIG, WORKSPACE
 
 log = logging.getLogger("main")
@@ -97,6 +100,22 @@ def _cleanup_step(description: str, action) -> None:
         action()
     except Exception as exc:
         log.warning("Cleanup (%s): %s", description, exc)
+        
+
+def generate_fm_k_sequence(length: int):
+    """Generate a sequence of (fm, k) pairs for testing."""
+    # Feature maps
+    fms = _decimal_number_display_masks(
+        numbers=range(length),
+        width=300,
+        height=300,
+        size_px=30
+    )
+
+    # Kernel
+    k = generate_dot_frame()
+    
+    return fms, k
 
 
 def main() -> int:
@@ -114,6 +133,10 @@ def main() -> int:
     dlpc_b = DLPC900(dmd_b)
     engine = None
     coordinator = None
+    
+    # Camera setup
+    camera = Camera()
+    
     try:
         # Get dmds up
         wake_dmds(dlpc_a, dlpc_b)
@@ -181,6 +204,9 @@ def main() -> int:
         log.info("Displayed %d frames, %d dropped; count chunk complete (%d cycles)",
                  leader["leader_vsyncs"] + semantic_frames, dropped, cycles)
         return 0
+    except Exception as exc:
+        log.exception("Display chunk failed: %s", exc)
+        return 1
     finally:
         if coordinator is not None:
             _cleanup_step("render coordinator stop", coordinator.stop)
@@ -195,6 +221,8 @@ def main() -> int:
         if engine is not None:
             _cleanup_step("engine cleanup", engine.cleanup)
 
+            _cleanup_step(f"DMD {name} close", dlpc_a.close)
+            _cleanup_step(f"DMD {name} close", dlpc_b.close)
 
 if __name__ == "__main__":
     sys.exit(main())

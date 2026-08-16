@@ -260,6 +260,66 @@ class DynamicAStaticBPairFrameProvider(PairFrameProvider):
 
     def next_pair(self) -> FramePair:
         return FramePair(a=self._next_a(), b=self._frame_b)
+    
+
+@dataclass
+class StaticPairFrameProvider(PairFrameProvider):
+    mode_a: str = "checkerboard"
+    mode_b: str = "checkerboard"
+    width: int = DMD_WIDTH
+    height: int = DMD_HEIGHT
+    dot_radius: int = 40
+
+    def __post_init__(self) -> None:
+        self._frame_a = _static_frame(
+            self.mode_a,
+            self.width,
+            self.height,
+            "A",
+            dot_radius=self.dot_radius,
+        )
+        self._frame_b = _static_frame(
+            self.mode_b,
+            self.width,
+            self.height,
+            "B",
+            dot_radius=self.dot_radius,
+        )
+
+    def initial_pair(self) -> FramePair:
+        return FramePair(a=self._frame_a, b=self._frame_b)
+
+    def next_pair(self) -> FramePair:
+        return FramePair(a=self._frame_a, b=self._frame_b)
+
+
+@dataclass
+class StaticImagePairFrameProvider(PairFrameProvider):
+    path_a: str | PathLike[str]
+    path_b: str | PathLike[str]
+    width: int = DMD_WIDTH
+    height: int = DMD_HEIGHT
+    size_px: int = DMD_HEIGHT
+
+    def __post_init__(self) -> None:
+        self._frame_a = load_static_image_frame(
+            self.path_a,
+            width=self.width,
+            height=self.height,
+            size_px=self.size_px,
+        )
+        self._frame_b = load_static_image_frame(
+            self.path_b,
+            width=int(self.width),
+            height=int(self.height),
+            size_px=int(self.size_px),
+        )
+
+    def initial_pair(self) -> FramePair:
+        return FramePair(a=self._frame_a, b=self._frame_b)
+
+    def next_pair(self) -> FramePair:
+        return FramePair(a=self._frame_a, b=self._frame_b)
 
 
 def pack_count_sequence_frames(
@@ -544,7 +604,7 @@ class PairedPatternEngine:
         """
         Releases the context of the window from the calling thread.
         """
-        glfw.make_context_current(None)
+        glfw.make_context_current(None) # pyright: ignore
 
     def display_pair(self, frame_a: RGBFrame, frame_b: RGBFrame) -> None:
         frame_start = time.perf_counter()
@@ -688,7 +748,7 @@ class PairedPatternEngine:
         Returns:
             bool: Should close (True) or not (False).
         """
-        return glfw.window_should_close(self.window) or (glfw.get_key(self.window, glfw.KEY_ESCAPE) == glfw.PRESS)
+        return bool(glfw.window_should_close(self.window)) or (glfw.get_key(self.window, glfw.KEY_ESCAPE) == glfw.PRESS)
 
     def cleanup(self):
         """

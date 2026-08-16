@@ -1,11 +1,11 @@
 import os
 import logging
 from typing import Optional, Tuple
-import yaml
+from pathlib import Path
 import numpy as np
 from PIL import Image
 import dv_processing as dv
-from dmdcontrol.utils import Font, WORKSPACE, CONFIG
+from dmdcontrol.utils import Font, CONFIG
 
 class BackgroundActivityNoiseFilter:
     """
@@ -29,7 +29,7 @@ class BackgroundActivityNoiseFilter:
         self.time_surface = np.zeros((self.resolution_limits[1], self.resolution_limits[0]), dtype=np.int64)
         self.background_activity_duration = background_activity_duration
     
-    def _background_activity_lookup(self, x: int, y: int, timestamp: int) -> bool:
+    def _background_activity_lookup(self, x: int, y: int, timestamp: int) -> np.bool_:
         """
         More efficient version of the background activity filter. Checks neighboring pixels for events that occurred within the background activity duration. Checks for corner cases and excludes the event itself from the neighborhood check.
         
@@ -39,7 +39,7 @@ class BackgroundActivityNoiseFilter:
             timestamp (int): Event timestamp
             
         Returns:
-            True if event is supported by neighbors (valid), False otherwise (invalid)
+            np.bool_: True if event is supported by neighbors (valid), False otherwise (invalid)
         """
         # Exclude border regions
         y_start, y_end = max(0, y - 1), min(self.resolution_limits[1], y + 2)
@@ -112,12 +112,14 @@ class Camera:
         # ROI
         self.roi_start_x = CONFIG.get('Camera', {}).get('ROI', {}).get('start_x', 0)
         self.roi_start_y = CONFIG.get('Camera', {}).get('ROI', {}).get('start_y', 0)
+        self.WIDTH = CONFIG.get('Camera', {}).get('width', 346)
+        self.HEIGHT = CONFIG.get('Camera', {}).get('height', 260)
         self.ROI_WIDTH = CONFIG.get('Camera', {}).get('ROI', {}).get('width', CONFIG.get('Camera', {}).get('width', 346))
         self.ROI_HEIGHT = CONFIG.get('Camera', {}).get('ROI', {}).get('height', CONFIG.get('Camera', {}).get('height', 260))
         # Error checking for ROI exceeding camera resolution
-        if (self.roi_start_x + self.ROI_WIDTH > WIDTH) or (self.roi_start_y + self.ROI_HEIGHT > HEIGHT):
-            self.logger.error(f"ROI exceeds camera resolution. ROI: ({self.roi_start_x}, {self.roi_start_y}, {self.ROI_WIDTH}, {self.ROI_HEIGHT}), Camera Resolution: ({WIDTH}, {HEIGHT})")
-            raise ValueError(f"ROI exceeds camera resolution. ROI: ({self.roi_start_x}, {self.roi_start_y}, {self.ROI_WIDTH}, {self.ROI_HEIGHT}), Camera Resolution: ({WIDTH}, {HEIGHT})")
+        if (self.roi_start_x + self.ROI_WIDTH > self.WIDTH) or (self.roi_start_y + self.ROI_HEIGHT > self.HEIGHT):
+            self.logger.error(f"ROI exceeds camera resolution. ROI: ({self.roi_start_x}, {self.roi_start_y}, {self.ROI_WIDTH}, {self.ROI_HEIGHT}), Camera Resolution: ({self.WIDTH}, {self.HEIGHT})")
+            raise ValueError(f"ROI exceeds camera resolution. ROI: ({self.roi_start_x}, {self.roi_start_y}, {self.ROI_WIDTH}, {self.ROI_HEIGHT}), Camera Resolution: ({self.WIDTH}, {self.HEIGHT})")
         self.camera.setCropAreaEvents(
             self.roi_start_x,
             self.roi_start_y,
@@ -225,7 +227,7 @@ class Camera:
             
         return frames
     
-    def save(self, frames: np.ndarray, folder: str, save_as_jpg: Optional[bool] = False):
+    def save(self, frames: np.ndarray, folder: Path, save_as_jpg: Optional[bool] = False):
         """
         Saves accumulated event frames to a folder.
 
@@ -236,13 +238,38 @@ class Camera:
         """
         # Create the folder if it doesn't exist
         os.makedirs(folder, exist_ok=True)
-        for frame in frames:
+        for idx, frame in enumerate(frames):
             # Save the frames to a .npy file
-            np.save(f"{folder}/frame_{frames.index(frame)}.npy", frame)
+            np.save(f'{folder}/frame_{idx}.npy', frame)
             
             # Save the frames to a .jpg file
             if save_as_jpg:
                 frame = (frame / np.max(frame) * 255).astype(np.uint8)
-                Image.fromarray(frame).save(f"{folder}/frame_{frames.index(frame)}.jpg")
+                Image.fromarray(frame).save(f'{folder}/frame_{idx}.jpg')
         
         self.logger.debug('Saved %s frames to %s', len(frames), folder)
+        
+    def contact_sheet(self, frames: np.ndarray, folder: Path, grid_size: Tuple[int, int] = (10, 10)):
+        """
+        Creates a contact sheet of the accumulated event frames and saves it to a file.
+
+        Args:
+            frames (np.ndarray): A numpy array of shape (len(triggers), ROI_HEIGHT, ROI_WIDTH) containing the accumulated frames.
+            save_path (Path): Path to save the contact sheet to.
+            grid_size (Tuple[int, int], optional): Size of the grid for the contact sheet. Defaults to (10, 10).
+        """
+        # Create a blank canvas for the contact sheet
+        contact_sheet = Image.new('L', (self.ROI_WIDTH * grid_size[0], self.ROI_HEIGHT * grid_size[1]))
+        
+        for idx, frame in enumerate(frames):
+            if idx >= grid_size[0] * grid_size[1]:
+                break
+            # Normalize and convert frame to image
+            frame_img = Image.fromarray((frame / np.max(frame) * 255).astype(np.uint8))
+            x_offset = (idx % grid_size[0]) * self.ROI_WIDTH
+            y_offset = (idx // grid_size[0]) * self.ROI_HEIGHT
+            contact_sheet.paste(frame_img, (x_offset, y_offset))
+        
+        # Save the contact sheet
+        contact_sheet.save(folder / 'contact_sheet.jpg')
+        self.logger.debug('Saved contact sheet to %s', folder / 'contact_sheet.jpg')

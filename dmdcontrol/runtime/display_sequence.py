@@ -34,6 +34,7 @@ from dmdcontrol.patterns.paired import (
 from dmdcontrol.patterns import pack_sequence_frames, pack_static_frames
 from dmdcontrol.runtime.count_slots import CountSequenceConfig
 from dmdcontrol.runtime.lut import LutEntry, LutTimingMetadata, build_lut_entries
+from dmdcontrol.patterns import FramePair, PairFrameProvider, pack_sequence_frames, pack_static_frames
 from dmdcontrol.utils import CONFIG
 
 logger = logging.getLogger('DisplaySequence')

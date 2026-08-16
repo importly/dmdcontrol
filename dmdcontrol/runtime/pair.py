@@ -4,68 +4,38 @@ from __future__ import annotations
 
 import time
 import logging
-from collections.abc import Callable
+import numpy as np
 from concurrent.futures import ThreadPoolExecutor
-from typing import TypedDict
 
-from dmdcontrol.dmd import DMD, DLPC900, load_from_config
-from dmdcontrol.patterns.paired import PairedPatternEngine
-from dmdcontrol.preview.render import LivePreviewPoster
-from dmdcontrol.runtime.display_sequence import (
-    DisplaySequenceMetadata,
-    StartupLeaderMetadata,
-)
-from dmdcontrol.runtime.pair_config import PairConfig
-from dmdcontrol.runtime.pair_render import (
+from dmdcontrol.dmd import DLPC900, load_from_config
+from dmdcontrol.patterns import PairedPatternEngine, PairFrameProvider
+from dmdcontrol.runtime import (
     PairRenderCoordinator,
     _blank_pair_frames,
     _start_pair_render_coordinator,
+    build_dynamic_fm_sequence,
+    prepare_dlpc900_for_video_pattern,
+    load_pattern_sequence,
+    start_loaded_pattern_sequences
 )
-from dmdcontrol.runtime import build_dynamic_fm_sequence
 from dmdcontrol.utils import CONFIG
 
 logger = logging.getLogger(__name__)
-
-
-class BeforeStartContext(TypedDict):
-    args: argparse.Namespace
-    pair_config: PairConfig
-    state_a: PreparedSequenceState
-    state_b: PreparedSequenceState
-    preview_metadata: dict[str, object]
-    startup_leader: StartupLeaderMetadata
-    display_sequence: DisplaySequenceMetadata
-
-
-BeforeStartCallback = Callable[[BeforeStartContext], None]
 
 
 def _prepare_pair_controllers(
     dlpc_a,
     dlpc_b,
     *,
-    args: argparse.Namespace,
-    pair_config: PairConfig,
     timing_a,
     timing_b,
     entries_count_a: int,
     entries_count_b: int,
 ) -> None:
     def prepare(label, dlpc, timing, entries_count):
-        with log_context(f"DMD {label}"):
-            logger.info("[+] Preparing controller without starting sequencer...")
-            prepare_dlpc900_for_video_pattern(
-                dlpc,
-                pair_config.target_hz,
-                dual_pixel=args.dual_pixel,
-                sequence_utilization=timing["sequence_utilization"],
-                trig2_frame_zero=timing["trig2_mode"] == "frame_zero",
-                entries_count=entries_count,
-                per_entry_exposure_us=timing["exposure_us"],
-                trigger_out_2_rising_delay_us=args.trigger_out_2_rising_delay_us,
-                dark_time_us=timing["dark_us"],
-            )
-            logger.info("[+] Controller preparation complete.")
+        logger.info('Preparing controller without starting sequencer...')
+        prepare_dlpc900_for_video_pattern(dlpc, entries_count=entries_count)
+        logger.info('Controller preparation complete.')
 
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix="dlpc900-prepare") as executor:
         futures = (
@@ -76,14 +46,7 @@ def _prepare_pair_controllers(
             future.result()
 
 
-def main(
-    fm: np.ndarray,
-    k: np.ndarray,
-    args: argparse.Namespace,
-    *,
-    pair_config: PairConfig | None = None,
-    before_start: BeforeStartCallback | None = None,
-) -> int:
+def main(fm: np.ndarray, k: np.ndarray) -> int:
     # Load DMDs from config
     dmds = load_from_config()
     
@@ -102,14 +65,17 @@ def main(
     logger.debug("DMD %s instantiated as 'B'.", dmds[1].name)
     
     render_coordinator: PairRenderCoordinator | None = None
-    preview_poster: LivePreviewPoster | None = None
     try:
         engine = PairedPatternEngine()
         sequence = build_dynamic_fm_sequence(
             fm,
             k,
         )
-
+        provider = sequence.provider
+        if not isinstance(provider, PairFrameProvider):
+            logger.error('Expected PairFrameProvider, got %s', type(provider).__name__)
+            raise RuntimeError(f'Expected PairFrameProvider, got {type(provider).__name__}')
+        
         plan_a = sequence.lut_plan_a()
         plan_b = sequence.lut_plan_for_b()
         lut_entries_a = list(plan_a.entries)
@@ -128,7 +94,6 @@ def main(
         render_coordinator = _start_pair_render_coordinator(
             engine,
             provider,
-            args,
             startup_leader_pair=startup_leader_pair,
             startup_leader_vsyncs=startup_leader_vsyncs,
         )
@@ -139,8 +104,6 @@ def main(
         _prepare_pair_controllers(
             dlpc_a,
             dlpc_b,
-            args=args,
-            pair_config=pair_config,
             timing_a=plan_a.timing,
             timing_b=plan_b.timing,
             entries_count_a=len(lut_entries_a),
@@ -148,27 +111,8 @@ def main(
         )
 
         logger.info('Loading paired pattern LUTs without starting sequencers...')
-        with log_context("DMD A"):
-            load_pattern_sequence(dlpc_a, lut_entries_a)
-        with log_context("DMD B"):
-            load_pattern_sequence(dlpc_b, lut_entries_b)
-        state_a: PreparedSequenceState = {"entries": lut_entries_a, "timing": plan_a.timing}
-        state_b: PreparedSequenceState = {"entries": lut_entries_b, "timing": plan_b.timing}
-
-        startup_leader = sequence.startup_leader_metadata()
-        render_coordinator.preview_poster = preview_poster
-
-        if before_start is not None:
-            before_start_context: BeforeStartContext = {
-                "args": args,
-                "pair_config": pair_config,
-                "state_a": state_a,
-                "state_b": state_b,
-                "preview_metadata": live_preview_metadata,
-                "startup_leader": startup_leader,
-                "display_sequence": sequence.metadata(),
-            }
-            before_start(before_start_context)
+        load_pattern_sequence(dlpc_a, lut_entries_a)
+        load_pattern_sequence(dlpc_b, lut_entries_b)
 
         if prime_first_semantic:
             logger.info('Priming first count/blank source frame before sequencer start...')
@@ -191,30 +135,22 @@ def main(
     finally:
         if render_coordinator is not None:
             render_coordinator.stop()
-        for label, dlpc in (("A", dlpc_a), ("B", dlpc_b)):
+        for _, dlpc in (("A", dlpc_a), ("B", dlpc_b)):
             if dlpc is None:
                 continue
-            with log_context(f"DMD {label}"):
+            try:
+                logger.info('Stopping pattern display...')
+                dlpc.start_pattern_display(0)
+                dlpc.set_display_mode(0x00)
+                dlpc.apply_block_lock_workaround()
+            except Exception as cleanup_exc:
+                logger.exception('Cleanup warning: %s', cleanup_exc)
+            close = getattr(dlpc, "close", None)
+            if callable(close):
                 try:
-                    logger.info("[-] Stopping pattern display...")
-                    dlpc.start_pattern_display(0)
-                    dlpc.set_display_mode(0x00)
-                    dlpc.apply_block_lock_workaround()
-                except Exception as cleanup_exc:
-                    logger.exception('Cleanup warning: %s', cleanup_exc)
-                close = getattr(dlpc, "close", None)
-                if callable(close):
-                    try:
-                        close()
-                    except Exception as close_exc:
-                        logger.exception('Close warning: %s', close_exc)
+                    close()
+                except Exception as close_exc:
+                    logger.exception('Close warning: %s', close_exc)
         if engine is not None:
             engine.cleanup()
 
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except Exception as exc:
-        logger.exception('%s', exc)
-        raise SystemExit(1)

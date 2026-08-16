@@ -14,6 +14,7 @@ Run:
   cycles: 30                         # count sequence is displayed this many times, then the run ends
   save_filtered_events: True
   save_jpg: False
+  time_max_s: 600
 
 Camera:
   ROI:
@@ -77,3 +78,5 @@ DMD:
   first_active_line: 35
   bottom_field_first_line: 1
   pixel_clock_khz: 65000
+  paired_startup_leader_vsyncs: 16
+  max_count_sequence_frames: 128

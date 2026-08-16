@@ -24,7 +24,7 @@ from .helper import select_pyusb_device
 from dmdcontrol.utils import CONFIG
 
 if TYPE_CHECKING:
-    from dmdcontrol.runtime.lut import LutEntry
+    from dmdcontrol.runtime import LutEntry
 
 @dataclass
 class DMD:
