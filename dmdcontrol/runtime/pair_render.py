@@ -61,14 +61,12 @@ class PairRenderCoordinator:
         self,
         engine: Any,
         provider: PairFrameProvider,
-        args: argparse.Namespace,
         *,
         startup_leader_pair: FramePair | tuple[RGBFrame, RGBFrame],
         startup_leader_vsyncs: int,
     ) -> None:
         self.engine = engine
         self.provider = provider
-        self.args = args
         self.startup_leader_pair = as_frame_pair(startup_leader_pair)
         self.startup_leader_vsyncs = int(startup_leader_vsyncs)
         self._ready = threading.Event()
@@ -184,7 +182,6 @@ class PairRenderCoordinator:
 def _start_pair_render_coordinator(
     engine: Any,
     provider: PairFrameProvider,
-    args: argparse.Namespace,
     *,
     startup_leader_pair: FramePair | tuple[RGBFrame, RGBFrame],
     startup_leader_vsyncs: int,
@@ -192,7 +189,6 @@ def _start_pair_render_coordinator(
     return PairRenderCoordinator(
         engine,
         provider,
-        args,
         startup_leader_pair=startup_leader_pair,
         startup_leader_vsyncs=startup_leader_vsyncs,
     ).start()

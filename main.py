@@ -99,9 +99,15 @@ def main() -> int:
         validate_display()
         log.info("Display chunk complete: bring-up and validation succeeded")
         return 0
+    except Exception as exc:
+        dlpc_a.close()
+        dlpc_b.close()
+        log.exception("Display chunk failed: %s", exc)
+        return 1
     finally:
         for name, dlpc in (("A", dlpc_a), ("B", dlpc_b)):
-            _cleanup_step(f"DMD {name} close", dlpc.close)
+            _cleanup_step(f"DMD {name} close", dlpc_a.close)
+            _cleanup_step(f"DMD {name} close", dlpc_b.close)
 
 
 if __name__ == "__main__":

@@ -37,13 +37,13 @@ Camera:
     
 DMD:
   A:
-    usb_id_path: pci-0000:03:00.0-usb-0:1:1.0
-    usb_devpath: /devices/pci0000:00/0000:00:01.3/0000:03:00.0/usb1/1-1/1-1:1.0/0003:0451:C900.0004/hidraw/hidraw1
-    xrandr_output: DP-2    
+    usb_id_path: pci-0000:03:00.0-usb-0:2:1.0
+    usb_devpath: /devices/pci0000:00/0000:00:01.3/0000:03:00.0/usb1/1-2/1-2:1.0/0003:0451:C900.000A/hidraw/hidraw1
+    xrandr_output: DP-0
   B:
     usb_id_path: pci-0000:03:00.0-usb-0:8:1.0
-    usb_devpath: /devices/pci0000:00/0000:00:01.3/0000:03:00.0/usb1/1-8/1-8:1.0/0003:0451:C900.0005/hidraw/hidraw0
-    xrandr_output: DP-0
+    usb_devpath: /devices/pci0000:00/0000:00:01.3/0000:03:00.0/usb1/1-8/1-8:1.0/0003:0451:C900.0009/hidraw/hidraw0
+    xrandr_output: DP-2
   width: 1920
   height: 1080
   offset: [0, 0]
@@ -79,3 +79,4 @@ DMD:
   bottom_field_first_line: 1
   pixel_clock_khz: 65000
   paired_startup_leader_vsyncs: 16
+  max_count_sequence_frames: 128

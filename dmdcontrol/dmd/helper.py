@@ -121,7 +121,8 @@ def discover_dlpc900_usb() -> list[UsbDevice]:
             candidates,
             key=lambda c: (c.id_path or "", c.hidraw or "", c.bus or -1, c.address or -1),
         )
-        logging.info(f"Discovered {len(candidates)} DLPC900 USB devices:\n{format_usb_candidates(candidates)}")
+        
+    logging.info(f"Discovered {len(candidates)} DLPC900 USB devices:\n{format_usb_candidates(candidates)}")
         
     return candidates
 

@@ -24,11 +24,7 @@ import logging
 
 import numpy as np
 
-from dmdcontrol.patterns.paired import (
-    FramePair,
-    PairFrameProvider,
-)
-from dmdcontrol.patterns import pack_sequence_frames, pack_static_frames
+from dmdcontrol.patterns import FramePair, PairFrameProvider, pack_sequence_frames, pack_static_frames
 from dmdcontrol.utils import CONFIG
 
 logger = logging.getLogger('DisplaySequence')

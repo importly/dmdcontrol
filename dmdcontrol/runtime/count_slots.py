@@ -6,11 +6,8 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Literal, TypedDict, overload
 
-from dmdcontrol.patterns.paired import (
-    MAX_COUNT_SEQUENCE_FRAMES,
-    count_lut_entries_per_frame,
-)
-from dmdcontrol.runtime.lut import LutTimingMetadata, build_lut_entries
+from dmdcontrol.patterns import count_lut_entries_per_frame
+from dmdcontrol.runtime import LutTimingMetadata, build_lut_entries
 from dmdcontrol.utils import CONFIG
 
 ArgsNamespace = Namespace | SimpleNamespace
@@ -118,7 +115,7 @@ class CountSequenceConfig:
     def blank_lut_entries_per_frame(self) -> int:
         return 0
 
-    def validate_shape(self, *, max_frames: int = MAX_COUNT_SEQUENCE_FRAMES) -> None:
+    def validate_shape(self, *, max_frames: int = CONFIG.get("DMD", {}).get("max_count_sequence_frames", 128)) -> None:
         if self.count_start > self.count_end:
             raise ValueError("--count-start must be <= --count-end")
         if self.count_slots_per_frame <= 0 or self.count_slots_per_frame > BITPLANES:
