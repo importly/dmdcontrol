@@ -120,20 +120,20 @@ class CountSequenceConfig:
 
     def validate_shape(self, *, max_frames: int = MAX_COUNT_SEQUENCE_FRAMES) -> None:
         if self.count_start > self.count_end:
-            raise ValueError("--count-start must be <= --count-end")
+            raise ValueError("Run.count_start must be <= Run.count_end")
         if self.count_slots_per_frame <= 0 or self.count_slots_per_frame > BITPLANES:
-            raise ValueError(f"--count-slots-per-frame must be in the range 1..{BITPLANES}")
+            raise ValueError(f"Run.count_slots_per_frame must be in the range 1..{BITPLANES}")
         if self.count_blank_between_frames and self.count_slots_per_frame != 1:
             raise ValueError(
-                "--count-blank-after-each-count requires --count-slots-per-frame 1 "
+                "Run.count_blank_after_each_count requires Run.count_slots_per_frame 1 "
                 "so each count and blank uses its own RGB source frame.")
         if self.lut_entries_per_frame > BITPLANES:
             raise ValueError(
-                f"--count-slots-per-frame {self.count_slots_per_frame} with "
-                f"--count-blank-after-each-count needs {self.lut_entries_per_frame} "
+                f"Run.count_slots_per_frame {self.count_slots_per_frame} with "
+                f"Run.count_blank_after_each_count needs {self.lut_entries_per_frame} "
                 f"LUT entries; max is {BITPLANES}")
         if not self.count_blank_between_frames and self.count_total % self.count_slots_per_frame != 0:
-            raise ValueError("count range length must be divisible by --count-slots-per-frame")
+            raise ValueError("count range length must be divisible by Run.count_slots_per_frame")
         if self.frame_count > max_frames:
             raise ValueError(f"a-count-b-static can span at most {max_frames} VSYNC frames")
 
@@ -175,7 +175,7 @@ def validate_count_lut_sequence_timing(
     # target_hz, frame_utilization, and dark_time_us are read from CONFIG by
     # build_lut_entries — they are no longer per-call overrides.
     if exposure_us is None:
-        raise ValueError("--exposure-us is required for count LUT timing")
+        raise ValueError("DMD.exposure_us is required for count LUT timing")
     entries_count = count_lut_entries_per_frame(
         count_slots_per_frame,
         count_blank_between_frames=count_blank_between_frames,
@@ -194,9 +194,9 @@ def resolve_count_slots_per_frame(
     exposure_us: int,
     count_blank_between_frames: bool = False,) -> int:
     if exposure_us is None:
-        raise ValueError("--exposure-us is required to resolve count LUT slots")
+        raise ValueError("DMD.exposure_us is required to resolve count LUT slots")
     if count_start > count_end:
-        raise ValueError("--count-start must be <= --count-end")
+        raise ValueError("Run.count_start must be <= Run.count_end")
 
     count_total = count_end - count_start + 1
     if count_blank_between_frames:
@@ -207,7 +207,7 @@ def resolve_count_slots_per_frame(
         )
         if count_total * 2 > MAX_COUNT_SEQUENCE_FRAMES:
             raise ValueError(
-                "No valid --count-slots-per-frame can display "
+                "No valid Run.count_slots_per_frame can display "
                 f"{count_start}..{count_end} with blank frames because it needs "
                 f"{count_total * 2} RGB source frames; max is {MAX_COUNT_SEQUENCE_FRAMES}.")
         return 1
@@ -235,7 +235,7 @@ def resolve_count_slots_per_frame(
 
     dmd = CONFIG.get('DMD', {})
     raise ValueError(
-        "No valid --count-slots-per-frame can display "
+        "No valid Run.count_slots_per_frame can display "
         f"{count_start}..{count_end} with exposure={exposure_us or 'auto'}us, "
         f"dark={dmd.get('dark_time_us')}us, target_hz={dmd.get('target_hz')}, "
         f"utilization={dmd.get('frame_utilization')}, and <= {MAX_COUNT_SEQUENCE_FRAMES} VSYNC frames.")
