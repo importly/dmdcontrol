@@ -8,7 +8,7 @@ import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 
 from dmdcontrol.dmd import DLPC900, load_from_config
-from dmdcontrol.patterns import PairedPatternEngine
+from dmdcontrol.patterns import PairedPatternEngine, PairFrameProvider
 from dmdcontrol.runtime import (
     PairRenderCoordinator,
     _blank_pair_frames,
@@ -71,7 +71,11 @@ def main(fm: np.ndarray, k: np.ndarray) -> int:
             fm,
             k,
         )
-
+        provider = sequence.provider
+        if not isinstance(provider, PairFrameProvider):
+            logger.error('Expected PairFrameProvider, got %s', type(provider).__name__)
+            raise RuntimeError(f'Expected PairFrameProvider, got {type(provider).__name__}')
+        
         plan_a = sequence.lut_plan_a()
         plan_b = sequence.lut_plan_for_b()
         lut_entries_a = list(plan_a.entries)
@@ -150,10 +154,3 @@ def main(fm: np.ndarray, k: np.ndarray) -> int:
         if engine is not None:
             engine.cleanup()
 
-
-if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except Exception as exc:
-        logger.exception('%s', exc)
-        raise SystemExit(1)

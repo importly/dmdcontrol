@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import argparse
 import threading
 import time
 from typing import Any
 
 import numpy as np
 
-from dmdcontrol.patterns.paired import (
+from dmdcontrol.patterns import (
     FramePair,
     PairFrameProvider,
     RGBFrame,
@@ -19,6 +18,7 @@ from dmdcontrol.utils import CONFIG
 
 DMD_WIDTH = CONFIG.get('DMD', {}).get('width')
 DMD_HEIGHT = CONFIG.get('DMD', {}).get('height')
+MAX_RUNTIME_SECONDS = CONFIG.get('Run', {}).get('time_max_s', 9999999)
 
 
 def _blank_dmd_frame() -> RGBFrame:
@@ -155,8 +155,8 @@ class PairRenderCoordinator:
     def _run_semantic_frames(self) -> None:
         end_t = (
             None
-            if self.args.runtime_seconds <= 0
-            else time.time() + self.args.runtime_seconds
+            if MAX_RUNTIME_SECONDS <= 0
+            else time.time() + MAX_RUNTIME_SECONDS
         )
         first_semantic_frame = self._primed_first_semantic_pair is None
         while (

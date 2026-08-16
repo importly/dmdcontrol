@@ -7,9 +7,11 @@ import logging
 import threading
 import time
 from typing import TYPE_CHECKING
+from dataclasses import dataclass
 
 from dmdcontrol.runtime import (
     LutEntry,
+    LutTimingMetadata,
     build_lut_entries,
     compute_trigger_out_2_timing,
     _bit6_is_cosmetic,
@@ -22,9 +24,14 @@ from dmdcontrol.runtime import (
 from dmdcontrol.utils import CONFIG
 
 if TYPE_CHECKING:
-    from dmdcontrol.dmd.dlpc900 import DLPC900
+    from dmdcontrol.dmd import DLPC900
 
 logger = logging.getLogger('VideoPattern')
+
+@dataclass
+class PreparedSequenceState:
+    entries: list[LutEntry]
+    timing: LutTimingMetadata
 
 
 def load_pattern_sequence(dlpc: DLPC900, entries: Sequence[LutEntry]) -> None:
@@ -315,9 +322,7 @@ def prepare_dlpc900_for_video_pattern(
     err = dlpc.get_last_error()
     logger.debug(f"  - TRIG_OUT_1 config sent. Last error: {err}")
 
-    entries, timing = build_lut_entries(
-        entries_count=entries_count,
-    )
+    entries, _, timing = build_lut_entries()
     trigger_out_2_timing = compute_trigger_out_2_timing()
     dlpc.configure_trigger_out_2(
         polarity_high=True,
@@ -369,7 +374,7 @@ def prepare_dlpc900_for_video_pattern(
             "timeout; continuing after the bounded fallback."
         )
 
-    return {"entries": entries, "timing": timing}
+    return PreparedSequenceState(entries=entries, timing=timing)
 
 
 def configure_dlpc900_for_video_pattern(
@@ -386,7 +391,7 @@ def configure_dlpc900_for_video_pattern(
     if pre_arm_callback is not None:
         pre_arm_callback()
 
-    entries = sequence_state["entries"]
+    entries = sequence_state.entries
     logger.info(f"[+] Applying pattern LUT with {len(entries)} entries...")
     apply_pattern_sequence(dlpc, entries, frame_pump=frame_pump)
 

@@ -15,6 +15,7 @@ Run:
   runtime_seconds: 0                 # 0 = derive from accumulation_cycles
   save_filtered_events: True
   save_jpg: False
+  time_max_s: 600
 
 Camera:
   ROI:

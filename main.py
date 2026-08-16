@@ -8,6 +8,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from dmdcontrol.camera import Camera
+from dmdcontrol.dmd import DLPC900, load_from_config
+from dmdcontrol.patterns import _decimal_number_display_masks, generate_dot_frame
 from dmdcontrol.utils import CONFIG, WORKSPACE
 
 log = logging.getLogger("main")
@@ -81,27 +84,62 @@ def _cleanup_step(description: str, action) -> None:
         action()
     except Exception as exc:
         log.warning("Cleanup (%s): %s", description, exc)
+        
+
+def generate_fm_k_sequence(length: int):
+    """Generate a sequence of (fm, k) pairs for testing."""
+    # Feature maps
+    fms = _decimal_number_display_masks(
+        numbers=range(length),
+        width=300,
+        height=300,
+        size_px=30
+    )
+
+    # Kernel
+    k = generate_dot_frame()
+    
+    return fms, k
 
 
 def main() -> int:
+    # Logging
     run_dir = create_run_directory()
     setup_logging(run_dir)
     log.info("Run directory: %s", run_dir)
-
-    from dmdcontrol.dmd.dlpc900 import DLPC900, load_from_config
-
+    
+    # Generate the feature maps and kernels
+    trial_length = 100
+    fms, k = generate_fm_k_sequence(trial_length)
+    
+    # DMD setup
     dmd_a, dmd_b = load_from_config()
     dlpc_a = DLPC900(dmd_a)
     dlpc_b = DLPC900(dmd_b)
+    
+    # Camera setup
+    camera = Camera()
+    
     try:
         wake_dmds(dlpc_a, dlpc_b)
         setup_displays()
         validate_display()
         log.info("Display chunk complete: bring-up and validation succeeded")
+        
+        # start dmd disp
+        
+        # Start recording
+        triggers, events = camera.record(trigger_count=2*trial_length)
+        
+        # Process events
+        frames = camera.accumulate(triggers, events)
+        
+        # Save frames
+        camera.save(frames, folder=run_dir / 'frames', save_as_jpg=True)
+        camera.contact_sheet(frames, folder=run_dir / 'contact_sheet')
+        
         return 0
     except Exception as exc:
-        dlpc_a.close()
-        dlpc_b.close()
         log.exception("Display chunk failed: %s", exc)
         return 1
     finally:
