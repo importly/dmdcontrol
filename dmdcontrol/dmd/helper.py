@@ -1,6 +1,7 @@
 """DLPC900 USB discovery and explicit physical-port selection helpers."""
 
 import logging
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -129,6 +130,14 @@ def discover_dlpc900_usb() -> list[UsbDevice]:
     return candidates
 
 
+def _physical_port_from_devpath(devpath: Path | str) -> tuple[int, tuple[int, ...]] | None:
+    """test code"""
+    match = re.search(r"/usb(\d+)/(?:[^/]+/)*\d+-([0-9.]+):\d+\.\d+(?:/|$)", Path(devpath).as_posix())
+    if not match:
+        return None
+    return int(match.group(1)), tuple(int(part) for part in match.group(2).split("."))
+
+
 def _devpath_matches(candidate_devpath: Path | str, config_devpath: Path | str) -> bool:
     fragment_raw = str(config_devpath).strip()
     if not fragment_raw:
@@ -163,11 +172,24 @@ def select_pyusb_device(usb_id_path: str, usb_devpath: Path | str) -> usb.core.D
     ]
     logger.debug('Found %s matching DLPC900 USB devices for id_path=%r and devpath=%r', len(candidates), usb_id_path, usb_devpath)
     
-    # Error handling if there's no candidates or if there's more than one candidate
     if not candidates:
-        logger.error(f"No DLPC900 USB devices found matching id_path={usb_id_path!r} and devpath={usb_devpath!r}")
+        physical = _physical_port_from_devpath(usb_devpath)
+        pyusb_devices = list(usb.core.find(
+            find_all=True, idVendor=CONFIG['DMD']['VID'], idProduct=CONFIG['DMD']['PID']) or [])
+        seen = ", ".join(f"bus {d.bus} ports {tuple(d.port_numbers or ())}" for d in pyusb_devices)
+        matches = [
+            d for d in pyusb_devices
+            if physical is not None and d.bus == physical[0] and tuple(d.port_numbers or ()) == physical[1]
+        ]
+        if len(matches) == 1:
+            logger.info('No hidraw mapping for id_path=%r; selected pyusb device by physical port bus %s ports %s',
+                        usb_id_path, physical[0], physical[1])
+            return matches[0]
+        logger.error(f"No DLPC900 USB device matching id_path={usb_id_path!r} devpath={usb_devpath!r} "
+                     f"(physical port {physical}); pyusb sees: {seen or '<none>'}")
         raise RuntimeError(
-            f"No DLPC900 USB devices found matching id_path={usb_id_path!r} and devpath={usb_devpath!r}")
+            f"No DLPC900 USB device matching id_path={usb_id_path!r} devpath={usb_devpath!r} "
+            f"(physical port {physical}); pyusb sees: {seen or '<none>'}")
     if len(candidates) > 1:
         logger.error(f"Multiple DLPC900 USB devices found matching id_path={usb_id_path!r} and devpath={usb_devpath!r}")
         raise RuntimeError(
