@@ -1,245 +1,47 @@
-"""DLPC900 USB discovery and explicit physical-port selection helpers."""
+"""DLPC900 USB selection by physical port."""
 
 import logging
 import re
-import subprocess
-from dataclasses import dataclass
 from pathlib import Path
 import usb.core
-from dmdcontrol.utils import Font, CONFIG
+from dmdcontrol.utils import CONFIG
 
-# Set up logging
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
-class UsbDevice:
-    vid: int
-    pid: int
-    bus: int
-    address: int
-    serial: str
-    hidraw: Path
-    id_path: str
-    devpath: Path
-    physical_path: Path
-
-
-def _udevadm_properties_for_hidraw(hidraw: Path | str) -> dict[str, str]:
-    """
-    Grab properties from `udevadm`
-
-    Args:
-        hidraw (Path | str): The path to the hidraw device.
-
-    Raises:
-        RuntimeError: If `udevadm` fails to retrieve properties for the given hidraw device.
-
-    Returns:
-        dict[str, str]: A dictionary of properties for the given hidraw device.
-    """
-    # Run `udevadm` to get properties for the given hidraw device
-    result = subprocess.run(
-        ["udevadm",
-         "info",
-         "--query=property",
-         f"--name={hidraw}"],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    
-    # Error handling if `udevadm` fails to retrieve properties for the given hidraw device
-    if result.returncode != 0:
-        logger.error(f"udevadm failed for {hidraw}: {result.stderr.strip()}")
-        raise RuntimeError(result.stderr.strip() or f"udevadm failed for {hidraw}")
-    
-    text = result.stdout
-    logger.info(f"udevadm properties for {hidraw}:\n{text.strip()}")
-    
-    # Create dict from output properties
-    props = {}
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if not line or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        props[key] = value
-        
-    return props
-
-
-def discover_dlpc900_usb() -> list[UsbDevice]:
-    """
-    Discover DLPC900 devices connected via USB.
-
-    Returns:
-        list[UsbDevice]: A list of discovered DLPC900 USB devices.
-    """
-    # Make paths
-    dev_path = Path('/dev')
-    sys_root = Path('/sys')
-        
-    # Discover hidraw paths under /dev and /sys/class/hidraw
-    sys_hidraw_path = Path(sys_root) / "class" / "hidraw"
-    hidraw_nodes = sorted(dev_path.glob("hidraw*"))
-    if not hidraw_nodes and sys_hidraw_path.exists():
-        hidraw_nodes = [dev_path / path.name for path in sorted(sys_hidraw_path.glob("hidraw*"))]
-        
-    # Grab properties for each hidraw node and filter for DLPC900 devices
-    candidates = []
-    for hidraw in hidraw_nodes:
-        props = _udevadm_properties_for_hidraw(hidraw)
-        vendor_hex, model_hex = props.get("ID_VENDOR_ID"), props.get("ID_MODEL_ID")
-        if not vendor_hex or not model_hex:
-            continue  # non-USB HID node (i2c/bluetooth): no USB ids to match
-        vendor = int(vendor_hex, 16)
-        model = int(model_hex, 16)
-        if vendor != CONFIG['DMD']['VID'] or model != CONFIG['DMD']['PID']:
-            continue
-        else:
-            # Get the DEVPATH, then strip it back to the parent USB device path
-            devpath = Path(props.get("DEVPATH"))
-            usb_devpath = devpath.parents[3].relative_to('/')
-            
-            # Read the bus and address
-            bus = int((Path('/sys') / usb_devpath / "busnum").read_text(encoding="ascii").strip())
-            address = int((Path('/sys') / usb_devpath / "devnum").read_text(encoding="ascii").strip())
-            
-            candidate = UsbDevice(
-                vid=vendor,
-                pid=model,
-                bus=bus,
-                address=address,
-                serial=props.get("ID_SERIAL_SHORT"),
-                hidraw=Path(props.get("DEVNAME")),
-                id_path=props.get("ID_PATH"),
-                devpath=devpath,
-                physical_path=Path(*devpath.parts[5:7]),
-            )
-            candidates.append(candidate)
-
-    # Sort candidates by id_path, hidraw, bus, and address to ensure consistent ordering
-    candidates = sorted(
-        candidates,
-        key=lambda c: (c.id_path or "", c.hidraw or "", c.bus or -1, c.address or -1),
-    )
-    logger.info(f"Discovered {len(candidates)} DLPC900 USB devices:\n{format_usb_candidates(candidates)}")
-
-    return candidates
-
-
-def _physical_port_from_devpath(devpath: Path | str) -> tuple[int, tuple[int, ...]] | None:
-    """test code"""
-    match = re.search(r"/usb(\d+)/(?:[^/]+/)*\d+-([0-9.]+):\d+\.\d+(?:/|$)", Path(devpath).as_posix())
+def physical_port(usb_devpath: Path | str) -> tuple[int, tuple[int, ...]]:
+    """(bus, port_numbers) from a devpath fragment or full udev DEVPATH.
+    `/usb1/1-8/1-8:1.0/` -> (1, (8,)); `/usb3/3-2.4/3-2.4:1.0/` -> (3, (2, 4))."""
+    match = re.search(r"/usb(\d+)/(?:[^/]+/)*\d+-([0-9.]+):\d+\.\d+(?:/|$)", Path(usb_devpath).as_posix())
     if not match:
-        return None
+        raise ValueError(f"usb_devpath {str(usb_devpath)!r} is not of the form /usbB/B-P[.P]/B-P[.P]:C.I/")
     return int(match.group(1)), tuple(int(part) for part in match.group(2).split("."))
 
 
-def _devpath_matches(candidate_devpath: Path | str, config_devpath: Path | str) -> bool:
-    fragment_raw = str(config_devpath).strip()
-    if not fragment_raw:
-        return False
-    candidate_text = Path(candidate_devpath).as_posix()
-    fragment = Path(fragment_raw).as_posix()
-    return fragment in candidate_text
+def dlpc900_devices() -> list[usb.core.Device]:
+    """All DLPC900s pyusb can see (VID/PID from config)."""
+    return list(usb.core.find(find_all=True, idVendor=CONFIG['DMD']['VID'], idProduct=CONFIG['DMD']['PID']) or [])
 
 
-def select_pyusb_device(usb_id_path: str, usb_devpath: Path | str) -> usb.core.Device:
-    """
-    Returns the PyUSB device that matches the given USB mapping.
-
-    Args:
-        usb_id_path (str): The USB ID path of the device.
-        usb_devpath (Path | str): The USB device path of the device.
+def select_pyusb_device(usb_devpath: Path | str) -> usb.core.Device:
+    """The DLPC900 plugged into the port described by `usb_devpath`.
 
     Raises:
-        RuntimeError: If no matching DLPC900 USB devices are found or if multiple matching devices are found.
-        RuntimeError: If the PyUSB device cannot be found.
-
-    Returns:
-        usb.core.Device: The correct PyUSB device.
+        RuntimeError: no (or more than one) DLPC900 on that port.
     """
-    # Grab matching candidate from the discovered hidraw devices
-    candidates = discover_dlpc900_usb()
-    logger.info('Found %s total DLPC900 USB devices', len(candidates))
-    candidates = [
-        candidate
-        for candidate in candidates
-        if candidate.id_path == usb_id_path and _devpath_matches(candidate.devpath, usb_devpath)
-    ]
-    logger.debug('Found %s matching DLPC900 USB devices for id_path=%r and devpath=%r', len(candidates), usb_id_path, usb_devpath)
-    
-    if not candidates:
-        physical = _physical_port_from_devpath(usb_devpath)
-        pyusb_devices = list(usb.core.find(
-            find_all=True, idVendor=CONFIG['DMD']['VID'], idProduct=CONFIG['DMD']['PID']) or [])
-        seen = ", ".join(f"bus {d.bus} ports {tuple(d.port_numbers or ())}" for d in pyusb_devices)
-        matches = [
-            d for d in pyusb_devices
-            if physical is not None and d.bus == physical[0] and tuple(d.port_numbers or ()) == physical[1]
-        ]
-        if len(matches) == 1:
-            logger.info('No hidraw mapping for id_path=%r; selected pyusb device by physical port bus %s ports %s',
-                        usb_id_path, physical[0], physical[1])
-            return matches[0]
-        logger.error(f"No DLPC900 USB device matching id_path={usb_id_path!r} devpath={usb_devpath!r} "
-                     f"(physical port {physical}); pyusb sees: {seen or '<none>'}")
+    bus, ports = physical_port(usb_devpath)
+    devices = dlpc900_devices()
+    matches = [d for d in devices if d.bus == bus and tuple(d.port_numbers or ()) == ports]
+    if len(matches) != 1:
+        seen = ", ".join(f"bus {d.bus} ports {tuple(d.port_numbers or ())}" for d in devices) or "<none>"
         raise RuntimeError(
-            f"No DLPC900 USB device matching id_path={usb_id_path!r} devpath={usb_devpath!r} "
-            f"(physical port {physical}); pyusb sees: {seen or '<none>'}")
-    if len(candidates) > 1:
-        logger.error(f"Multiple DLPC900 USB devices found matching id_path={usb_id_path!r} and devpath={usb_devpath!r}")
-        raise RuntimeError(
-            f"Multiple DLPC900 USB devices found matching id_path={usb_id_path!r} and devpath={usb_devpath!r}")
-
-    # Select the PyUSB device that matches the candidate
-    device = usb.core.find(
-        idVendor=CONFIG['DMD']['VID'],
-        idProduct=CONFIG['DMD']['PID'],
-        custom_match=lambda d: d.bus == candidates[0].bus and d.address == candidates[0].address,
-        )
-    
-    # Error handling if the PyUSB device cannot be found
-    if device is None:
-        logger.error(f"Found hidraw mapping {candidates[0].id_path}, but could not match it to a PyUSB device.")
-        raise RuntimeError(
-            f"Found hidraw mapping {candidates[0].id_path}, but could not match it to a PyUSB device.")
-
-    return device
-
-
-def format_usb_candidates(candidates: list[UsbDevice]) -> str:
-    """
-    Formats the USB candidates to print out.
-
-    Args:
-        candidates (list[UsbDevice]): List of candidates to format.
-
-    Returns:
-        str: The formatted string of USB candidates.
-    """
-    color = Font.colors()
-    lines = [f"{Font.BOLD}Found {len(candidates)} DLPC900 USB devices:{Font.ENDC}"]
-    for index, candidate in enumerate(candidates):
-        lines.extend(
-            [
-                "",
-                f"{Font.BOLD + next(color)}[{index}]{Font.ENDC}",
-                f"  {Font.BOLD}vidpid:{Font.ENDC} {candidate.vid:04x}:{candidate.pid:04x}",
-                f"  {Font.BOLD}serial:{Font.ENDC} {candidate.serial}",
-                f"  {Font.BOLD}bus:{Font.ENDC} {candidate.bus}",
-                f"  {Font.BOLD}dev:{Font.ENDC} {candidate.address}",
-                f"  {Font.BOLD}hidraw:{Font.ENDC} {candidate.hidraw}",
-                f"  {Font.BOLD}id_path:{Font.ENDC} {candidate.id_path}",
-                f"  {Font.BOLD}devpath:{Font.ENDC} {candidate.devpath}",
-                f"  {Font.BOLD}physical_path:{Font.ENDC} {candidate.physical_path}",
-                f"  {Font.BOLD}suggested_config_key:{Font.ENDC} {candidate.id_path}",
-            ])
-    return "\n".join(lines)
+            f"{len(matches)} DLPC900 devices on bus {bus} ports {ports} (usb_devpath={str(usb_devpath)!r}); "
+            f"pyusb sees: {seen}")
+    logger.info("Selected DLPC900 on bus %d ports %s (address %d)", bus, ports, matches[0].address)
+    return matches[0]
 
 
 if __name__ == "__main__":
-    print(format_usb_candidates(discover_dlpc900_usb()))
+    for d in dlpc900_devices():
+        ports = ".".join(str(p) for p in (d.port_numbers or ()))
+        print(f"bus {d.bus} address {d.address:3d}  ->  usb_devpath: /usb{d.bus}/{d.bus}-{ports}/{d.bus}-{ports}:1.0/")

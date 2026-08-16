@@ -54,14 +54,14 @@ XLOG="/tmp/dmd_xinit_$(id -un).log"
 if xr --query >/dev/null 2>&1; then
   log "X server already running on $DISPLAY_ID."
 else
-  log "Starting X server on $DISPLAY_ID (vt1); sudo is needed for this step only."
-  sudo -v || fail "could not get root to start the X server on vt1"
-  nohup sudo -n xinit /bin/sh -c 'exec sleep infinity' -- "$DISPLAY_ID" vt1 >"$XLOG" 2>&1 &
+  log "Starting X server on $DISPLAY_ID (vt1)..."
+  nohup xinit /bin/sh -c 'exec sleep infinity' -- "$DISPLAY_ID" vt1 >"$XLOG" 2>&1 &
   for _ in $(seq 1 100); do
     xr --query >/dev/null 2>&1 && break
     sleep 0.1
   done
-  xr --query >/dev/null 2>&1 || fail "X server did not come up on $DISPLAY_ID (see $XLOG)"
+  xr --query >/dev/null 2>&1 \
+    || fail "X server did not come up on $DISPLAY_ID (see $XLOG; 'Only console users' there means /etc/X11/Xwrapper.config needs allowed_users=anybody)"
   log "X server is up."
 fi
 
