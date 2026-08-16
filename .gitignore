@@ -18,3 +18,4 @@ runs
 .zed
 typings
 *tmp.py
+tests
