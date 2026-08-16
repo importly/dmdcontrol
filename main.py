@@ -84,25 +84,30 @@ def _cleanup_step(description: str, action) -> None:
 
 
 def main() -> int:
+    # logging
     run_dir = create_run_directory()
     setup_logging(run_dir)
     log.info("Run directory: %s", run_dir)
 
     from dmdcontrol.dmd.dlpc900 import DLPC900, load_from_config
 
+    # dmds
     dmd_a, dmd_b = load_from_config()
     dlpc_a = DLPC900(dmd_a)
     dlpc_b = DLPC900(dmd_b)
     try:
+        # Get dmds up
         wake_dmds(dlpc_a, dlpc_b)
+        # Setup xorg display and validate
         setup_displays()
         validate_display()
         log.info("Display chunk complete: bring-up and validation succeeded")
+
+        
         return 0
     finally:
         for name, dlpc in (("A", dlpc_a), ("B", dlpc_b)):
             _cleanup_step(f"DMD {name} close", dlpc.close)
-
 
 if __name__ == "__main__":
     sys.exit(main())
