@@ -431,9 +431,7 @@ def build_count_static_sequence() -> PairedDisplaySequence:
     target_hz = float(dmd.get('target_hz', 60.0))
 
     count_config = CountSequenceConfig.from_run_config()
-    entries, timing = build_lut_entries(
-        entries_count=count_config.lut_entries_per_frame,
-    )
+    entries, timing = build_lut_entries()
     base_slots = _slots_from_lut_entries(entries, semantic_role="count")
 
     # count mode owns its frame packing here so LUT slots and RGB bitplanes are built together.
