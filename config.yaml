@@ -37,7 +37,7 @@ Camera:
     
 DMD:
   A:
-    usb_devpath: /usb1/1-1/1-1:1.0/
+    usb_devpath: /usb1/1-2/1-2:1.0/
     xrandr_output: DP-2    
   B:
     usb_devpath: /usb1/1-8/1-8:1.0/
