@@ -11,8 +11,7 @@ Run:
   b_dot_x: 960
   b_dot_y: 540
   b_dot_radius: 30
-  accumulation_cycles: 20
-  runtime_seconds: 0                 # 0 = derive from accumulation_cycles
+  cycles: 30                         # count sequence is displayed this many times, then the run ends
   save_filtered_events: True
   save_jpg: False
 
