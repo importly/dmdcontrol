@@ -112,19 +112,89 @@ def main() -> int:
     dmd_a, dmd_b = load_from_config()
     dlpc_a = DLPC900(dmd_a)
     dlpc_b = DLPC900(dmd_b)
+    engine = None
+    coordinator = None
     try:
         # Get dmds up
         wake_dmds(dlpc_a, dlpc_b)
         # Setup xorg display and validate
         setup_displays()
         validate_display()
-        log.info("Display chunk complete: bring-up and validation succeeded")
 
+        from dmdcontrol.patterns.paired import PairedPatternEngine
+        from dmdcontrol.runtime.display_sequence import build_count_static_sequence
+        from dmdcontrol.runtime.pair_render import _start_pair_render_coordinator
+        from dmdcontrol.runtime.video_pattern import (
+            load_pattern_sequence,
+            prepare_pair_controllers,
+            start_loaded_pattern_sequences,
+            verify_started_pattern_sequence,
+        )
+
+        # A counts, B static dot, setup sequence
+        sequence = build_count_static_sequence()
+        leader = sequence.startup_leader_metadata()
+        cycles = int(RUN["cycles"])
+        semantic_frames = cycles * len(sequence.frames)
+        log.info("Recipe: counts %d..%d | %d frames per cycle | %d cycles = %d frames | %d leader vsyncs",
+                 RUN["count_start"], RUN["count_end"], len(sequence.frames),
+                 cycles, semantic_frames, leader["leader_vsyncs"])
+
+        # hold the startup pair until the sequencers are running
+        engine = PairedPatternEngine()
+        coordinator = _start_pair_render_coordinator(
+            engine,
+            sequence.provider,
+            startup_leader_pair=sequence.startup_pair,
+            startup_leader_vsyncs=leader["leader_vsyncs"],
+            semantic_frames=semantic_frames,
+        )
+        if not coordinator.wait_until_ready(timeout_s=2.0):
+            raise RuntimeError("render coordinator did not become ready")
+
+        # lut plans
+        plan_a = sequence.lut_plan_a()
+        plan_b = sequence.lut_plan_b()
         
+        prepare_pair_controllers(
+            dlpc_a, dlpc_b,
+            entries_count_a=len(plan_a.entries),
+            entries_count_b=len(plan_b.entries),
+        )
+        load_pattern_sequence(dlpc_a, plan_a.entries)
+        load_pattern_sequence(dlpc_b, plan_b.entries)
+        start_loaded_pattern_sequences(dlpc_a, dlpc_b, post_start_delay_s=0.0, verify=False)
+
+        coordinator.release_semantic_frames()
+        
+        for name, dlpc in (("A", dlpc_a), ("B", dlpc_b)):
+            hw = verify_started_pattern_sequence(dlpc, label=f"DMD {name}")
+            log.info("DMD %s sequencer running in Video Pattern Mode (hw=%s)",
+                     name, f"0x{hw:02X}" if hw is not None else "n/a")
+        log.info("Displaying %d frames (%d leader + %d count)...",
+                 leader["leader_vsyncs"] + semantic_frames, leader["leader_vsyncs"], semantic_frames)
+        dropped_before = engine.dropped_frames  # stutters during DLPC setup are pre-display, ignore
+        coordinator.join()
+        dropped = engine.dropped_frames - dropped_before
+        if dropped:
+            log.critical("%d frame(s) dropped during display: count/trigger alignment is off for this run", dropped)
+        log.info("Displayed %d frames, %d dropped; count chunk complete (%d cycles)",
+                 leader["leader_vsyncs"] + semantic_frames, dropped, cycles)
         return 0
     finally:
+        if coordinator is not None:
+            _cleanup_step("render coordinator stop", coordinator.stop)
         for name, dlpc in (("A", dlpc_a), ("B", dlpc_b)):
+            _cleanup_step(f"DMD {name} stop pattern display",
+                          partial(dlpc.start_pattern_display, 0))
+            _cleanup_step(f"DMD {name} restore video mode",
+                          partial(dlpc.set_display_mode, 0))
+            _cleanup_step(f"DMD {name} block-lock workaround",
+                          dlpc.apply_block_lock_workaround)
             _cleanup_step(f"DMD {name} close", dlpc.close)
+        if engine is not None:
+            _cleanup_step("engine cleanup", engine.cleanup)
+
 
 if __name__ == "__main__":
     sys.exit(main())

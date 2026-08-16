@@ -8,7 +8,6 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -82,7 +81,6 @@ def _validate_rgb_frame(frame: object, label: str):
         ValueError: Raises if frame is not in the correct RGB format
         ValueError: Raises if frame is not uint8
     """
-    logger.debug('%s shape: %s, dtype: %s', label, getattr(frame, 'shape', None), getattr(frame, 'dtype', None))
     if not isinstance(frame, np.ndarray):
         raise TypeError(f"{label} must be a numpy array")
     if frame.ndim != 3 or frame.shape[2] != 3:
@@ -271,25 +269,40 @@ def pack_count_sequence_frames(
         width: int,
         height: int,
         size_px: int | None = None,
-        count_blank_between_frames: bool = False) -> tuple[RGBFrame, ...]:
+        count_blank_between_frames: bool = True) -> tuple[RGBFrame, ...]:
     _validate_count_sequence_args(
         count_start,
         count_end,
         count_slots_per_frame,
+        count_blank_between_frames=count_blank_between_frames,
     )
     frames: list[RGBFrame] = []
     counts = tuple(range(count_start, count_end + 1))
-    blank_frame = np.zeros((height, width, 3), dtype=np.uint8)
-    for count in counts:
-        count_mask = _decimal_number_display_masks(
-            (count,),
+    if count_blank_between_frames:
+        # count and blank
+        blank_frame = np.zeros((height, width, 3), dtype=np.uint8)
+        for count in counts:
+            count_mask = _decimal_number_display_masks(
+                (count,),
+                width=width,
+                height=height,
+                size_px=size_px,
+            )
+            stack = BitplaneStack.from_masks(count_mask, width=width, height=height)
+            frames.append(stack.to_rgb_frame().array)
+            frames.append(blank_frame.copy())
+        return tuple(frames)
+
+    for offset in range(0, len(counts), count_slots_per_frame):
+        chunk = counts[offset:offset + count_slots_per_frame]
+        count_masks = _decimal_number_display_masks(
+            chunk,
             width=width,
             height=height,
             size_px=size_px,
         )
-        stack = BitplaneStack.from_masks(count_mask, width=width, height=height)
+        stack = BitplaneStack.from_masks(count_masks, width=width, height=height)
         frames.append(stack.to_rgb_frame().array)
-        frames.append(blank_frame.copy())
     return tuple(frames)
 
 def pos_img(a: np.ndarray) -> np.ndarray:
@@ -419,37 +432,6 @@ def _decimal_number_display_masks(
                 height=height,
             size_px=size_px,
             )[:, :, 0] > 0).astype(np.uint8) for number in numbers]
-
-
-def make_pair_frame_provider(
-    test: str,
-    test_a: str | None = None,
-    test_b: str | None = None,
-    width: int = DMD_WIDTH,
-    height: int = DMD_HEIGHT,
-    static_image_a: str | PathLike[str] | None = None,
-    static_image_b: str | PathLike[str] | None = None,
-    static_image_size_px: int = DMD_HEIGHT,
-    dot_radius: int = 40,) -> PairFrameProvider:
-    if test in STATIC_PAIR_TESTS:
-        return StaticPairFrameProvider(
-            mode_a=test_a or test,
-            mode_b=test_b or test,
-            width=width,
-            height=height,
-            dot_radius=dot_radius,
-        )
-    if test == STATIC_IMAGES_PAIR_TEST:
-        if static_image_a is None or static_image_b is None:
-            raise ValueError("static-images requires static_image_a and static_image_b")
-        return StaticImagePairFrameProvider(
-            static_image_a,
-            static_image_b,
-            width=width,
-            height=height,
-            size_px=static_image_size_px,
-        )
-    raise ValueError(f"Unsupported paired test mode: {test}")
 
 
 class PairedPatternEngine:

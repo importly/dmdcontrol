@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import math
-from argparse import Namespace
 from dataclasses import dataclass
-from types import SimpleNamespace
-from typing import Literal, TypedDict, overload
+from typing import TypedDict
 
 from dmdcontrol.patterns.paired import (
     MAX_COUNT_SEQUENCE_FRAMES,
@@ -12,8 +10,6 @@ from dmdcontrol.patterns.paired import (
 )
 from dmdcontrol.runtime.lut import LutTimingMetadata, build_lut_entries
 from dmdcontrol.utils import CONFIG
-
-ArgsNamespace = Namespace | SimpleNamespace
 
 BITPLANES = CONFIG.get('DMD', {}).get('bitplanes')
 
@@ -55,43 +51,41 @@ class CountSequenceConfig:
     count_slots_per_frame_mode: str = "explicit"
 
     @classmethod
-    @overload
-    def from_args(
-        cls,
-        args: ArgsNamespace,
-        *,
-        require_resolved_slots: Literal[True] = True,) -> CountSequenceConfig:
-        ...
+    def from_run_config(cls) -> CountSequenceConfig:
+        """Build and validate the count recipe from the `Run`/`DMD` config sections."""
+        run = CONFIG.get('Run', {})
+        exposure_us = int(CONFIG.get('DMD', {}).get('exposure_us'))
+        count_start = int(run.get('count_start'))
+        count_end = int(run.get('count_end'))
+        count_blank_between_frames = bool(run.get('count_blank_after_each_count'))
 
-    @classmethod
-    @overload
-    def from_args(
-        cls,
-        args: ArgsNamespace,
-        *,
-        require_resolved_slots: Literal[False],) -> "CountSequenceConfig | None":
-        ...
+        slots_raw = run.get('count_slots_per_frame')
+        if isinstance(slots_raw, str):
+            if slots_raw.strip().lower() != 'auto':
+                raise ValueError(
+                    "Run.count_slots_per_frame must be a positive integer or 'auto', "
+                    f"got {slots_raw!r}")
+            slots = resolve_count_slots_per_frame(
+                count_start=count_start,
+                count_end=count_end,
+                exposure_us=exposure_us,
+                count_blank_between_frames=count_blank_between_frames,
+            )
+            slots_mode = "auto"
+        else:
+            slots = int(slots_raw)
+            slots_mode = "explicit"
 
-    @classmethod
-    def from_args(
-        cls,
-        args: ArgsNamespace,
-        *,
-        require_resolved_slots: bool = True,) -> "CountSequenceConfig | None":
-        slots = getattr(args, "count_slots_per_frame", None)
-        if slots is None:
-            if require_resolved_slots:
-                raise ValueError("--count-slots-per-frame auto did not resolve")
-            return None
-        count_start = getattr(args, "count_start", 1)
-        count_end = getattr(args, "count_end", count_start + int(slots) - 1)
-        return cls(
+        config = cls(
             count_start=count_start,
             count_end=count_end,
             count_slots_per_frame=slots,
-            count_blank_between_frames=getattr(args, "count_blank_between_frames", False),
-            count_slots_per_frame_mode=getattr(args, "count_slots_per_frame_mode", "explicit"),
+            count_blank_between_frames=count_blank_between_frames,
+            count_slots_per_frame_mode=slots_mode,
         )
+        config.validate_shape()
+        config.validate_timing(exposure_us=exposure_us)
+        return config
 
     @property
     def count_total(self) -> int:

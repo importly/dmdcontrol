@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import argparse
 import threading
-import time
 from typing import Any
 
 import numpy as np
@@ -61,14 +59,14 @@ class PairRenderCoordinator:
         self,
         engine: Any,
         provider: PairFrameProvider,
-        args: argparse.Namespace,
         *,
         startup_leader_pair: FramePair | tuple[RGBFrame, RGBFrame],
         startup_leader_vsyncs: int,
+        semantic_frames: int,
     ) -> None:
         self.engine = engine
         self.provider = provider
-        self.args = args
+        self.semantic_frames = int(semantic_frames)
         self.startup_leader_pair = as_frame_pair(startup_leader_pair)
         self.startup_leader_vsyncs = int(startup_leader_vsyncs)
         self._ready = threading.Event()
@@ -155,17 +153,14 @@ class PairRenderCoordinator:
             _display_frame_pair(self.engine, self.startup_leader_pair)
 
     def _run_semantic_frames(self) -> None:
-        end_t = (
-            None
-            if self.args.runtime_seconds <= 0
-            else time.time() + self.args.runtime_seconds
-        )
+        displayed = 0
         first_semantic_frame = self._primed_first_semantic_pair is None
         while (
             not self._stop.is_set()
-            and (end_t is None or time.time() < end_t)
+            and (self.semantic_frames <= 0 or displayed < self.semantic_frames) # semantic frames <= 0 means run forever
             and not self._engine_should_close()
         ):
+            displayed += 1
             if first_semantic_frame:
                 frame_pair = self._first_semantic_pair()
                 first_semantic_frame = False
@@ -184,15 +179,15 @@ class PairRenderCoordinator:
 def _start_pair_render_coordinator(
     engine: Any,
     provider: PairFrameProvider,
-    args: argparse.Namespace,
     *,
     startup_leader_pair: FramePair | tuple[RGBFrame, RGBFrame],
     startup_leader_vsyncs: int,
+    semantic_frames: int,
 ) -> PairRenderCoordinator:
     return PairRenderCoordinator(
         engine,
         provider,
-        args,
         startup_leader_pair=startup_leader_pair,
         startup_leader_vsyncs=startup_leader_vsyncs,
+        semantic_frames=semantic_frames,
     ).start()
