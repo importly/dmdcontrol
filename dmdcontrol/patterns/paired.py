@@ -151,79 +151,6 @@ def load_static_image_frame(
     return np.ascontiguousarray(np.array(canvas.convert("RGB"), dtype=np.uint8))
 
 
-def _fill_rect_rgb(
-    frame: RGBFrame,
-    x0: int,
-    y0: int,
-    x1: int,
-    y1: int,
-    value: int = 255,) -> None:
-    height, width = frame.shape[:2]
-    x0 = max(0, min(width, int(x0)))
-    x1 = max(0, min(width, int(x1)))
-    y0 = max(0, min(height, int(y0)))
-    y1 = max(0, min(height, int(y1)))
-    if x1 > x0 and y1 > y0:
-        frame[y0:y1, x0:x1, :] = value
-
-
-def _draw_block_letter(frame: RGBFrame, label: str, x0: int, y0: int, cell: int) -> None:
-    if label == "A":
-        rects = (
-            (0,
-             1,
-             1,
-             7),
-            (4,
-             1,
-             5,
-             7),
-            (1,
-             0,
-             4,
-             1),
-            (1,
-             3,
-             4,
-             4),
-        )
-    else:
-        rects = (
-            (0,
-             0,
-             1,
-             7),
-            (1,
-             0,
-             4,
-             1),
-            (1,
-             3,
-             4,
-             4),
-            (1,
-             6,
-             4,
-             7),
-            (4,
-             1,
-             5,
-             3),
-            (4,
-             4,
-             5,
-             6),
-        )
-    for rx0, ry0, rx1, ry1 in rects:
-        _fill_rect_rgb(
-            frame,
-            x0 + rx0 * cell,
-            y0 + ry0 * cell,
-            x0 + rx1 * cell,
-            y0 + ry1 * cell,
-        )
-
-
 def generate_dot_frame(
     width: int = DMD_WIDTH,
     height: int = DMD_HEIGHT,
@@ -278,21 +205,6 @@ def generate_static_frame(
             invert=dot_invert,
         )
     raise ValueError(f"Unsupported static pair mode: {mode}")
-
-
-def _static_frame(
-    mode: str,
-    width: int,
-    height: int,
-    route_label: str,
-    dot_radius: int = 40,) -> RGBFrame:
-    return generate_static_frame(
-        mode,
-        width,
-        height,
-        route_label,
-        dot_radius=dot_radius,
-    )
 
 
 class PairFrameProvider:
