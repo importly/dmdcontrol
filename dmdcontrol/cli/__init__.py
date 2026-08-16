@@ -1,1 +1,0 @@
-"""Package command-line entrypoint."""

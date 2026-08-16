@@ -16,7 +16,6 @@ import struct
 import time
 import logging
 from collections.abc import Sequence
-from pathlib import Path
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 import usb.core
@@ -30,8 +29,8 @@ if TYPE_CHECKING:
 @dataclass
 class DMD:
     name: str
-    usb_id_path: str
-    usb_devpath: Path
+    usb_bus: int
+    usb_port: tuple[int, ...]
     xrandr_output: str
     width: int
     height: int
@@ -47,8 +46,7 @@ def load_from_config() -> list[DMD]:
     
     **Required Keys:**
     - `name`: The name of the DMD device.
-        - `usb_id_path`: The USB ID path of the DMD device.
-        - `usb_devpath`: The USB devpath of the DMD device.
+        - `usb_bus`, `usb_port`: physical usb location
         - `xrandr_output`: The xrandr output name for the DMD device.
         - `width`: The width of the DMD device.
         - `height`: The height of the DMD device.
@@ -68,8 +66,8 @@ def load_from_config() -> list[DMD]:
             dmds.append(
                 DMD(
                     name=name,
-                    usb_id_path=CONFIG['DMD'][name]['usb_id_path'],
-                    usb_devpath=Path(CONFIG['DMD'][name]['usb_devpath']),
+                    usb_bus=int(CONFIG['DMD'][name]['usb_bus']),
+                    usb_port=tuple(port) if isinstance(port := CONFIG['DMD'][name]['usb_port'], list) else (int(port),),
                     xrandr_output=CONFIG['DMD'][name]['xrandr_output'],
                     width=int(CONFIG['DMD']['width']),
                     height=int(CONFIG['DMD']['height']),
@@ -114,10 +112,7 @@ class DLPC900:
             RuntimeError: Raises when there's no HID interface found.
         """
         # Select the USB device based on the provided DMD configuration
-        self.dmd.dev = select_pyusb_device(
-            usb_id_path=self.dmd.usb_id_path,
-            usb_devpath=self.dmd.usb_devpath,
-            )
+        self.dmd.dev = select_pyusb_device(self.dmd.usb_bus, self.dmd.usb_port)
         
         # Grab current configuration
         cfg = self.dmd.dev.get_active_configuration()

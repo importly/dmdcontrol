@@ -37,13 +37,13 @@ Camera:
     
 DMD:
   A:
-    usb_id_path: pci-0000:03:00.0-usb-0:2:1.0
-    usb_devpath: /devices/pci0000:00/0000:00:01.3/0000:03:00.0/usb1/1-2/1-2:1.0/0003:0451:C900.000A/hidraw/hidraw1
-    xrandr_output: DP-0
+    usb_bus: 1
+    usb_port: 2      # root-hub port; list for a hub chain, e.g. [2, 4]
+    xrandr_output: DP-2    
   B:
-    usb_id_path: pci-0000:03:00.0-usb-0:8:1.0
-    usb_devpath: /devices/pci0000:00/0000:00:01.3/0000:03:00.0/usb1/1-8/1-8:1.0/0003:0451:C900.0009/hidraw/hidraw0
-    xrandr_output: DP-2
+    usb_bus: 1
+    usb_port: 8
+    xrandr_output: DP-0
   width: 1920
   height: 1080
   offset: [0, 0]

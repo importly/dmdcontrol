@@ -3,7 +3,10 @@
 from __future__ import annotations
 import time
 import logging
-from dmdcontrol.dmd import DLPC900
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from dmdcontrol.dmd import DLPC900
 
 
 logger = logging.getLogger('DLPC900_status')
@@ -125,7 +128,7 @@ def ensure_video_pattern_mode(
         return True
 
     for attempt in range(1, retries + 1):
-        logger.warning('Mode readback shows %d, not 2! Retrying mode transition (%d/%d)...', mode, attempt, retries)
+        logger.warning('Mode readback shows %s, not 2! Retrying mode transition (%d/%d)...', mode, attempt, retries)
         dlpc.set_display_mode(0x02)
 
         time.sleep(0.35)
@@ -133,11 +136,11 @@ def ensure_video_pattern_mode(
         while time.time() < deadline:
             mode, _ = dlpc.get_display_mode()
             if mode == 2:
-                logger.debug('  - After retry %d, mode readback: %d', attempt, mode)
+                logger.debug('  - After retry %d, mode readback: %s', attempt, mode)
                 return True
             time.sleep(0.1)
 
-        logger.debug('  - After retry %d, mode readback: %d', attempt, mode)
+        logger.debug('  - After retry %d, mode readback: %s', attempt, mode)
 
     return False
 
