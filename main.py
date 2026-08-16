@@ -119,8 +119,10 @@ def main() -> int:
     setup_logging(run_dir)
     log.info("Run directory: %s", run_dir)
     log.info("Git: %s", git_hash())
-
-    from dmdcontrol.dmd.dlpc900 import DLPC900, load_from_config
+    
+    # Generate the feature maps and kernels
+    trial_length = 100
+    fms, k = generate_fm_k_sequence(trial_length)
 
     # dmds
     dmd_a, dmd_b = load_from_config()
@@ -137,7 +139,16 @@ def main() -> int:
         setup_displays()
         validate_display()
         log.info("Display chunk complete: bring-up and validation succeeded")
-
+        
+        # Start recording
+        triggers, events = camera.record(trigger_count=2*trial_length)
+        
+        # Process events
+        frames = camera.accumulate(triggers, events)
+        
+        # Save frames
+        camera.save(frames, folder=run_dir / 'frames', save_as_jpg=True)
+        camera.contact_sheet(frames, folder=run_dir / 'contact_sheet')
         
         return 0
     except Exception as exc:
