@@ -8,7 +8,6 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -331,11 +330,12 @@ def pack_count_sequence_frames(
         width: int,
         height: int,
         size_px: int | None = None,
-        count_blank_between_frames: bool = False) -> tuple[RGBFrame, ...]:
+        count_blank_between_frames: bool = True) -> tuple[RGBFrame, ...]:
     _validate_count_sequence_args(
         count_start,
         count_end,
         count_slots_per_frame,
+        count_blank_between_frames=count_blank_between_frames,
     )
     frames: list[RGBFrame] = []
     counts = tuple(range(count_start, count_end + 1))

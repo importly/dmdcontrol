@@ -18,12 +18,22 @@ multiple selected bitplanes from the same live RGB frame.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import NotRequired, Literal, TypedDict
+from typing import Literal, TypedDict
 import logging
 
 import numpy as np
 
+from dmdcontrol.patterns.paired import (
+    FramePair,
+    PairFrameProvider,
+    generate_static_frame,
+    pack_count_sequence_frames,
+)
+from dmdcontrol.patterns import pack_sequence_frames, pack_static_frames
+from dmdcontrol.runtime.count_slots import CountSequenceConfig
+from dmdcontrol.runtime.lut import LutEntry, LutTimingMetadata, build_lut_entries
 from dmdcontrol.patterns import FramePair, PairFrameProvider, pack_sequence_frames, pack_static_frames
 from dmdcontrol.utils import CONFIG
 
@@ -224,7 +234,7 @@ class PairedDisplaySequence:
             role="semantic",
         )
 
-    def lut_plan_for_b(self) -> DmdLutPlan:
+    def lut_plan_b(self) -> DmdLutPlan:
         return self.b_lut_plan or self.lut_plan_a()
 
     def startup_leader_metadata(self) -> StartupLeaderMetadata:
@@ -369,7 +379,7 @@ def build_dynamic_fm_sequence(
         clear_last_after_exposure=False,
     )
     frames: list[TimedFramePair] = []
-    
+
     base_slot = base_slots[0]
     for source_frame_index, frame_a in enumerate(frames_a):
         labels = [f"frame:{source_frame_index}"]
@@ -382,7 +392,7 @@ def build_dynamic_fm_sequence(
                 semantic_labels=tuple(labels),
             )
         )
-            
+
     startup_policy = StartupPolicy(
         "blank_leader",
         CONFIG.get('DMD', {}).get('paired_startup_leader_vsyncs', 16),
@@ -410,6 +420,138 @@ def build_dynamic_fm_sequence(
         startup_pair=startup_pair, # blank start up sequence frames
         b_lut_plan=DmdLutPlan(tuple(entries_b), timing_b, role="static_hold"),
     )
+
+
+def build_count_static_sequence() -> PairedDisplaySequence:
+    """Build the count/blank A-side vs static B-side, doing it here instead of main because there is more dmd setup happening than actual high level stuff"""
+    run = CONFIG.get('Run', {})
+    dmd = CONFIG.get('DMD', {})
+    width = int(dmd.get('width', 1920))
+    height = int(dmd.get('height', 1080))
+    target_hz = float(dmd.get('target_hz', 60.0))
+
+    count_config = CountSequenceConfig.from_run_config()
+    entries, timing = build_lut_entries(
+        entries_count=count_config.lut_entries_per_frame,
+    )
+    base_slots = _slots_from_lut_entries(entries, semantic_role="count")
+
+    # count mode owns its frame packing here so LUT slots and RGB bitplanes are built together.
+    frames_a = pack_count_sequence_frames(
+        count_config.count_start,
+        count_config.count_end,
+        count_config.count_slots_per_frame,
+        width=width,
+        height=height,
+        size_px=run.get('number_size_px'),
+        count_blank_between_frames=count_config.count_blank_between_frames,
+    )
+    frame_b = generate_static_frame(
+        run.get('test_b', 'dot'),
+        width=width,
+        height=height,
+        route_label="B",
+        dot_x=run.get('b_dot_x'),
+        dot_y=run.get('b_dot_y'),
+        dot_radius=run.get('b_dot_radius'),
+    )
+    # B holds one continuously visible pattern
+    entries_b, timing_b = build_lut_entries(
+        entries_count=1,
+        clear_last_after_exposure=False,
+        trig2_frame_zero=True,
+    )
+
+    frames: list[TimedFramePair] = []
+    counts = tuple(range(count_config.count_start, count_config.count_end + 1))
+    if count_config.count_blank_between_frames:
+        if len(base_slots) != 1:
+            raise ValueError(
+                "count blank insertion expects one LUT slot per source frame"
+            )
+        base_slot = base_slots[0]
+        for source_frame_index, frame_a in enumerate(frames_a):
+            if source_frame_index % 2 == 0:
+                count = counts[source_frame_index // 2]
+                labels = [f"count:{count}"]
+            else:
+                labels = ["blank"]
+            frames.append(
+                TimedFramePair(
+                    frame_pair=FramePair(a=frame_a, b=frame_b),
+                    lut_slots=_slots_with_labels((base_slot,), labels),
+                    source_frame_index=source_frame_index,
+                    semantic_labels=tuple(labels),
+                )
+            )
+    else:
+        for source_frame_index, (frame_a, offset) in enumerate(
+            zip(frames_a, range(0, len(counts), count_config.count_slots_per_frame))
+        ):
+            labels = _count_slot_labels(
+                counts[offset : offset + count_config.count_slots_per_frame],
+                blank_after_each_count=False,
+            )
+            frames.append(
+                TimedFramePair(
+                    frame_pair=FramePair(a=frame_a, b=frame_b),
+                    lut_slots=_slots_with_labels(base_slots, labels),
+                    source_frame_index=source_frame_index,
+                    semantic_labels=tuple(
+                        label for label in labels if label != "blank"
+                    ),
+                )
+            )
+
+    startup_policy = StartupPolicy(
+        "blank_leader",
+        int(dmd.get('paired_startup_leader_vsyncs', 16)),
+        frame_role="a_blank_b_static",
+    )
+    startup_pair = FramePair(a=np.zeros((height, width, 3), dtype=np.uint8), b=frame_b)
+    frame_tuple = tuple(frames)
+    return PairedDisplaySequence(
+        frames=frame_tuple,
+        startup_policy=startup_policy,
+        repeat=True,
+        target_hz=target_hz,
+        timing=timing,
+        mode_metadata={
+            "count": {
+                **count_config.to_pair_preview_metadata(),
+                "exposure_us": timing["exposure_us"],
+            },
+            "static_b": {
+                "continuous_hold": True,
+                "dark_time_us": 0,
+                "trigger_source_for_camera": "A",
+            },
+        },
+        provider=FrameSequenceProvider(frame_tuple, repeat=True),
+        startup_pair=startup_pair,
+        b_lut_plan=DmdLutPlan(tuple(entries_b), timing_b, role="static_hold"),
+    )
+
+
+def _slots_from_lut_entries(
+    entries: Iterable[LutEntry],
+    *,
+    semantic_role: str,
+) -> tuple[LutSlot, ...]:
+    slots: list[LutSlot] = []
+    for entry in entries:
+        slots.append(
+            LutSlot(
+                bitplane_index=int(entry.bit_position),
+                exposure_us=int(entry.exposure_us),
+                dark_us=int(entry.dark_us),
+                trig2_enabled=not bool(entry.trig2_disabled),
+                clear_after=bool(entry.clear_after),
+                semantic_role=semantic_role,
+                wait_for_trigger=bool(entry.wait_for_trigger),
+            )
+        )
+    return tuple(slots)
 
 
 def _slots_with_labels(

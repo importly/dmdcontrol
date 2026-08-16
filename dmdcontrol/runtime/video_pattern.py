@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 import logging
 import threading
 import time
@@ -130,70 +131,9 @@ def verify_started_pattern_sequence(
     return hw
 
 
-def apply_pattern_sequence(
-    dlpc: DLPC900,
-    entries: Sequence[LutEntry],
-    frame_pump: Callable[[], None] | None = None,) -> None:
-    load_pattern_sequence(dlpc, entries)
-
-    if frame_pump is not None:
-        frame_pump()
-    start_loaded_pattern_sequence(dlpc)
-
-    # hw bit 6 (DLPU018J "ABORT") is set by Pattern Display Stop and can persist
-    # after a healthy restart. Only retry when bit 6 is paired with real unhealthy
-    # state: forced_swap, SEQ_ERR, mode drop, stopped sequencer, or lost sync.
-    _RETRY_DELAYS = [0.37, 0.73, 1.17, 1.83, 2.53]
-    for attempt in range(1, len(_RETRY_DELAYS) + 1):
-        hw = dlpc.get_hardware_status()
-        if hw is None or not (hw & 0x40):
-            if attempt > 1:
-                logger.debug(f"  [arm] bit-6 cleared on attempt {attempt} (hw={_format_hw(hw)}).")
-            break
-
-        if _bit6_is_cosmetic(dlpc, hw):
-            logger.debug(
-                f"  [arm] bit-6 latched but health checks are good "
-                f"(hw={_format_hw(hw)}); skipping retry churn.")
-            break
-
-        err_code = dlpc.get_last_error()
-        err_desc = dlpc.get_error_description()
-        logger.debug(
-            f"  [arm] bit-6 latched hw={_format_hw(hw)} after start attempt {attempt}. "
-            f"last_err={err_code!r} desc={err_desc!r}. "
-            f"Stop -> park/unpark -> {_RETRY_DELAYS[attempt - 1]:.2f}s -> resend LUT -> restart.")
-        dlpc.start_pattern_display(0)
-        time.sleep(0.1)
-        hw_after_stop = dlpc.get_hardware_status()
-        logger.debug(f"  [retry {attempt}] hw post-stop    = {_format_hw(hw_after_stop)}")
-        dlpc.apply_block_lock_workaround()
-        hw_after_pp = dlpc.get_hardware_status()
-        logger.debug(f"  [retry {attempt}] hw post-park    = {_format_hw(hw_after_pp)}")
-        time.sleep(_RETRY_DELAYS[attempt - 1])
-        dlpc.set_pattern_lut_definition(entries)
-        dlpc.set_pattern_lut_config(len(entries), repeat=True)
-        if frame_pump is not None:
-            frame_pump()
-        dlpc.start_pattern_display(2)
-        time.sleep(0.2)
-        hw_after_start = dlpc.get_hardware_status()
-        logger.debug(f"  [retry {attempt}] hw post-restart = {_format_hw(hw_after_start)}")
-    else:
-        hw_final = dlpc.get_hardware_status()
-        err_code = dlpc.get_last_error()
-        err_desc = dlpc.get_error_description()
-        logger.warning(
-            f"[+] Unhealthy bit-6 state still latched (hw={_format_hw(hw_final)}) "
-            f"after {len(_RETRY_DELAYS)} retries. "
-            f"last_err={err_code!r} desc={err_desc!r}. "
-            "Check sequencer_running, external_source_locked, port1_syncs_valid, forced_swap, and SEQ_ERR."
-        )
-
-
 def prepare_dlpc900_for_video_pattern(
     dlpc: DLPC900,
-    entries_count: int | None = None,) -> PreparedSequenceState:
+    entries_count: int | None = None,) -> None:
     # Note: dark_time_us (config) does not produce visible off-time in DLPC900 Video
     # Pattern Mode — use explicit blank frames or blank bitplanes. It is carried
     # through only for LUT timing/budget accounting.
@@ -376,7 +316,27 @@ def prepare_dlpc900_for_video_pattern(
 
     return PreparedSequenceState(entries=entries, timing=timing)
 
+def prepare_pair_controllers(
+    dlpc_a: DLPC900,
+    dlpc_b: DLPC900,
+    *,
+    entries_count_a: int,
+    entries_count_b: int,) -> None:
+    """Prepare both DLPC900 controllers concurrently without starting sequencers."""
+    def prepare(label: str, dlpc: DLPC900, entries_count: int) -> None:
+        logger.info("[DMD %s] Preparing controller without starting sequencer...", label)
+        prepare_dlpc900_for_video_pattern(dlpc, entries_count=entries_count)
+        logger.info("[DMD %s] Controller preparation complete.", label)
 
+    # double thread setup for faster setup, from old code
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="dlpc900-prepare") as executor:
+        futures = (
+            executor.submit(prepare, "A", dlpc_a, entries_count_a),
+            executor.submit(prepare, "B", dlpc_b, entries_count_b),
+        )
+        for future in futures:
+            future.result()
+            
 def configure_dlpc900_for_video_pattern(
     dlpc: DLPC900,
     pre_arm_callback: Callable[[], None] | None = None,
