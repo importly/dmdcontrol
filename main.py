@@ -24,6 +24,17 @@ def create_run_directory() -> Path:
     return run_dir
 
 
+def git_hash() -> str:
+    """Short commit hash of the checkout, with -dirty if there are uncommitted changes."""
+    try:
+        return subprocess.run(
+            ["git", "-C", str(WORKSPACE), "describe", "--always", "--dirty"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    except Exception:
+        return "unknown"
+
+
 def setup_logging(run_dir: Path) -> None:
     level = getattr(logging, str(CONFIG.get("log_level", "INFO")).upper(), logging.INFO)
     formatter = logging.Formatter(
@@ -88,6 +99,7 @@ def main() -> int:
     run_dir = create_run_directory()
     setup_logging(run_dir)
     log.info("Run directory: %s", run_dir)
+    log.info("Git: %s", git_hash())
 
     from dmdcontrol.dmd.dlpc900 import DLPC900, load_from_config
 
