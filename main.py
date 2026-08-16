@@ -203,7 +203,7 @@ def main() -> int:
         log.info("Displaying %d frames (%d leader + %d count)...",
                  leader["vsyncs"] + semantic_frames, leader["vsyncs"], semantic_frames)
         dropped_before = engine.dropped_frames  # stutters during DLPC setup are pre-display, ignore
-        coordinator.join()
+        coordinator.join() ## comeback
         dropped = engine.dropped_frames - dropped_before
         if dropped:
             log.critical("%d frame(s) dropped during display: count/trigger alignment is off for this run", dropped)
