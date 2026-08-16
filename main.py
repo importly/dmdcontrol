@@ -27,6 +27,17 @@ def create_run_directory() -> Path:
     return run_dir
 
 
+def git_hash() -> str:
+    """Short commit hash of the checkout, with -dirty if there are uncommitted changes."""
+    try:
+        return subprocess.run(
+            ["git", "-C", str(WORKSPACE), "describe", "--always", "--dirty"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    except Exception:
+        return "unknown"
+
+
 def setup_logging(run_dir: Path) -> None:
     level = getattr(logging, str(CONFIG.get("log_level", "INFO")).upper(), logging.INFO)
     formatter = logging.Formatter(
@@ -103,16 +114,15 @@ def generate_fm_k_sequence(length: int):
 
 
 def main() -> int:
-    # Logging
+    # logging
     run_dir = create_run_directory()
     setup_logging(run_dir)
     log.info("Run directory: %s", run_dir)
-    
-    # Generate the feature maps and kernels
-    trial_length = 100
-    fms, k = generate_fm_k_sequence(trial_length)
-    
-    # DMD setup
+    log.info("Git: %s", git_hash())
+
+    from dmdcontrol.dmd.dlpc900 import DLPC900, load_from_config
+
+    # dmds
     dmd_a, dmd_b = load_from_config()
     dlpc_a = DLPC900(dmd_a)
     dlpc_b = DLPC900(dmd_b)
@@ -121,22 +131,13 @@ def main() -> int:
     camera = Camera()
     
     try:
+        # Get dmds up
         wake_dmds(dlpc_a, dlpc_b)
+        # Setup xorg display and validate
         setup_displays()
         validate_display()
         log.info("Display chunk complete: bring-up and validation succeeded")
-        
-        # start dmd disp
-        
-        # Start recording
-        triggers, events = camera.record(trigger_count=2*trial_length)
-        
-        # Process events
-        frames = camera.accumulate(triggers, events)
-        
-        # Save frames
-        camera.save(frames, folder=run_dir / 'frames', save_as_jpg=True)
-        camera.contact_sheet(frames, folder=run_dir / 'contact_sheet')
+
         
         return 0
     except Exception as exc:
@@ -146,7 +147,6 @@ def main() -> int:
         for name, dlpc in (("A", dlpc_a), ("B", dlpc_b)):
             _cleanup_step(f"DMD {name} close", dlpc_a.close)
             _cleanup_step(f"DMD {name} close", dlpc_b.close)
-
 
 if __name__ == "__main__":
     sys.exit(main())
