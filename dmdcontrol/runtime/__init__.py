@@ -12,6 +12,7 @@ from .display_sequence import (
     LutEntry,
     LutTimingMetadata,
     build_dynamic_fm_sequence, 
+    build_count_static_sequence,
     build_lut_entries, 
     compute_trigger_out_2_timing,
 )
@@ -22,6 +23,8 @@ from .pair_render import (
 )
 from .video_pattern import (
     prepare_dlpc900_for_video_pattern, 
+    prepare_pair_controllers,
     load_pattern_sequence, 
     start_loaded_pattern_sequences,
+    verify_started_pattern_sequence
 )

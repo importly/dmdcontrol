@@ -7,12 +7,27 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-
+from functools import partial
 from rich.logging import RichHandler
 
 from dmdcontrol.camera import Camera
-from dmdcontrol.dmd import DLPC900, load_from_config
-from dmdcontrol.patterns import _decimal_number_display_masks, generate_dot_frame
+from dmdcontrol.dmd import (
+    DLPC900, 
+    load_from_config
+)
+from dmdcontrol.patterns import (
+    PairedPatternEngine,
+    _decimal_number_display_masks, 
+    generate_dot_frame
+)
+from dmdcontrol.runtime import (
+    build_count_static_sequence,
+    _start_pair_render_coordinator,
+    load_pattern_sequence,
+    prepare_pair_controllers,
+    start_loaded_pattern_sequences,
+    verify_started_pattern_sequence,
+)
 from dmdcontrol.utils import CONFIG, WORKSPACE
 
 log = logging.getLogger("main")
@@ -145,16 +160,6 @@ def main() -> int:
         setup_displays()
         validate_display()
 
-        from dmdcontrol.patterns.paired import PairedPatternEngine
-        from dmdcontrol.runtime.display_sequence import build_count_static_sequence
-        from dmdcontrol.runtime.pair_render import _start_pair_render_coordinator
-        from dmdcontrol.runtime.video_pattern import (
-            load_pattern_sequence,
-            prepare_pair_controllers,
-            start_loaded_pattern_sequences,
-            verify_started_pattern_sequence,
-        )
-
         # A counts, B static dot, setup sequence
         sequence = build_count_static_sequence()
         leader = sequence.startup_leader_metadata()
@@ -162,7 +167,7 @@ def main() -> int:
         semantic_frames = cycles * len(sequence.frames)
         log.info("Recipe: counts %d..%d | %d frames per cycle | %d cycles = %d frames | %d leader vsyncs",
                  RUN["count_start"], RUN["count_end"], len(sequence.frames),
-                 cycles, semantic_frames, leader["leader_vsyncs"])
+                 cycles, semantic_frames, leader["vsyncs"])
 
         # hold the startup pair until the sequencers are running
         engine = PairedPatternEngine()
@@ -170,7 +175,7 @@ def main() -> int:
             engine,
             sequence.provider,
             startup_leader_pair=sequence.startup_pair,
-            startup_leader_vsyncs=leader["leader_vsyncs"],
+            startup_leader_vsyncs=leader["vsyncs"],
             semantic_frames=semantic_frames,
         )
         if not coordinator.wait_until_ready(timeout_s=2.0):
@@ -196,14 +201,14 @@ def main() -> int:
             log.info("DMD %s sequencer running in Video Pattern Mode (hw=%s)",
                      name, f"0x{hw:02X}" if hw is not None else "n/a")
         log.info("Displaying %d frames (%d leader + %d count)...",
-                 leader["leader_vsyncs"] + semantic_frames, leader["leader_vsyncs"], semantic_frames)
+                 leader["vsyncs"] + semantic_frames, leader["vsyncs"], semantic_frames)
         dropped_before = engine.dropped_frames  # stutters during DLPC setup are pre-display, ignore
         coordinator.join()
         dropped = engine.dropped_frames - dropped_before
         if dropped:
             log.critical("%d frame(s) dropped during display: count/trigger alignment is off for this run", dropped)
         log.info("Displayed %d frames, %d dropped; count chunk complete (%d cycles)",
-                 leader["leader_vsyncs"] + semantic_frames, dropped, cycles)
+                 leader["vsyncs"] + semantic_frames, dropped, cycles)
         return 0
     except Exception as exc:
         log.exception("Display chunk failed: %s", exc)

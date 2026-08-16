@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, NotRequired
 import logging
 
 import numpy as np
@@ -200,9 +200,9 @@ class PairedDisplaySequence:
     repeat: bool
     target_hz: float
     timing: LutTimingMetadata
+    provider: PairFrameProvider
+    startup_pair: FramePair
     mode_metadata: dict[str, object] = field(default_factory=dict)
-    provider: PairFrameProvider | None = None
-    startup_pair: FramePair | None = None
     b_lut_plan: DmdLutPlan | None = None
 
     def __post_init__(self) -> None:

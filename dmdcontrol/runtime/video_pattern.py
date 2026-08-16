@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 import threading
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 from dataclasses import dataclass
 
 from dmdcontrol.runtime import (
@@ -133,7 +133,7 @@ def verify_started_pattern_sequence(
 
 def prepare_dlpc900_for_video_pattern(
     dlpc: DLPC900,
-    entries_count: int | None = None,) -> None:
+    entries_count: int | None = None,) -> PreparedSequenceState:
     # Note: dark_time_us (config) does not produce visible off-time in DLPC900 Video
     # Pattern Mode — use explicit blank frames or blank bitplanes. It is carried
     # through only for LUT timing/budget accounting.
