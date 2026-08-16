@@ -6,7 +6,10 @@ import subprocess
 import sys
 import time
 from datetime import datetime
+from functools import partial
 from pathlib import Path
+
+from rich.logging import RichHandler
 
 from dmdcontrol.utils import CONFIG, WORKSPACE
 
@@ -37,16 +40,18 @@ def git_hash() -> str:
 
 def setup_logging(run_dir: Path) -> None:
     level = getattr(logging, str(CONFIG.get("log_level", "INFO")).upper(), logging.INFO)
-    formatter = logging.Formatter(
-        "%(asctime)s %(levelname)-7s %(name)s: %(message)s", "%H:%M:%S"
+    console_handler = RichHandler(
+        show_path=False, rich_tracebacks=True, markup=False,
+        omit_repeated_times=False, log_time_format="%H:%M:%S",
     )
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(formatter)
+    console_handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))
     file_handler = logging.FileHandler(run_dir / "run.log")
-    file_handler.setFormatter(formatter)
+    file_handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)-7s %(name)s: %(message)s", "%H:%M:%S"))
     root = logging.getLogger()
     root.setLevel(level)
-    root.handlers[:] = [stream_handler, file_handler]
+    root.handlers[:] = [console_handler, file_handler]
+    logging.getLogger("OpenGL").setLevel(logging.INFO)  # third-party logs
 
 
 def wake_dmds(dlpc_a, dlpc_b) -> None:
