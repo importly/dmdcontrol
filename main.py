@@ -205,7 +205,7 @@ def main() -> int:
         dropped_before = engine.dropped_frames  # stutters during DLPC setup are pre-display, ignore
         
         # Start display
-        coordinator.join()
+        coordinator.join() ## comeback
         
         # Start recording
         triggers, events = camera.record(2*semantic_frames)
