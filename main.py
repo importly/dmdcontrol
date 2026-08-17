@@ -203,7 +203,18 @@ def main() -> int:
         log.info("Displaying %d frames (%d leader + %d count)...",
                  leader["vsyncs"] + semantic_frames, leader["vsyncs"], semantic_frames)
         dropped_before = engine.dropped_frames  # stutters during DLPC setup are pre-display, ignore
+        
+        # Start display
         coordinator.join()
+        
+        # Start recording
+        triggers, events = camera.record(2*semantic_frames)
+        
+        # Process and save results
+        frames = camera.accumulate(triggers, events)
+        camera.save(frames, run_dir / 'frames')
+        camera.contact_sheet(frames, run_dir / 'contact_sheet.png')
+        
         dropped = engine.dropped_frames - dropped_before
         if dropped:
             log.critical("%d frame(s) dropped during display: count/trigger alignment is off for this run", dropped)

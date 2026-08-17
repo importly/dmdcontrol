@@ -33,7 +33,7 @@ from dmdcontrol.patterns.paired import (
 )
 from dmdcontrol.patterns import pack_sequence_frames, pack_static_frames
 from dmdcontrol.runtime.count_slots import CountSequenceConfig
-from dmdcontrol.runtime.lut import LutEntry, LutTimingMetadata, build_lut_entries
+# from dmdcontrol.runtime.lut import LutEntry, LutTimingMetadata, build_lut_entries
 from dmdcontrol.patterns import FramePair, PairFrameProvider, pack_sequence_frames, pack_static_frames
 from dmdcontrol.utils import CONFIG
 
@@ -431,8 +431,7 @@ def build_count_static_sequence() -> PairedDisplaySequence:
     target_hz = float(dmd.get('target_hz', 60.0))
 
     count_config = CountSequenceConfig.from_run_config()
-    entries, timing = build_lut_entries()
-    base_slots = _slots_from_lut_entries(entries, semantic_role="count")
+    _, base_slots, timing = build_lut_entries()
 
     # count mode owns its frame packing here so LUT slots and RGB bitplanes are built together.
     frames_a = pack_count_sequence_frames(
@@ -454,52 +453,52 @@ def build_count_static_sequence() -> PairedDisplaySequence:
         dot_radius=run.get('b_dot_radius'),
     )
     # B holds one continuously visible pattern
-    entries_b, timing_b = build_lut_entries(
-        entries_count=1,
+    # this used to have entries_count=1 in it
+    entries_b, _, timing_b = build_lut_entries(
         clear_last_after_exposure=False,
         trig2_frame_zero=True,
     )
 
     frames: list[TimedFramePair] = []
     counts = tuple(range(count_config.count_start, count_config.count_end + 1))
-    if count_config.count_blank_between_frames:
-        if len(base_slots) != 1:
-            raise ValueError(
-                "count blank insertion expects one LUT slot per source frame"
+    # if count_config.count_blank_between_frames:
+    # if len(base_slots) != 1:
+    #     raise ValueError(
+    #         "count blank insertion expects one LUT slot per source frame"
+    #     )
+    base_slot = base_slots[0]
+    for source_frame_index, frame_a in enumerate(frames_a):
+        if source_frame_index % 2 == 0:
+            count = counts[source_frame_index // 2]
+            labels = [f"count:{count}"]
+        else:
+            labels = ["blank"]
+        frames.append(
+            TimedFramePair(
+                frame_pair=FramePair(a=frame_a, b=frame_b),
+                lut_slots=_slots_with_labels((base_slot,), labels),
+                source_frame_index=source_frame_index,
+                semantic_labels=tuple(labels),
             )
-        base_slot = base_slots[0]
-        for source_frame_index, frame_a in enumerate(frames_a):
-            if source_frame_index % 2 == 0:
-                count = counts[source_frame_index // 2]
-                labels = [f"count:{count}"]
-            else:
-                labels = ["blank"]
-            frames.append(
-                TimedFramePair(
-                    frame_pair=FramePair(a=frame_a, b=frame_b),
-                    lut_slots=_slots_with_labels((base_slot,), labels),
-                    source_frame_index=source_frame_index,
-                    semantic_labels=tuple(labels),
-                )
-            )
-    else:
-        for source_frame_index, (frame_a, offset) in enumerate(
-            zip(frames_a, range(0, len(counts), count_config.count_slots_per_frame))
-        ):
-            labels = _count_slot_labels(
-                counts[offset : offset + count_config.count_slots_per_frame],
-                blank_after_each_count=False,
-            )
-            frames.append(
-                TimedFramePair(
-                    frame_pair=FramePair(a=frame_a, b=frame_b),
-                    lut_slots=_slots_with_labels(base_slots, labels),
-                    source_frame_index=source_frame_index,
-                    semantic_labels=tuple(
-                        label for label in labels if label != "blank"
-                    ),
-                )
-            )
+        )
+    # else:
+    #     for source_frame_index, (frame_a, offset) in enumerate(
+    #         zip(frames_a, range(0, len(counts), count_config.count_slots_per_frame))
+    #     ):
+    #         labels = _count_slot_labels(
+    #             counts[offset : offset + count_config.count_slots_per_frame],
+    #             blank_after_each_count=False,
+    #         )
+    #         frames.append(
+    #             TimedFramePair(
+    #                 frame_pair=FramePair(a=frame_a, b=frame_b),
+    #                 lut_slots=_slots_with_labels(base_slots, labels),
+    #                 source_frame_index=source_frame_index,
+    #                 semantic_labels=tuple(
+    #                     label for label in labels if label != "blank"
+    #                 ),
+    #             )
+    #         )
 
     startup_policy = StartupPolicy(
         "blank_leader",
