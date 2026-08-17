@@ -151,7 +151,7 @@ def main() -> int:
     coordinator = None
     
     # Camera setup
-    camera = Camera()
+    # camera = Camera()
     
     try:
         # Get dmds up
@@ -207,13 +207,13 @@ def main() -> int:
         # Start display
         coordinator.join() ## comeback
         
-        # Start recording
-        triggers, events = camera.record(2*semantic_frames)
+        # # Start recording
+        # triggers, events = camera.record(2*semantic_frames)
         
-        # Process and save results
-        frames = camera.accumulate(triggers, events)
-        camera.save(frames, run_dir / 'frames')
-        camera.contact_sheet(frames, run_dir / 'contact_sheet.png')
+        # # Process and save results
+        # frames = camera.accumulate(triggers, events)
+        # camera.save(frames, run_dir / 'frames')
+        # camera.contact_sheet(frames, run_dir / 'contact_sheet.png')
         
         dropped = engine.dropped_frames - dropped_before
         if dropped:

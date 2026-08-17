@@ -102,7 +102,7 @@ class Camera:
         
         # Open camera
         self.camera = dv.io.camera.DAVIS()
-        self.logger.info('Using %s camera', self.camera.getCameraModel())
+        self.logger.info('Using %s camera', self.camera.getCameraName())
         
         # Configure camera settings
         # Events and frames
@@ -273,3 +273,4 @@ class Camera:
         # Save the contact sheet
         contact_sheet.save(folder / 'contact_sheet.jpg')
         self.logger.debug('Saved contact sheet to %s', folder / 'contact_sheet.jpg')
+        
