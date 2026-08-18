@@ -143,9 +143,9 @@ class DLPC900:
         self.dmd.hid_intf = hid_intf
         
         # Claim the HID interface
-        self.logger.info('Claiming HID interface %d', hid_intf)
+        self.logger.debug('Claiming HID interface %d', hid_intf)
         usb.util.claim_interface(self.dmd.dev, hid_intf)
-        self.logger.debug('HID interface %d claimed', hid_intf)
+        self.logger.info('HID interface %d claimed', hid_intf)
 
     def close(self):
         """
@@ -333,7 +333,7 @@ class DLPC900:
             return None
         try:
             desc = bytes(p).split(b"\x00", 1)[0].decode('ascii', errors='replace')
-            self.logger.debug('Error description: %s', desc)
+            self.logger.debug('Error description (blank is good): %s', desc)
             return desc
         except Exception:
             self.logger.exception('Failed to decode error description.')

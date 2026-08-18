@@ -24,7 +24,7 @@ def select_pyusb_device(usb_bus: int, usb_port: tuple[int, ...]) -> usb.core.Dev
         seen = ", ".join(f"bus {d.bus} port {list(d.port_numbers or ())}" for d in devices) or "<none>" # pyright: ignore
         raise RuntimeError(
             f"{len(matches)} DLPC900 devices on bus {usb_bus} port {list(usb_port)}; pyusb sees: {seen}")
-    logger.info("Selected DLPC900 on bus %d port %s (address %d)", usb_bus, list(usb_port), matches[0].address)
+    logger.debug("Selected DLPC900 on bus %d port %s (address %d)", usb_bus, list(usb_port), matches[0].address)
     return matches[0]
 
 

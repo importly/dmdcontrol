@@ -31,6 +31,7 @@ from dmdcontrol.runtime import (
 from dmdcontrol.utils import CONFIG, WORKSPACE
 
 log = logging.getLogger("main")
+log.setLevel(str(CONFIG.get("log_level", "INFO")).upper())
 
 RUN = CONFIG.get("Run", {})
 DMD_CFG = CONFIG.get("DMD", {})
@@ -56,10 +57,11 @@ def git_hash() -> str:
 
 
 def setup_logging(run_dir: Path) -> None:
-    level = getattr(logging, str(CONFIG.get("log_level", "INFO")).upper(), logging.INFO)
+    level = str(CONFIG.get("log_level", "INFO")).upper()
     console_handler = RichHandler(
         show_path=False, rich_tracebacks=True, markup=False,
         omit_repeated_times=False, log_time_format="%H:%M:%S",
+        level=level,
     )
     console_handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))
     file_handler = logging.FileHandler(run_dir / "run.log")
@@ -68,7 +70,7 @@ def setup_logging(run_dir: Path) -> None:
     root = logging.getLogger()
     root.setLevel(level)
     root.handlers[:] = [console_handler, file_handler]
-    logging.getLogger("OpenGL").setLevel(logging.INFO)  # third-party logs
+    # logging.getLogger("OpenGL").setLevel(logging.INFO)  # third-party logs
 
 
 def wake_dmds(dlpc_a, dlpc_b) -> None:
@@ -137,7 +139,7 @@ def main() -> int:
     run_dir = create_run_directory()
     setup_logging(run_dir)
     log.info("Run directory: %s", run_dir)
-    log.info("Git: %s", git_hash())
+    log.debug("Git: %s", git_hash())
     
     # Generate the feature maps and kernels
     trial_length = 100
@@ -151,7 +153,7 @@ def main() -> int:
     coordinator = None
     
     # Camera setup
-    camera = Camera()
+    camera = Camera(folder=run_dir)
     
     try:
         # Get dmds up
@@ -205,10 +207,11 @@ def main() -> int:
         dropped_before = engine.dropped_frames  # stutters during DLPC setup are pre-display, ignore
         
         # Start display
+        camera.flush()  # flush stale data from camera buffers
         coordinator.join() ## comeback
          
         # Start recording
-        triggers, events = camera.record(2*semantic_frames)
+        triggers, events = camera.record(semantic_frames)
         
         # Process and save results
         frames = camera.accumulate(triggers, events)

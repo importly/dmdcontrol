@@ -1,4 +1,4 @@
-log_level: DEBUG
+log_level: INFO
 
 Run:
   output_root: runs
@@ -11,7 +11,7 @@ Run:
   b_dot_x: 960
   b_dot_y: 540
   b_dot_radius: 30
-  cycles: 1                         # count sequence is displayed this many times, then the run ends
+  cycles: 10                         # count sequence is displayed this many times, then the run ends
   save_filtered_events: True
   save_jpg: False
   time_max_s: 600
@@ -34,6 +34,8 @@ Camera:
     polarity_mode: positive # positive (ON events only) | signed (+1/-1) | ignore (all +1)
   width: 346
   height: 260
+  Writer:
+    enable: True
     
 DMD:
   A:

@@ -90,7 +90,7 @@ class Camera:
     Class to control DAVIS346.
     """
     
-    def __init__(self):
+    def __init__(self, folder: Path = Path("data")):
         """
         Initialize the Camera class.
         
@@ -150,7 +150,23 @@ class Camera:
         self.window_us = CONFIG.get('Camera', {}).get('Accumulation', {}).get('window_us', 16666)
         self.offset_us = CONFIG.get('Camera', {}).get('Accumulation', {}).get('start_time_offset_us', 0)
         self.logger.info(f'Accumulation settings:\n {Font.BOLD}Time window (\u03bcs):{Font.ENDC} %s\n {Font.BOLD} Start time offset (\u03bcs):{Font.ENDC} %s', self.window_us, self.offset_us)
+        
+        self.folder = folder
+        
+        # Enable events and external triggers
+        self.camera.setDetectorRunning(True)
+        self.camera.setEventsRunning(True)
 
+    def flush(self):
+        """
+        Flush stale data.
+        """
+        # Flush stale data from camera's buffers   
+        if self.camera.isEventStreamAvailable():
+            _ = self.camera.getNextEventBatch()
+        if self.camera.isTriggerStreamAvailable():
+            _ = self.camera.getNextTriggerBatch()
+                    
     def record(self, trigger_count: int) -> tuple:
         """Record event data for a set amount of triggers
 
@@ -160,20 +176,19 @@ class Camera:
         Returns:
             tuple: A tuple containing the triggers and events.
         """
-        # Flush stale data from camera's buffers   
-        if self.camera.isEventStreamAvailable():
-            _ = self.camera.getNextEventBatch()
-        if self.camera.isTriggerStreamAvailable():
-            _ = self.camera.getNextTriggerBatch()
-        
-        # Enable events and external triggers
-        self.camera.setDetectorRunning(True)
-        self.camera.setEventsRunning(True)
+            
+        # Writer
+        # if CONFIG.get('Camera', {}).get('Writer', {}).get('enable', True):
+        self.writer = dv.io.MonoCameraWriter(str(self.folder / 'raw.aedat4'), self.camera)
+        # self.logger.info('Writer enabled')
+        # else:
+        #     self.writer = None
+        #     self.logger.info('Writer disabled')
         
         triggers = np.zeros((1,))
         events = np.zeros((1,), dtype=[('timestamp', '<i8'), ('x', '<i2'), ('y', '<i2'), ('polarity', 'i1')])
         
-        self.logger.debug('Recording %s triggers...', trigger_count)
+        self.logger.info('Recording %s triggers...', trigger_count)
             
         # Run loop until all data is collected
         while self.camera.isRunning() and len(triggers) <= trigger_count:
@@ -183,16 +198,23 @@ class Camera:
             
             # Check if there is valid data and if so, concatenate it
             if event_batch is not None and len(event_batch) > 0:
+                # if self.writer is not None:
+                self.writer.writeEvents(event_batch, streamName='events')
                 events = np.concatenate((events, event_batch.numpy()))
                 
             if trigger_batch is not None and len(trigger_batch) > 0:
+                # if self.writer is not None:
+                    # self.writer.writeTriggerPacket(trigger_batch, streamName='triggers')
                 while len(trigger_batch) > 0:
-                    triggers = np.concatenate((triggers, np.array([trigger_batch.pop().timestamp])))
+                    trigger = trigger_batch.pop()
+                    if int(trigger.type) == 1:
+                        # self.logger.info('Trigger type: %s', trigger.type)
+                        triggers = np.concatenate((triggers, np.array([trigger.timestamp])))
         
         # Remove the initial zero from the triggers and events arrays
         triggers = triggers[1:]
         events = events[1:]
-        self.logger.debug(f'Recording complete.\n {Font.BOLD}Triggers:{Font.ENDC} %s\n {Font.BOLD}Events:{Font.ENDC} %s', len(triggers), len(events))
+        self.logger.info(f'Recording complete.\n {Font.BOLD}Triggers:{Font.ENDC} %s\n {Font.BOLD}Events:{Font.ENDC} %s', len(triggers), len(events))
         return (triggers, events)
     
     def accumulate(self, triggers: np.ndarray, events: np.ndarray) -> np.ndarray:
@@ -205,7 +227,7 @@ class Camera:
         Returns:
             frames (np.ndarray): numpy array of shape (len(triggers), ROI_HEIGHT, ROI_WIDTH) containing the accumulated frames.
         """
-        self.logger.debug('Accumulating %s events into %s frames...', len(events), len(triggers))
+        self.logger.info('Accumulating %s events into %s frames...', len(events), len(triggers))
             
         # Reset the filter if it exists
         if self.filter is not None:
@@ -223,14 +245,19 @@ class Camera:
                 (events[:]['timestamp'] < triggers[idx] + self.offset_us + self.window_us) &
                 (events[:]['timestamp'] < triggers[idx + 1]) if idx + 1 < len(triggers) else False
             ]
-            self.logger.info('Accumulating frame %s with %s events', idx, len(event_slice))
+            self.logger.debug('Accumulating frame %s with %s events', idx, len(event_slice))
+            
+            if len(event_slice) == 0:
+                self.logger.warning('No events found for frame %s. Frame will be empty.', idx)
+                self.logger.info('idx: %s, trigger ts - next trigger ts: %s', idx, triggers[idx+1] - triggers[idx] if idx + 1 < len(triggers) else 'N/A')
+                continue
             
             # Accumulate the events into a frame
             for event in event_slice:
                 x, y, polarity = event['x'], event['y'], event['polarity']
                 frames[idx, y, x] += 1 if polarity else 0
                 
-        self.logger.debug(f'Accumulation complete.\n `frames` shape: %s', frames.shape)
+        self.logger.info(f'Accumulation complete.\n `frames` shape: %s', frames.shape)
             
         return frames
     
@@ -246,24 +273,24 @@ class Camera:
         # Create the folder if it doesn't exist
         os.makedirs(folder, exist_ok=True)
         for idx, frame in enumerate(frames):
-            # Save the frames to a .npy file
-            np.save(f'{folder}/frame_{idx}.npy', frame)
-            
-            # Save the frames to a .jpg file
             if save_as_jpg:
+                # Save the frames to a .jpg file
                 frame = (frame / np.max(frame) * 255).astype(np.uint8)
                 Image.fromarray(frame, mode='L').save(f'{folder}/frame_{idx}.jpg')
+            else:
+                # Save the frames to a .npy file
+                np.save(f'{folder}/frame_{idx}.npy', frame)
         
-        self.logger.debug('Saved %s frames to %s', len(frames), folder)
+        self.logger.info('Saved %s frames to %s', len(frames), folder)
         
-    def contact_sheet(self, frames: np.ndarray, folder: Path, grid_size: Tuple[int, int] = (10, 10)):
+    def contact_sheet(self, frames: np.ndarray, folder: Path, grid_size: Tuple[int, int] = (20, 10)):
         """
         Creates a contact sheet of the accumulated event frames and saves it to a file.
 
         Args:
             frames (np.ndarray): A numpy array of shape (len(triggers), ROI_HEIGHT, ROI_WIDTH) containing the accumulated frames.
             save_path (Path): Path to save the contact sheet to.
-            grid_size (Tuple[int, int], optional): Size of the grid for the contact sheet. Defaults to (10, 10).
+            grid_size (Tuple[int, int], optional): Size of the grid for the contact sheet. Defaults to (20, 10).
         """
         # Create a blank canvas for the contact sheet
         contact_sheet = Image.new('L', (self.ROI_WIDTH * grid_size[0], self.ROI_HEIGHT * grid_size[1]))
@@ -279,5 +306,5 @@ class Camera:
         
         # Save the contact sheet
         contact_sheet.save(folder / 'contact_sheet.jpg')
-        self.logger.debug('Saved contact sheet to %s', folder / 'contact_sheet.jpg')
+        self.logger.info('Saved contact sheet to %s', folder / 'contact_sheet.jpg')
         
