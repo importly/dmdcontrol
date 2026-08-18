@@ -81,7 +81,7 @@ def _validate_rgb_frame(frame: object, label: str):
         ValueError: Raises if frame is not in the correct RGB format
         ValueError: Raises if frame is not uint8
     """
-    logger.debug('%s shape: %s, dtype: %s', label, getattr(frame, 'shape', None), getattr(frame, 'dtype', None))
+    # logger.info('%s shape: %s, dtype: %s', label, getattr(frame, 'shape', None), getattr(frame, 'dtype', None))
     if not isinstance(frame, np.ndarray):
         raise TypeError(f"{label} must be a numpy array")
     if frame.ndim != 3 or frame.shape[2] != 3:

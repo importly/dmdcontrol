@@ -974,9 +974,6 @@ def resolve_count_slots_per_frame(
         f"dark={dmd.get('dark_time_us')}us, target_hz={dmd.get('target_hz')}, "
         f"utilization={dmd.get('frame_utilization')}, and <= {MAX_COUNT_SEQUENCE_FRAMES} VSYNC frames.")
 
-"""DLPC900 Video Pattern Mode setup, LUT loading, and sequencer start."""
-
-# logger = logging.getLogger('VideoPattern')
 
 @dataclass
 class PreparedSequenceState:

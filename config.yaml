@@ -11,7 +11,7 @@ Run:
   b_dot_x: 960
   b_dot_y: 540
   b_dot_radius: 30
-  cycles: 30                         # count sequence is displayed this many times, then the run ends
+  cycles: 1                         # count sequence is displayed this many times, then the run ends
   save_filtered_events: True
   save_jpg: False
   time_max_s: 600
@@ -26,7 +26,7 @@ Camera:
     rising_edge: True
     falling_edge: False
   Filter:
-    enable: True
+    enable: False
     background_activity_duration: 2000
   Accumulation:
     window_us: 16000       # accumulation window == DMD exposure_us (master tied these)

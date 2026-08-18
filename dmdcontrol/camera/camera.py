@@ -121,10 +121,12 @@ class Camera:
             self.logger.error(f"ROI exceeds camera resolution. ROI: ({self.roi_start_x}, {self.roi_start_y}, {self.ROI_WIDTH}, {self.ROI_HEIGHT}), Camera Resolution: ({self.WIDTH}, {self.HEIGHT})")
             raise ValueError(f"ROI exceeds camera resolution. ROI: ({self.roi_start_x}, {self.roi_start_y}, {self.ROI_WIDTH}, {self.ROI_HEIGHT}), Camera Resolution: ({self.WIDTH}, {self.HEIGHT})")
         self.camera.setCropAreaEvents(
-            self.roi_start_x,
-            self.roi_start_y,
-            self.ROI_WIDTH,
-            self.ROI_HEIGHT
+            (
+                self.roi_start_x,
+                self.roi_start_y,
+                self.ROI_WIDTH,
+                self.ROI_HEIGHT
+            )
         )
         self.logger.info(f'ROI set. \n {Font.BOLD}start_x:{Font.ENDC} %s, {Font.BOLD}width:{Font.ENDC} %s\n {Font.BOLD} start_y:{Font.ENDC} %s, {Font.BOLD}height:{Font.ENDC} %s{Font.ENDC}', self.roi_start_x, self.ROI_WIDTH, self.roi_start_y, self.ROI_HEIGHT)
         
@@ -169,7 +171,7 @@ class Camera:
         self.camera.setEventsRunning(True)
         
         triggers = np.zeros((1,))
-        events = np.zeros((3,))
+        events = np.zeros((1,), dtype=[('timestamp', '<i8'), ('x', '<i2'), ('y', '<i2'), ('polarity', 'i1')])
         
         self.logger.debug('Recording %s triggers...', trigger_count)
             
@@ -181,11 +183,15 @@ class Camera:
             
             # Check if there is valid data and if so, concatenate it
             if event_batch is not None and len(event_batch) > 0:
-                events = np.concatenate((events, event_batch))
+                events = np.concatenate((events, event_batch.numpy()))
                 
             if trigger_batch is not None and len(trigger_batch) > 0:
-                triggers = np.concatenate((triggers, trigger_batch.timestamp))
-            
+                while len(trigger_batch) > 0:
+                    triggers = np.concatenate((triggers, np.array([trigger_batch.pop().timestamp])))
+        
+        # Remove the initial zero from the triggers and events arrays
+        triggers = triggers[1:]
+        events = events[1:]
         self.logger.debug(f'Recording complete.\n {Font.BOLD}Triggers:{Font.ENDC} %s\n {Font.BOLD}Events:{Font.ENDC} %s', len(triggers), len(events))
         return (triggers, events)
     
@@ -212,18 +218,19 @@ class Camera:
         frames = np.zeros((len(triggers), self.ROI_HEIGHT, self.ROI_WIDTH))
         for idx in range(len(triggers)):
             # Clip to window size and offset
-            event_slice = event_slice[
-                (event_slice[:, 0] >= triggers[idx] + self.offset_us) &
-                (event_slice[:, 0] < triggers[idx] + self.offset_us + self.window_us) &
-                (events[:, 0] < triggers[idx + 1]) # TODO: Check if this works for the very last idx
+            event_slice = events[
+                (events[:]['timestamp'] >= triggers[idx] + self.offset_us) &
+                (events[:]['timestamp'] < triggers[idx] + self.offset_us + self.window_us) &
+                (events[:]['timestamp'] < triggers[idx + 1]) if idx + 1 < len(triggers) else False
             ]
+            self.logger.info('Accumulating frame %s with %s events', idx, len(event_slice))
             
             # Accumulate the events into a frame
             for event in event_slice:
-                x, y, polarity = event[1], event[2], event[3]
+                x, y, polarity = event['x'], event['y'], event['polarity']
                 frames[idx, y, x] += 1 if polarity else 0
                 
-        self.logger.debug(f'Accumulation complete.\n {Font.BOLD}`frames` shape:{Font.ENDC} %s', frames.shape)
+        self.logger.debug(f'Accumulation complete.\n `frames` shape: %s', frames.shape)
             
         return frames
     
@@ -245,7 +252,7 @@ class Camera:
             # Save the frames to a .jpg file
             if save_as_jpg:
                 frame = (frame / np.max(frame) * 255).astype(np.uint8)
-                Image.fromarray(frame).save(f'{folder}/frame_{idx}.jpg')
+                Image.fromarray(frame, mode='L').save(f'{folder}/frame_{idx}.jpg')
         
         self.logger.debug('Saved %s frames to %s', len(frames), folder)
         
@@ -265,7 +272,7 @@ class Camera:
             if idx >= grid_size[0] * grid_size[1]:
                 break
             # Normalize and convert frame to image
-            frame_img = Image.fromarray((frame / np.max(frame) * 255).astype(np.uint8))
+            frame_img = Image.fromarray((frame / np.max(frame) * 255).astype(np.uint8), mode='L')
             x_offset = (idx % grid_size[0]) * self.ROI_WIDTH
             y_offset = (idx // grid_size[0]) * self.ROI_HEIGHT
             contact_sheet.paste(frame_img, (x_offset, y_offset))
