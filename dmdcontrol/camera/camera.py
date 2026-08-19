@@ -1,4 +1,5 @@
 import os
+import time
 import logging
 from typing import Optional, Tuple
 from pathlib import Path
@@ -105,9 +106,9 @@ class Camera:
         self.logger.info('Using %s camera', self.camera.getCameraName())
         
         # Configure camera settings
-        # Events and frames
-        self.camera.setEventsRunning(False)
+        # Set frames and events
         self.camera.setFramesRunning(False)
+        self.camera.setEventsRunning(False)
         
         # ROI
         self.roi_start_x = CONFIG.get('Camera', {}).get('ROI', {}).get('start_x', 0)
@@ -153,19 +154,25 @@ class Camera:
         
         self.folder = folder
         
-        # Enable events and external triggers
-        self.camera.setDetectorRunning(True)
-        self.camera.setEventsRunning(True)
-
     def flush(self):
         """
         Flush stale data.
         """
-        # Flush stale data from camera's buffers   
-        if self.camera.isEventStreamAvailable():
+        # Flush stale data from camera's buffers  
+        self.camera.setDetectorRunning(False)
+        self.camera.setEventsRunning(False) 
+        event_batches_flushed = 0
+        trigger_batches_flushed = 0
+        while self.camera.getNextEventBatch() is not None:
             _ = self.camera.getNextEventBatch()
-        if self.camera.isTriggerStreamAvailable():
+            event_batches_flushed += 1
+        while self.camera.getNextTriggerBatch() is not None:
             _ = self.camera.getNextTriggerBatch()
+            trigger_batches_flushed += 1
+        self.logger.info('Flushed %s event batches and %s trigger batches', event_batches_flushed, trigger_batches_flushed)
+        self.camera.setDetectorRunning(True)
+        self.camera.setEventsRunning(True)
+        self.start_time = time.time()
                     
     def record(self, trigger_count: int) -> tuple:
         """Record event data for a set amount of triggers
@@ -178,37 +185,39 @@ class Camera:
         """
             
         # Writer
-        # if CONFIG.get('Camera', {}).get('Writer', {}).get('enable', True):
-        self.writer = dv.io.MonoCameraWriter(str(self.folder / 'raw.aedat4'), self.camera)
-        # self.logger.info('Writer enabled')
-        # else:
-        #     self.writer = None
-        #     self.logger.info('Writer disabled')
+        if CONFIG.get('Camera', {}).get('Writer', {}).get('enable', True):
+            self.writer = dv.io.MonoCameraWriter(str(self.folder / 'raw.aedat4'), self.camera)
+            self.logger.info('Writer enabled')
+        else:
+            self.writer = None
+            self.logger.info('Writer disabled')
         
         triggers = np.zeros((1,))
         events = np.zeros((1,), dtype=[('timestamp', '<i8'), ('x', '<i2'), ('y', '<i2'), ('polarity', 'i1')])
         
         self.logger.info('Recording %s triggers...', trigger_count)
-            
+        
         # Run loop until all data is collected
         while self.camera.isRunning() and len(triggers) <= trigger_count:
             # Read a batch of data from the camera
-            event_batch = self.camera.getNextEventBatch()
-            trigger_batch = self.camera.getNextTriggerBatch()
+            if self.camera.isEventStreamAvailable():
+                event_batch = self.camera.getNextEventBatch()
+            else:
+                event_batch = None
+            if self.camera.isTriggerStreamAvailable():
+                trigger_batch = self.camera.getNextTriggerBatch()
+            else:
+                trigger_batch = None
             
             # Check if there is valid data and if so, concatenate it
             if event_batch is not None and len(event_batch) > 0:
-                # if self.writer is not None:
-                self.writer.writeEvents(event_batch, streamName='events')
+                if self.writer is not None:
+                    self.writer.writeEvents(event_batch, streamName='events')
                 events = np.concatenate((events, event_batch.numpy()))
                 
             if trigger_batch is not None and len(trigger_batch) > 0:
-                # if self.writer is not None:
-                    # self.writer.writeTriggerPacket(trigger_batch, streamName='triggers')
-                while len(trigger_batch) > 0:
-                    trigger = trigger_batch.pop()
+                for trigger in trigger_batch:
                     if int(trigger.type) == 1:
-                        # self.logger.info('Trigger type: %s', trigger.type)
                         triggers = np.concatenate((triggers, np.array([trigger.timestamp])))
         
         # Remove the initial zero from the triggers and events arrays
@@ -241,9 +250,8 @@ class Camera:
         for idx in range(len(triggers)):
             # Clip to window size and offset
             event_slice = events[
-                (events[:]['timestamp'] >= triggers[idx] + self.offset_us) &
-                (events[:]['timestamp'] < triggers[idx] + self.offset_us + self.window_us) &
-                (events[:]['timestamp'] < triggers[idx + 1]) if idx + 1 < len(triggers) else False
+                (events[:]['timestamp'] >= (triggers[idx] + self.offset_us)) &
+                (events[:]['timestamp'] < (triggers[idx] + self.offset_us + self.window_us))
             ]
             self.logger.debug('Accumulating frame %s with %s events', idx, len(event_slice))
             

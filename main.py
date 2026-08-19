@@ -10,6 +10,8 @@ from pathlib import Path
 from functools import partial
 from rich.logging import RichHandler
 
+import numpy as np
+
 from dmdcontrol.camera import Camera
 from dmdcontrol.dmd import (
     DLPC900, 
@@ -194,8 +196,10 @@ def main() -> int:
         )
         load_pattern_sequence(dlpc_a, plan_a.entries)
         load_pattern_sequence(dlpc_b, plan_b.entries)
-        start_loaded_pattern_sequences(dlpc_a, dlpc_b, post_start_delay_s=0.0, verify=False)
+        start_loaded_pattern_sequences(dlpc_a, dlpc_b, post_start_delay_s=0, verify=False)
 
+        # Flush stale data
+        camera.flush()
         coordinator.release_semantic_frames()
         
         for name, dlpc in (("A", dlpc_a), ("B", dlpc_b)):
@@ -207,16 +211,19 @@ def main() -> int:
         dropped_before = engine.dropped_frames  # stutters during DLPC setup are pre-display, ignore
         
         # Start display
-        camera.flush()  # flush stale data from camera buffers
         coordinator.join() ## comeback
          
         # Start recording
-        triggers, events = camera.record(semantic_frames)
+        triggers, events = camera.record(int(1.5*semantic_frames))
+        
+        # save events and triggers
+        np.save(run_dir / "triggers.npy", triggers)
+        np.save(run_dir / "events.npy", events)
         
         # Process and save results
         frames = camera.accumulate(triggers, events)
         camera.save(frames, run_dir / 'frames', save_as_jpg=True)
-        camera.contact_sheet(frames, run_dir)
+        camera.contact_sheet(frames, run_dir, (20,17))
         
         dropped = engine.dropped_frames - dropped_before
         if dropped:
