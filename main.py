@@ -12,12 +12,12 @@ from rich.logging import RichHandler
 
 from dmdcontrol.camera import Camera
 from dmdcontrol.dmd import (
-    DLPC900, 
+    DLPC900,
     load_from_config
 )
 from dmdcontrol.patterns import (
     PairedPatternEngine,
-    _decimal_number_display_masks, 
+    _decimal_number_display_masks,
     generate_dot_frame
 )
 from dmdcontrol.runtime import (
@@ -116,7 +116,7 @@ def _cleanup_step(description: str, action) -> None:
         action()
     except Exception as exc:
         log.warning("Cleanup (%s): %s", description, exc)
-        
+
 
 def generate_fm_k_sequence(length: int):
     """Generate a sequence of (fm, k) pairs for testing."""
@@ -130,7 +130,7 @@ def generate_fm_k_sequence(length: int):
 
     # Kernel
     k = generate_dot_frame()
-    
+
     return fms, k
 
 
@@ -140,7 +140,7 @@ def main() -> int:
     setup_logging(run_dir)
     log.info("Run directory: %s", run_dir)
     log.debug("Git: %s", git_hash())
-    
+
     # Generate the feature maps and kernels
     trial_length = 100
     fms, k = generate_fm_k_sequence(trial_length)
@@ -151,10 +151,10 @@ def main() -> int:
     dlpc_b = DLPC900(dmd_b)
     engine = None
     coordinator = None
-    
+
     # Camera setup
     camera = Camera(folder=run_dir)
-    
+
     try:
         # Get dmds up
         wake_dmds(dlpc_a, dlpc_b)
@@ -186,7 +186,7 @@ def main() -> int:
         # lut plans
         plan_a = sequence.lut_plan_a()
         plan_b = sequence.lut_plan_b()
-        
+
         prepare_pair_controllers(
             dlpc_a, dlpc_b,
             entries_count_a=len(plan_a.entries),
@@ -196,8 +196,6 @@ def main() -> int:
         load_pattern_sequence(dlpc_b, plan_b.entries)
         start_loaded_pattern_sequences(dlpc_a, dlpc_b, post_start_delay_s=0.0, verify=False)
 
-        coordinator.release_semantic_frames()
-        
         for name, dlpc in (("A", dlpc_a), ("B", dlpc_b)):
             hw = verify_started_pattern_sequence(dlpc, label=f"DMD {name}")
             log.info("DMD %s sequencer running in Video Pattern Mode (hw=%s)",
@@ -205,19 +203,36 @@ def main() -> int:
         log.info("Displaying %d frames (%d leader + %d count)...",
                  leader["vsyncs"] + semantic_frames, leader["vsyncs"], semantic_frames)
         dropped_before = engine.dropped_frames  # stutters during DLPC setup are pre-display, ignore
-        
+
         # Start display
-        camera.flush()  # flush stale data from camera buffers
-        coordinator.join() ## comeback
-         
-        # Start recording
-        triggers, events = camera.record(semantic_frames)
-        
+        expected_triggers = semantic_frames
+        log.info("leader vsyncs: %d (%d triggers) semantic frames: %d expected triggers: %d",
+                 leader["vsyncs"], leader["trigger_count"], semantic_frames, expected_triggers)
+        log.info("starting display")
+
+
+        coordinator.release_startup_leader()
+        if not coordinator.wait_leader_done(timeout_s=5.0):
+            raise RuntimeError("startup leader did not complete")
+
+        camera.flush()
+        coordinator.release_semantic_frames()
+        triggers, events = camera.record(expected_triggers)
+
+        if not coordinator.wait_semantic_frames_done(timeout_s=5.0):
+            raise RuntimeError("semantic playback did not finish")
+
+
+        coordinator.join()
+
+        if len(triggers) < expected_triggers:
+            log.warning("expected %d triggers, got %d, missing triggers", expected_triggers, len(triggers))
+
         # Process and save results
         frames = camera.accumulate(triggers, events)
         camera.save(frames, run_dir / 'frames', save_as_jpg=True)
         camera.contact_sheet(frames, run_dir)
-        
+
         dropped = engine.dropped_frames - dropped_before
         if dropped:
             log.critical("%d frame(s) dropped during display: count/trigger alignment is off for this run", dropped)
