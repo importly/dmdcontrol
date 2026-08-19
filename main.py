@@ -10,6 +10,8 @@ from pathlib import Path
 from functools import partial
 from rich.logging import RichHandler
 
+import numpy as np
+
 from dmdcontrol.camera import Camera
 from dmdcontrol.dmd import (
     DLPC900,
@@ -194,7 +196,7 @@ def main() -> int:
         )
         load_pattern_sequence(dlpc_a, plan_a.entries)
         load_pattern_sequence(dlpc_b, plan_b.entries)
-        start_loaded_pattern_sequences(dlpc_a, dlpc_b, post_start_delay_s=0.0, verify=False)
+        start_loaded_pattern_sequences(dlpc_a, dlpc_b, post_start_delay_s=0, verify=False)
 
         for name, dlpc in (("A", dlpc_a), ("B", dlpc_b)):
             hw = verify_started_pattern_sequence(dlpc, label=f"DMD {name}")
@@ -210,7 +212,6 @@ def main() -> int:
                  leader["vsyncs"], leader["trigger_count"], semantic_frames, expected_triggers)
         log.info("starting display")
 
-
         coordinator.release_startup_leader()
         if not coordinator.wait_leader_done(timeout_s=5.0):
             raise RuntimeError("startup leader did not complete")
@@ -221,17 +222,19 @@ def main() -> int:
 
         if not coordinator.wait_semantic_frames_done(timeout_s=5.0):
             raise RuntimeError("semantic playback did not finish")
-
-
         coordinator.join()
 
         if len(triggers) < expected_triggers:
             log.warning("expected %d triggers, got %d, missing triggers", expected_triggers, len(triggers))
 
+        # save events and triggers
+        np.save(run_dir / "triggers.npy", triggers)
+        np.save(run_dir / "events.npy", events)
+
         # Process and save results
         frames = camera.accumulate(triggers, events)
         camera.save(frames, run_dir / 'frames', save_as_jpg=True)
-        camera.contact_sheet(frames, run_dir)
+        camera.contact_sheet(frames, run_dir, (20,17))
 
         dropped = engine.dropped_frames - dropped_before
         if dropped:

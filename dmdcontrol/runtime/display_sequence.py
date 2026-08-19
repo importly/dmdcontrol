@@ -396,7 +396,7 @@ def build_dynamic_fm_sequence(
     # nominal VSYNC budget. The latter is fragile when the controller's
     # measured VSYNC is a fraction faster than the requested refresh rate.
     # B still remains continuously visible because clear_after is false.
-    entries_b, timing_b, timing_b = build_lut_entries(
+    entries_b, _, timing_b = build_lut_entries(
         trig2_frame_zero=True,
         clear_last_after_exposure=False,
     )
