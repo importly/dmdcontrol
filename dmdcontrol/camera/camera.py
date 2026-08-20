@@ -153,7 +153,7 @@ class Camera:
         self.logger.info(f'Accumulation settings:\n {Font.BOLD}Time window (\u03bcs):{Font.ENDC} %s\n {Font.BOLD} Start time offset (\u03bcs):{Font.ENDC} %s', self.window_us, self.offset_us)
         
         
-        self.normalize_percentile = CONFIG.get('Camera', {}).get('normalize_percentile', 99.5)
+        self.normalize_scale_max = CONFIG.get('Camera', {}).get('normalize_scale_max', 255)
         self.signal_fraction = CONFIG.get('Camera', {}).get('signal_fraction', 0.1)
         
         # Enable events and external triggers
@@ -281,11 +281,12 @@ class Camera:
         return aligned
 
     def _to_image(self, frame: np.ndarray) -> np.ndarray:
-        """Scale a frame to 8-bit using a percentile, so hot pixels cannot crush it."""
-        scale = np.percentile(frame, self.normalize_percentile)
-        if scale <= 0:
-            scale = np.max(frame) or 1
-        return np.clip(frame / scale * 255, 0, 255).astype(np.uint8)
+        magnitude = np.abs(np.asarray(frame, dtype=np.float32))
+        maximum = float(self.normalize_scale_max)
+        if maximum <= 0:
+            return np.zeros(magnitude.shape, dtype=np.uint8)
+        scaled = np.log1p(magnitude) * (255.0 / np.log1p(maximum))
+        return np.rint(np.clip(scaled, 0, 255)).astype(np.uint8)
 
     def accumulate(self, triggers: np.ndarray, events: np.ndarray) -> np.ndarray:
         """Accumulate the recorded data into frames.
@@ -331,21 +332,21 @@ class Camera:
             
         return frames
     
-    def save(self, frames: np.ndarray, folder: Path, save_as_jpg: Optional[bool] = False):
+    def save(self, frames: np.ndarray, folder: Path, save_as_png: Optional[bool] = False):
         """
         Saves accumulated event frames to a folder.
 
         Args:
             frames (np.ndarray): A numpy array of shape (len(triggers), ROI_HEIGHT, ROI_WIDTH) containing the accumulated frames.
             folder (str): Folder to save to.
-            save_as_jpg (Optional[bool], optional): Whether or not to save the frames as JPEG files. Defaults to False.
+            save_as_png (Optional[bool], optional): Whether or not to save the frames as PNG files. Defaults to False.
         """
         # Create the folder if it doesn't exist
         os.makedirs(folder, exist_ok=True)
         for idx, frame in enumerate(frames):
-            if save_as_jpg:
-                # Save the frames to a .jpg file
-                Image.fromarray(self._to_image(frame), mode='L').save(f'{folder}/frame_{idx}.jpg')
+            if save_as_png:
+                # Save the frames to a .png file
+                Image.fromarray(self._to_image(frame), mode='L').save(f'{folder}/frame_{idx}.png', format='PNG')
             else:
                 # Save the frames to a .npy file
                 np.save(f'{folder}/frame_{idx}.npy', frame)
@@ -380,6 +381,6 @@ class Camera:
             contact_sheet.paste(frame_img, (x_offset, y_offset))
         
         # Save the contact sheet
-        contact_sheet.save(save_path)
+        contact_sheet.save(save_path, format='PNG')
         self.logger.info('Saved contact sheet to %s', save_path)
         

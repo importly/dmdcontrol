@@ -228,16 +228,16 @@ def main() -> int:
             log.warning("expected %d triggers, got %d, missing triggers", expected_triggers, len(triggers))
 
         # save events and triggers
-        # np.save(run_dir / "triggers.npy", triggers)
-        # np.save(run_dir / "events.npy", events)
+        np.save(run_dir / "triggers.npy", triggers)
+        np.save(run_dir / "events.npy", events)
         # skipping start up leader and then do alignment.
         triggers = camera.skip_startup_leader_triggers(triggers, leader["trigger_count"])
         triggers = camera.align_triggers_to_event_range(triggers, events)
 
         # Process and save results
         frames = camera.accumulate(triggers, events)
-        camera.save(frames, run_dir / 'frames', save_as_jpg=True)
-        camera.contact_sheet(frames, run_dir / 'contact_sheet.jpg', (20,ceil(len(triggers)/20)))
+        camera.save(frames, run_dir / 'frames', save_as_png=True)
+        camera.contact_sheet(frames, run_dir / 'contact_sheet.png', (20,ceil(len(triggers)/20)))
 
         dropped = engine.dropped_frames - dropped_before
         if dropped:

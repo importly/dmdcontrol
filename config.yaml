@@ -37,7 +37,7 @@ Camera:
   Writer:
     enable: True
   signal_fraction: 0.1
-  normalize_percentile: 99.5
+  normalize_scale_max: 255    # fixed reference for log scaling (master uses 255)
   flush_count: 32
 DMD:
   A:
