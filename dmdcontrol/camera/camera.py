@@ -8,6 +8,9 @@ from PIL import Image
 import dv_processing as dv
 from dmdcontrol.utils import Font, CONFIG
 
+CONTRAST_THRESHOLDS = {'verylow': 15, 'low': 12, 'high': 6, 'veryhigh': 3}  # 'default' is 9
+
+
 class BackgroundActivityNoiseFilter:
     """
     Python rewrite of the BackgroundActivityNoiseFilter from dv_processing. This tests the neighborhoods of incoming events for other supporting events that happened within the background activity period. If an event is supported by a neighbor, it is considered valid; otherwise, it is considered noise and filtered out.
@@ -156,9 +159,30 @@ class Camera:
         self.normalize_scale_max = CONFIG.get('Camera', {}).get('normalize_scale_max', 255)
         self.signal_fraction = CONFIG.get('Camera', {}).get('signal_fraction', 0.1)
         
+        self._apply_bias_sensitivity(CONFIG.get('Camera', {}).get('bias_sensitivity', 'default'))
+        
         # Enable events and external triggers
         self.camera.setDetectorRunning(True)
         self.camera.setEventsRunning(True)
+
+    def _apply_bias_sensitivity(self, preset: str) -> None:
+        """Set the DVS contrast threshold, as master's --bias-sensitivity does.
+
+        The default threshold fires on low-contrast scatter, which floods the
+        sensor with one-event-per-pixel noise and buries the pattern.
+        """
+        threshold = CONTRAST_THRESHOLDS.get(str(preset).lower())
+        if threshold is None:
+            self.logger.info('Bias sensitivity left at camera default')
+            return
+        if not (hasattr(self.camera, 'setContrastThresholdOn')
+                and hasattr(self.camera, 'setContrastThresholdOff')):
+            self.logger.warning('Camera does not expose contrast thresholds; '
+                                'bias_sensitivity=%s not applied', preset)
+            return
+        self.camera.setContrastThresholdOn(threshold)
+        self.camera.setContrastThresholdOff(threshold)
+        self.logger.info('Bias sensitivity %s: contrast threshold %s', preset, threshold)
 
     def flush(self, flush_count: int):
         """

@@ -38,6 +38,7 @@ Camera:
     enable: True
   signal_fraction: 0.4
   normalize_scale_max: 255    # fixed reference for log scaling (master uses 255)
+  bias_sensitivity: low       
   flush_count: 32
 DMD:
   A:
