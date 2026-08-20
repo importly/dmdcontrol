@@ -153,6 +153,9 @@ class Camera:
         self.logger.info(f'Accumulation settings:\n {Font.BOLD}Time window (\u03bcs):{Font.ENDC} %s\n {Font.BOLD} Start time offset (\u03bcs):{Font.ENDC} %s', self.window_us, self.offset_us)
         
         
+        self.normalize_percentile = CONFIG.get('Camera', {}).get('normalize_percentile', 99.5)
+        self.signal_fraction = CONFIG.get('Camera', {}).get('signal_fraction', 0.1)
+        
         # Enable events and external triggers
         self.camera.setDetectorRunning(True)
         self.camera.setEventsRunning(True)
@@ -257,25 +260,32 @@ class Camera:
         window_starts = np.asarray(triggers, dtype=np.int64) + int(self.offset_us)
         window_ends = window_starts + int(self.window_us)
 
-        # Only events inside the span these triggers cover can land in a kept
-        # frame. Anything earlier belongs to the skipped startup region, and
-        # letting it set the range would anchor event_start before every window.
         lit = events[events['polarity'] != 0]
-        lit = lit[(lit['timestamp'] >= window_starts[0])
-                  & (lit['timestamp'] < window_ends[-1])]
         if len(lit) == 0:
             return triggers
+        ts = np.sort(lit['timestamp'].astype(np.int64))
 
-        event_start = int(lit['timestamp'].min())
-        event_end = int(lit['timestamp'].max())
+        counts = (np.searchsorted(ts, window_ends, 'left')
+                  - np.searchsorted(ts, window_starts, 'left'))
+        threshold = max(1.0, self.signal_fraction * np.percentile(counts, 75))
+        strong = np.flatnonzero(counts >= threshold)
+        if len(strong) == 0:
+            self.logger.warning('no trigger window reached the signal threshold (%.0f events)', threshold)
+            return triggers
 
-        keep = (window_ends > event_start) & (window_starts <= event_end)
-        aligned = np.asarray(triggers)[keep]
-        self.logger.info('aligned to events, dropped %s before, %s after, %s remain',
-                         int(np.count_nonzero(window_ends <= event_start)),
-                         int(np.count_nonzero(window_starts > event_end)),
-                         len(aligned))
+        first = int(strong[0])
+        last = min(len(triggers) - 1, int(strong[-1]) + 1)
+        aligned = np.asarray(triggers)[first:last + 1]
+        self.logger.info('aligned to events, dropped %s before, %s after, %s remain (threshold %.0f events)',
+                         first, len(triggers) - 1 - last, len(aligned), threshold)
         return aligned
+
+    def _to_image(self, frame: np.ndarray) -> np.ndarray:
+        """Scale a frame to 8-bit using a percentile, so hot pixels cannot crush it."""
+        scale = np.percentile(frame, self.normalize_percentile)
+        if scale <= 0:
+            scale = np.max(frame) or 1
+        return np.clip(frame / scale * 255, 0, 255).astype(np.uint8)
 
     def accumulate(self, triggers: np.ndarray, events: np.ndarray) -> np.ndarray:
         """Accumulate the recorded data into frames.
@@ -335,8 +345,7 @@ class Camera:
         for idx, frame in enumerate(frames):
             if save_as_jpg:
                 # Save the frames to a .jpg file
-                frame = (frame / (np.max(frame) or 1) * 255).astype(np.uint8)
-                Image.fromarray(frame, mode='L').save(f'{folder}/frame_{idx}.jpg')
+                Image.fromarray(self._to_image(frame), mode='L').save(f'{folder}/frame_{idx}.jpg')
             else:
                 # Save the frames to a .npy file
                 np.save(f'{folder}/frame_{idx}.npy', frame)
@@ -365,7 +374,7 @@ class Camera:
             if idx >= grid_size[0] * grid_size[1]:
                 break
             # Normalize and convert frame to image
-            frame_img = Image.fromarray((frame / (np.max(frame) or 1) * 255).astype(np.uint8), mode='L')
+            frame_img = Image.fromarray(self._to_image(frame), mode='L')
             x_offset = (idx % grid_size[0]) * self.ROI_WIDTH
             y_offset = (idx // grid_size[0]) * self.ROI_HEIGHT
             contact_sheet.paste(frame_img, (x_offset, y_offset))

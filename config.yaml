@@ -36,6 +36,8 @@ Camera:
   height: 260
   Writer:
     enable: True
+  signal_fraction: 0.1
+  normalize_percentile: 99.5
   flush_count: 32
 DMD:
   A:
