@@ -1,4 +1,5 @@
 import os
+import time
 import logging
 from typing import Optional, Tuple
 from pathlib import Path
@@ -220,6 +221,18 @@ class Camera:
                         triggers[trigger_index] = trigger.timestamp
                         trigger_index += 1
         
+        # acompanying tailing code from master
+        if trigger_index > 0:
+            target_us = triggers[trigger_index - 1] + self.offset_us + self.window_us
+            deadline = time.time() + 5.0
+            while self.camera.isRunning() and time.time() < deadline:
+                event_batch = self.camera.getNextEventBatch()
+                if event_batch is None or len(event_batch) == 0:
+                    continue
+                events = np.concatenate((events, event_batch.numpy()))
+                if int(events['timestamp'][-1]) >= target_us:
+                    break
+
         # Remove the initial zero from the triggers and events arrays
         events = events[1:]
         self.logger.info(f'Recording complete.\n {Font.BOLD}Triggers:{Font.ENDC} %s\n {Font.BOLD}Events:{Font.ENDC} %s', len(triggers), len(events))
@@ -322,7 +335,7 @@ class Camera:
         for idx, frame in enumerate(frames):
             if save_as_jpg:
                 # Save the frames to a .jpg file
-                frame = (frame / np.max(frame) * 255).astype(np.uint8)
+                frame = (frame / (np.max(frame) or 1) * 255).astype(np.uint8)
                 Image.fromarray(frame, mode='L').save(f'{folder}/frame_{idx}.jpg')
             else:
                 # Save the frames to a .npy file
@@ -352,7 +365,7 @@ class Camera:
             if idx >= grid_size[0] * grid_size[1]:
                 break
             # Normalize and convert frame to image
-            frame_img = Image.fromarray((frame / np.max(frame) * 255).astype(np.uint8), mode='L')
+            frame_img = Image.fromarray((frame / (np.max(frame) or 1) * 255).astype(np.uint8), mode='L')
             x_offset = (idx % grid_size[0]) * self.ROI_WIDTH
             y_offset = (idx // grid_size[0]) * self.ROI_HEIGHT
             contact_sheet.paste(frame_img, (x_offset, y_offset))

@@ -237,7 +237,7 @@ def main() -> int:
         # Process and save results
         frames = camera.accumulate(triggers, events)
         camera.save(frames, run_dir / 'frames', save_as_jpg=True)
-        camera.contact_sheet(frames, run_dir, (20,ceil(len(triggers)/20)))
+        camera.contact_sheet(frames, run_dir / 'contact_sheet.jpg', (20,ceil(len(triggers)/20)))
 
         dropped = engine.dropped_frames - dropped_before
         if dropped:
