@@ -210,7 +210,8 @@ def main() -> int:
         dropped_before = engine.dropped_frames  # stutters during DLPC setup are pre-display, ignore
 
         # Start display
-        expected_triggers = leader["trigger_count"] + semantic_frames
+        nonsemantic_triggers = leader["trigger_count"] + DMD_CFG["display_pipeline_vsyncs"]
+        expected_triggers = nonsemantic_triggers + semantic_frames
         log.info("leader vsyncs: %d (%d triggers) semantic frames: %d expected triggers: %d",
                  leader["vsyncs"], leader["trigger_count"], semantic_frames, expected_triggers)
         log.info("starting display")
@@ -231,7 +232,7 @@ def main() -> int:
         np.save(run_dir / "triggers.npy", triggers)
         np.save(run_dir / "events.npy", events)
         # skipping start up leader and then do alignment.
-        triggers = camera.skip_startup_leader_triggers(triggers, leader["trigger_count"])
+        triggers = camera.skip_startup_leader_triggers(triggers, nonsemantic_triggers)
         triggers = camera.align_triggers_to_event_range(triggers, events)
 
         # Process and save results

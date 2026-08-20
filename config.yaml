@@ -36,7 +36,7 @@ Camera:
   height: 260
   Writer:
     enable: True
-  signal_fraction: 0.1
+  signal_fraction: 0.4
   normalize_scale_max: 255    # fixed reference for log scaling (master uses 255)
   flush_count: 32
 DMD:
@@ -58,6 +58,7 @@ DMD:
   frame_utilization: 1.0
   dual_pixel: False
   exposure_us: 16000
+  display_pipeline_vsyncs: 5
   paired_startup_leader_vsyncs: 16  # non-semantic blank vsyncs after sequencer start; their triggers are skipped
   # constants
   dark_time_us: 0
