@@ -19,3 +19,4 @@ runs
 typings
 *tmp.py
 tests
+.peak
