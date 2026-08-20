@@ -394,15 +394,15 @@ def pack_sequence_frames(data: np.ndarray) -> np.ndarray:
     Args:
         data (np.ndarray): A 3D numpy array of shape (batch_size, height, width) containing binary masks.
     '''
-    frames = np.zeros((data.shape[0] * 4, data.shape[1], data.shape[2], 3), dtype=np.uint8)
+    frames = np.zeros((data.shape[0] * 2, data.shape[1], data.shape[2], 3), dtype=np.uint8)
     for i, fm in enumerate(data):
         # Positive 
         pos_mask = pos_img(fm)
-        frames[4*i, :, :, 1] = pos_mask
+        frames[2*i, :, :, 1] = pos_mask
         
         # Negative
-        neg_mask = neg_img(fm)
-        frames[4*i + 2, :, :, 1] = neg_mask
+        # neg_mask = neg_img(fm)
+        # frames[4*i + 2, :, :, 1] = neg_mask
         
     frames = np.ascontiguousarray(frames)
     return frames
@@ -419,10 +419,11 @@ def pack_static_frames(data: np.ndarray, batch_size: int, pos: bool) -> np.ndarr
     if len(data.shape) != 2:
         raise ValueError("`data` must be a 2D numpy array")
 
-    frames = pos_img(data) if pos else neg_img(data)
-    frames = np.expand_dims(frames, axis=(0,-1))
-    frames = np.tile(frames, (batch_size, 1, 1, 3))
+    # frames = pos_img(data) if pos else neg_img(data)
+    frames = np.expand_dims(data, axis=(-1))
+    frames = np.tile(frames, (1, 1, 3))
     frames = np.ascontiguousarray(frames)
+    logger.info('frames shape: %s', frames.shape)
     return frames
 
 
@@ -633,13 +634,13 @@ class PairedPatternEngine:
         )
         self.last_frame_time = frame_start
 
-        prepared_a = self._prepare_dmd_frame(frame_a, "frame_a")
-        prepared_b = self._prepare_dmd_frame(frame_b, "frame_b")
+        # prepared_a = self._prepare_dmd_frame(frame_a, "frame_a")
+        # prepared_b = self._prepare_dmd_frame(frame_b, "frame_b")
         input_end = time.perf_counter()
 
-        self._upload_texture(self.texture_b, prepared_b)
+        self._upload_texture(self.texture_b, frame_a)
         upload_b_end = time.perf_counter()
-        self._upload_texture(self.texture_a, prepared_a)
+        self._upload_texture(self.texture_a, frame_b)
         upload_a_end = time.perf_counter()
 
         gl.glClear(gl.GL_COLOR_BUFFER_BIT)
@@ -678,7 +679,7 @@ class PairedPatternEngine:
                     self.dropped_frames,
                 )
                 self.last_stutter_log = frame_end
-        glfw.poll_events()
+        # glfw.poll_events()
 
     def _prepare_dmd_frame(self, frame: RGBFrame, label: str) -> RGBFrame:
         """
@@ -697,11 +698,11 @@ class PairedPatternEngine:
         # Type / rank / dtype first: a non-array or a non-uint8 frame must be
         # rejected here rather than reaching glTexSubImage2D as garbage bytes.
         _validate_rgb_frame(frame, label)
-        if frame.shape != (self.height, self.half_width, 3):
-            raise ValueError(f'{label} shape {frame.shape} does not match expected {self.height}x{self.half_width}x3')
-        if frame.flags.c_contiguous:
-            return frame
-        return np.ascontiguousarray(frame)
+        # if frame.shape != (self.height, self.half_width, 3):
+        #     raise ValueError(f'{label} shape {frame.shape} does not match expected {self.height}x{self.half_width}x3')
+        # if frame.flags.c_contiguous:
+        return frame
+        # return np.ascontiguousarray(frame)
 
     def _upload_texture(self, texture_id: int, frame: RGBFrame):
         """

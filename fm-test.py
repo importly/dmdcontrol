@@ -25,6 +25,7 @@ from dmdcontrol.patterns import (
 )
 from dmdcontrol.runtime import (
     build_count_static_sequence,
+    build_dynamic_fm_sequence,
     _start_pair_render_coordinator,
     load_pattern_sequence,
     prepare_pair_controllers,
@@ -124,17 +125,20 @@ def _cleanup_step(description: str, action) -> None:
 def generate_fm_k_sequence(length: int):
     """Generate a sequence of (fm, k) pairs for testing."""
     # Feature maps
-    fms = _decimal_number_display_masks(
-        numbers=range(length),
-        width=300,
-        height=300,
-        size_px=30
-    )
+    fm = np.zeros((64, 1080, 1920), dtype=np.uint8)
+    for count in range(1, 65):
+        count_mask = _decimal_number_display_masks(
+            (count,),
+            width=1920,
+            height=1080,
+            size_px=300,
+        )
+        fm[count - 1] = count_mask[0]
 
     # Kernel
-    k = generate_dot_frame()
+    k = generate_dot_frame()[:,:,0]
 
-    return fms, k
+    return fm, k
 
 
 def main() -> int:
@@ -166,7 +170,8 @@ def main() -> int:
         validate_display()
 
         # A counts, B static dot, setup sequence
-        sequence = build_count_static_sequence()
+        # sequence = build_count_static_sequence()
+        sequence = build_dynamic_fm_sequence(fms, k)
         leader = sequence.startup_leader_metadata()
         cycles = int(RUN["cycles"])
         semantic_frames = cycles * len(sequence.frames)

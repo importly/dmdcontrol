@@ -2,8 +2,8 @@ log_level: INFO
 
 Run:
   output_root: runs
-  count_start: 5
-  count_end: 15
+  count_start: 1
+  count_end: 64
   count_slots_per_frame: 1           # positive int, or 'auto' to fit the LUT budget
   count_blank_after_each_count: True # forces slots=1, doubles triggers per cycle
   number_size_px: 300
@@ -11,7 +11,7 @@ Run:
   b_dot_x: 960
   b_dot_y: 540
   b_dot_radius: 30
-  cycles: 10                         # count sequence is displayed this many times, then the run ends
+  cycles: 1                         # count sequence is displayed this many times, then the run ends
   save_filtered_events: True
   save_jpg: False
   time_max_s: 600

@@ -380,32 +380,60 @@ def build_dynamic_fm_sequence(
     fm: np.ndarray,
     k: np.ndarray,
 ) -> PairedDisplaySequence:
+    run = CONFIG.get('Run', {})
+    dmd = CONFIG.get('DMD', {})
+    width = int(dmd.get('width', 1920))
+    height = int(dmd.get('height', 1080))
+    target_hz = float(dmd.get('target_hz', 60.0))
+    
+    count_config = CountSequenceConfig.from_run_config()
+    
     # Build LUT entries and slots for one frame
-    entries, base_slots, timing = build_lut_entries(
-        clear_last_after_exposure=True
-    )
+    _, base_slots, timing = build_lut_entries()
     
     # Count mode owns its frame packing here so LUT slots and RGB bitplanes are built together.
-    frames_a = pack_sequence_frames(fm)
+    # frames_a = pack_sequence_frames(fm)
+    frames_a = pack_count_sequence_frames(
+        count_config.count_start,
+        count_config.count_end,
+        count_config.count_slots_per_frame,
+        width=width,
+        height=height,
+        size_px=run.get('number_size_px'),
+        count_blank_between_frames=count_config.count_blank_between_frames,
+    )
     frame_b = pack_static_frames(
         data = k,
         batch_size = len(frames_a),
         pos = True,
     )
+    # frame_b = generate_static_frame(
+    #     run.get('test_b', 'dot'),
+    #     width=width,
+    #     height=height,
+    #     route_label="B",
+    #     dot_x=run.get('b_dot_x'),
+    #     dot_y=run.get('b_dot_y'),
+    #     dot_radius=run.get('b_dot_radius'),
+    # )
     # Match A's already-resolved exposure instead of filling B to the
     # nominal VSYNC budget. The latter is fragile when the controller's
     # measured VSYNC is a fraction faster than the requested refresh rate.
     # B still remains continuously visible because clear_after is false.
     entries_b, _, timing_b = build_lut_entries(
-        trig2_frame_zero=True,
         clear_last_after_exposure=False,
+        trig2_frame_zero=True,
     )
     frames: list[TimedFramePair] = []
+    counts = tuple(range(1, len(fm) + 1))
 
     base_slot = base_slots[0]
     for source_frame_index, frame_a in enumerate(frames_a):
-        labels = [f"frame:{source_frame_index}"]
-
+        if source_frame_index % 2 == 0:
+            count = counts[source_frame_index // 2]
+            labels = [f"count:{count}"]
+        else:
+            labels = ["blank"]
         frames.append(
             TimedFramePair(
                 frame_pair=FramePair(a=frame_a, b=frame_b),
@@ -417,7 +445,7 @@ def build_dynamic_fm_sequence(
 
     startup_policy = StartupPolicy(
         "blank_leader",
-        CONFIG.get('DMD', {}).get('paired_startup_leader_vsyncs', 16),
+        int(CONFIG.get('DMD', {}).get('paired_startup_leader_vsyncs', 16)),
         frame_role="a_blank_b_static",
     )
     startup_pair = FramePair(a=np.zeros((CONFIG.get('DMD', {}).get('height', 1080), CONFIG.get('DMD', {}).get('width', 1920), 3), dtype=np.uint8), b=frame_b)
@@ -430,6 +458,13 @@ def build_dynamic_fm_sequence(
         timing=timing,
         mode_metadata={
             "count": {
+                "count_start": 1,
+                "count_end": len(frames_a),
+                "count_slots_per_frame": CONFIG.get('Run', {}).get('count_slots_per_frame'),
+                "count_slots_per_frame_mode": "explicit",
+                "count_blank_between_frames": bool(CONFIG.get('Run', {}).get('count_blank_after_each_count')),
+                "count_blank_after_each_count": bool(CONFIG.get('Run', {}).get('count_blank_after_each_count')),
+                "count_lut_entries_per_frame": int(1),
                 "exposure_us": CONFIG.get('DMD', {}).get('exposure_us'),
             },
             "static_b": {
