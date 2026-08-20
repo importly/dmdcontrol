@@ -90,7 +90,7 @@ class Camera:
     Class to control DAVIS346.
     """
     
-    def __init__(self, folder: Path = Path("data")):
+    def __init__(self):
         """
         Initialize the Camera class.
         
@@ -151,8 +151,6 @@ class Camera:
         self.offset_us = CONFIG.get('Camera', {}).get('Accumulation', {}).get('start_time_offset_us', 0)
         self.logger.info(f'Accumulation settings:\n {Font.BOLD}Time window (\u03bcs):{Font.ENDC} %s\n {Font.BOLD} Start time offset (\u03bcs):{Font.ENDC} %s', self.window_us, self.offset_us)
         
-        self.folder = folder
-        
         # Enable events and external triggers
         self.camera.setDetectorRunning(True)
         self.camera.setEventsRunning(True)
@@ -166,6 +164,7 @@ class Camera:
             _ = self.camera.getNextEventBatch()
         if self.camera.isTriggerStreamAvailable():
             _ = self.camera.getNextTriggerBatch()
+            
                     
     def record(self, trigger_count: int) -> tuple:
         """Record event data for a set amount of triggers
@@ -177,14 +176,6 @@ class Camera:
             tuple: A tuple containing the triggers and events.
         """
             
-        # Writer
-        # if CONFIG.get('Camera', {}).get('Writer', {}).get('enable', True):
-        # self.writer = dv.io.MonoCameraWriter(str(self.folder / 'raw.aedat4'), self.camera)
-        # self.logger.info('Writer enabled')
-        # else:
-        #     self.writer = None
-        #     self.logger.info('Writer disabled')
-        
         triggers = np.zeros((trigger_count,))
         trigger_index = 0
         events = np.zeros((1,), dtype=[('timestamp', '<i8'), ('x', '<i2'), ('y', '<i2'), ('polarity', 'i1')])
@@ -199,13 +190,9 @@ class Camera:
             
             # Check if there is valid data and if so, concatenate it
             if event_batch is not None:
-                # if self.writer is not None:
-                # self.writer.writeEvents(event_batch, streamName='events')
                 events = np.concatenate((events, event_batch.numpy()))
                 
             if trigger_batch is not None:
-                # if self.writer is not None:
-                #     self.writer.writeTriggerPacket(trigger_batch, streamName='triggers')
                 while len(trigger_batch) > 0:
                     trigger = trigger_batch.pop()
                     if int(trigger.type) == 1:
@@ -215,7 +202,6 @@ class Camera:
                         trigger_index += 1
         
         # Remove the initial zero from the triggers and events arrays
-        triggers = triggers[1:]
         events = events[1:]
         self.logger.info(f'Recording complete.\n {Font.BOLD}Triggers:{Font.ENDC} %s\n {Font.BOLD}Events:{Font.ENDC} %s', len(triggers), len(events))
         return (triggers, events)
@@ -286,14 +272,20 @@ class Camera:
         
         self.logger.info('Saved %s frames to %s', len(frames), folder)
         
-    def contact_sheet(self, frames: np.ndarray, folder: Path, grid_size: Tuple[int, int] = (20, 10)):
+    def contact_sheet(
+        self, 
+        frames: np.ndarray, 
+        save_path: Path = Path('./contact_sheet.jpg'), 
+        grid_size: Tuple[int, int] = (20, 10),
+    ):
         """
         Creates a contact sheet of the accumulated event frames and saves it to a file.
 
         Args:
             frames (np.ndarray): A numpy array of shape (len(triggers), ROI_HEIGHT, ROI_WIDTH) containing the accumulated frames.
-            save_path (Path): Path to save the contact sheet to.
+            folder (Path): Folder to save the contact sheet to.
             grid_size (Tuple[int, int], optional): Size of the grid for the contact sheet. Defaults to (20, 10).
+            file_name (Path, optional): Name of the file to save the contact sheet to. Defaults to 'contact_sheet.jpg'.
         """
         # Create a blank canvas for the contact sheet
         contact_sheet = Image.new('L', (self.ROI_WIDTH * grid_size[0], self.ROI_HEIGHT * grid_size[1]))
@@ -308,6 +300,6 @@ class Camera:
             contact_sheet.paste(frame_img, (x_offset, y_offset))
         
         # Save the contact sheet
-        contact_sheet.save(folder / 'contact_sheet.jpg')
-        self.logger.info('Saved contact sheet to %s', folder / 'contact_sheet.jpg')
+        contact_sheet.save(save_path)
+        self.logger.info('Saved contact sheet to %s', save_path)
         

@@ -392,30 +392,12 @@ def build_dynamic_fm_sequence(
     _, base_slots, timing = build_lut_entries()
     
     # Count mode owns its frame packing here so LUT slots and RGB bitplanes are built together.
-    # frames_a = pack_sequence_frames(fm)
-    frames_a = pack_count_sequence_frames(
-        count_config.count_start,
-        count_config.count_end,
-        count_config.count_slots_per_frame,
-        width=width,
-        height=height,
-        size_px=run.get('number_size_px'),
-        count_blank_between_frames=count_config.count_blank_between_frames,
-    )
+    frames_a = pack_sequence_frames(fm)
     frame_b = pack_static_frames(
         data = k,
         batch_size = len(frames_a),
         pos = True,
     )
-    # frame_b = generate_static_frame(
-    #     run.get('test_b', 'dot'),
-    #     width=width,
-    #     height=height,
-    #     route_label="B",
-    #     dot_x=run.get('b_dot_x'),
-    #     dot_y=run.get('b_dot_y'),
-    #     dot_radius=run.get('b_dot_radius'),
-    # )
     # Match A's already-resolved exposure instead of filling B to the
     # nominal VSYNC budget. The latter is fragile when the controller's
     # measured VSYNC is a fraction faster than the requested refresh rate.
@@ -430,7 +412,7 @@ def build_dynamic_fm_sequence(
     base_slot = base_slots[0]
     for source_frame_index, frame_a in enumerate(frames_a):
         if source_frame_index % 2 == 0:
-            count = counts[source_frame_index // 2]
+            count = counts[source_frame_index // 4]
             labels = [f"count:{count}"]
         else:
             labels = ["blank"]

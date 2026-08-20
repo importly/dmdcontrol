@@ -56,7 +56,7 @@ DMD:
   frame_utilization: 1.0
   dual_pixel: False
   exposure_us: 16000
-  paired_startup_leader_vsyncs: 16  # non-semantic blank vsyncs after sequencer start; their triggers are skipped
+  paired_startup_leader_vsyncs: 0  # non-semantic blank vsyncs after sequencer start; their triggers are skipped
   # constants
   dark_time_us: 0
   bitplanes: 24
@@ -80,5 +80,4 @@ DMD:
   first_active_line: 35
   bottom_field_first_line: 1
   pixel_clock_khz: 65000
-  paired_startup_leader_vsyncs: 16
   max_count_sequence_frames: 128

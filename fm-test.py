@@ -63,7 +63,7 @@ def git_hash() -> str:
 def setup_logging(run_dir: Path) -> None:
     level = str(CONFIG.get("log_level", "INFO")).upper()
     console_handler = RichHandler(
-        show_path=False, rich_tracebacks=True, markup=False,
+        show_path=False, rich_tracebacks=True, markup=True,
         omit_repeated_times=False, log_time_format="%H:%M:%S",
         level=level,
     )
@@ -125,8 +125,8 @@ def _cleanup_step(description: str, action) -> None:
 def generate_fm_k_sequence(length: int):
     """Generate a sequence of (fm, k) pairs for testing."""
     # Feature maps
-    fm = np.zeros((64, 1080, 1920), dtype=np.uint8)
-    for count in range(1, 65):
+    fm = np.zeros((32, 1080, 1920), dtype=np.uint8)
+    for count in range(1, 33):
         count_mask = _decimal_number_display_masks(
             (count,),
             width=1920,
@@ -134,6 +134,10 @@ def generate_fm_k_sequence(length: int):
             size_px=300,
         )
         fm[count - 1] = count_mask[0]
+        
+    fm = fm.astype(np.float64)
+    fm *= 2
+    fm -= 1
 
     # Kernel
     k = generate_dot_frame()[:,:,0]
@@ -141,16 +145,11 @@ def generate_fm_k_sequence(length: int):
     return fm, k
 
 
-def main() -> int:
-    # logging
-    run_dir = create_run_directory()
-    setup_logging(run_dir)
-    log.info("Run directory: %s", run_dir)
-    log.debug("Git: %s", git_hash())
-
-    # Generate the feature maps and kernels
-    trial_length = 100
-    fms, k = generate_fm_k_sequence(trial_length)
+def display_data(
+    fm: np.ndarray,
+    k: np.ndarray, 
+    contact_sheet_path: Path,
+    ) -> int:
 
     # dmds
     dmd_a, dmd_b = load_from_config()
@@ -160,7 +159,7 @@ def main() -> int:
     coordinator = None
 
     # Camera setup
-    camera = Camera(folder=run_dir)
+    camera = Camera()
 
     try:
         # Get dmds up
@@ -171,7 +170,7 @@ def main() -> int:
 
         # A counts, B static dot, setup sequence
         # sequence = build_count_static_sequence()
-        sequence = build_dynamic_fm_sequence(fms, k)
+        sequence = build_dynamic_fm_sequence(fm, k)
         leader = sequence.startup_leader_metadata()
         cycles = int(RUN["cycles"])
         semantic_frames = cycles * len(sequence.frames)
@@ -211,9 +210,9 @@ def main() -> int:
         log.info("Displaying %d frames (%d leader + %d count)...",
                  leader["vsyncs"] + semantic_frames, leader["vsyncs"], semantic_frames)
         dropped_before = engine.dropped_frames  # stutters during DLPC setup are pre-display, ignore
-
+        
         # Start display
-        expected_triggers = semantic_frames
+        expected_triggers = semantic_frames +leader["vsyncs"] + 8
         log.info("leader vsyncs: %d (%d triggers) semantic frames: %d expected triggers: %d",
                  leader["vsyncs"], leader["trigger_count"], semantic_frames, expected_triggers)
         log.info("starting display")
@@ -230,23 +229,17 @@ def main() -> int:
             raise RuntimeError("semantic playback did not finish")
         coordinator.join()
 
-        # if len(triggers) < expected_triggers:
-        #     log.warning("expected %d triggers, got %d, missing triggers", expected_triggers, len(triggers))
-
-        # save events and triggers
-        # np.save(run_dir / "triggers.npy", triggers)
-        # np.save(run_dir / "events.npy", events)
-
         # # Process and save results
         frames = camera.accumulate(triggers, events)
-        camera.save(frames, run_dir / 'frames', save_as_jpg=True)
-        camera.contact_sheet(frames, run_dir, (20,ceil(expected_triggers/20)))
+        # camera.save(frames, run_dir / 'frames', save_as_jpg=True)
+        camera.contact_sheet(frames, contact_sheet_path, (20,ceil(expected_triggers/20)))
 
         dropped = engine.dropped_frames - dropped_before
         if dropped:
             log.critical("%d frame(s) dropped during display: count/trigger alignment is off for this run", dropped)
         log.info("Displayed %d frames, %d dropped; count chunk complete (%d cycles)",
                  leader["vsyncs"] + semantic_frames, dropped, cycles)
+        
         return 0
     except Exception as exc:
         log.exception("Display chunk failed: %s", exc)
@@ -265,8 +258,30 @@ def main() -> int:
         if engine is not None:
             _cleanup_step("engine cleanup", engine.cleanup)
 
-            _cleanup_step(f"DMD {name} close", dlpc_a.close)
-            _cleanup_step(f"DMD {name} close", dlpc_b.close)
+            # _cleanup_step(f"DMD {name} close", dlpc_a.close)
+            # _cleanup_step(f"DMD {name} close", dlpc_b.close)
+
+
+def main() -> int:
+    # logging
+    run_dir = create_run_directory()
+    setup_logging(run_dir)
+    log.info("Run directory: %s", run_dir)
+    log.debug("Git: %s", git_hash())
+    
+    # Generate the feature maps and kernels
+    trial_length = 100
+    fm, k = generate_fm_k_sequence(trial_length)
+    
+    # loop one
+    ret = display_data(fm, k, run_dir / Path("contact_sheet_loop1.jpg"))
+    if ret != 0:
+        return ret
+    
+    # loop two
+    ret = display_data(fm, k, run_dir / Path("contact_sheet_loop2.jpg"))
+    
+    return ret
 
 if __name__ == "__main__":
     sys.exit(main())

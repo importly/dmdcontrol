@@ -358,14 +358,14 @@ def pos_img(a: np.ndarray) -> np.ndarray:
     '''
     if np.max(a)==0:
         return a
-    new_matrix = np.zeros_like(a)
+    new_matrix = np.zeros_like(a, dtype=np.uint8)
     try:
         new_matrix = a / abs(np.max(a))
     except FloatingPointError:
         pass
     new_matrix += 1
     new_matrix /= 2
-    new_matrix *= 255
+    # new_matrix *= 255
     return new_matrix.astype(np.uint8)
 
 
@@ -375,7 +375,7 @@ def neg_img(a: np.ndarray) -> np.ndarray:
     '''
     if np.max(a)==0:
         return np.zeros_like(a)+1
-    new_matrix = np.zeros_like(a)
+    new_matrix = np.zeros_like(a, dtype=np.int16)
     try:
         new_matrix = a / abs(np.max(a))
     except FloatingPointError:
@@ -383,8 +383,8 @@ def neg_img(a: np.ndarray) -> np.ndarray:
     new_matrix *= -1
     new_matrix += 1
     new_matrix /= 2
-    tmp = new_matrix * 255
-    return tmp.astype(np.uint8)
+    # tmp = new_matrix * 255
+    return new_matrix.astype(np.uint8)
 
 
 def pack_sequence_frames(data: np.ndarray) -> np.ndarray:
@@ -394,15 +394,17 @@ def pack_sequence_frames(data: np.ndarray) -> np.ndarray:
     Args:
         data (np.ndarray): A 3D numpy array of shape (batch_size, height, width) containing binary masks.
     '''
-    frames = np.zeros((data.shape[0] * 2, data.shape[1], data.shape[2], 3), dtype=np.uint8)
+    frames = np.zeros((data.shape[0] * 4, data.shape[1], data.shape[2], 3), dtype=np.uint8)
     for i, fm in enumerate(data):
         # Positive 
         pos_mask = pos_img(fm)
-        frames[2*i, :, :, 1] = pos_mask
+        frames[4*i, :, :, 1] = pos_mask
         
         # Negative
-        # neg_mask = neg_img(fm)
-        # frames[4*i + 2, :, :, 1] = neg_mask
+        neg_mask = neg_img(fm)
+        # frames[4*i, 300:770, 650:1270, 1] = neg_mask[300:770,650:1270]
+        # frames[4*i + 2, 300:770, 650:1270, 1] = neg_mask[300:770,650:1270]
+        frames[4*i + 2, :, :, 1] = pos_mask #
         
     frames = np.ascontiguousarray(frames)
     return frames
@@ -419,11 +421,10 @@ def pack_static_frames(data: np.ndarray, batch_size: int, pos: bool) -> np.ndarr
     if len(data.shape) != 2:
         raise ValueError("`data` must be a 2D numpy array")
 
-    # frames = pos_img(data) if pos else neg_img(data)
+    frames = pos_img(data) if pos else neg_img(data)
     frames = np.expand_dims(data, axis=(-1))
     frames = np.tile(frames, (1, 1, 3))
     frames = np.ascontiguousarray(frames)
-    logger.info('frames shape: %s', frames.shape)
     return frames
 
 
