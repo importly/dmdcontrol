@@ -38,6 +38,7 @@ log.setLevel(str(CONFIG.get("log_level", "INFO")).upper())
 
 RUN = CONFIG.get("Run", {})
 DMD_CFG = CONFIG.get("DMD", {})
+CAMERA_CFG = CONFIG.get("Camera", {})
 DISPLAY_ID = ":0"
 
 
@@ -137,6 +138,7 @@ def generate_fm_k_sequence(length: int):
     return fms, k
 
 
+
 def main() -> int:
     # logging
     run_dir = create_run_directory()
@@ -156,7 +158,7 @@ def main() -> int:
     coordinator = None
 
     # Camera setup
-    camera = Camera(folder=run_dir)
+    camera = Camera()
 
     try:
         # Get dmds up
@@ -208,16 +210,13 @@ def main() -> int:
         dropped_before = engine.dropped_frames  # stutters during DLPC setup are pre-display, ignore
 
         # Start display
-        expected_triggers = semantic_frames
+        expected_triggers = leader["trigger_count"] + semantic_frames
         log.info("leader vsyncs: %d (%d triggers) semantic frames: %d expected triggers: %d",
                  leader["vsyncs"], leader["trigger_count"], semantic_frames, expected_triggers)
         log.info("starting display")
 
+        camera.flush(CAMERA_CFG["flush_count"]) # moved flush before
         coordinator.release_startup_leader()
-        if not coordinator.wait_leader_done(timeout_s=5.0):
-            raise RuntimeError("startup leader did not complete")
-
-        camera.flush()
         coordinator.release_semantic_frames()
         triggers, events = camera.record(expected_triggers)
 
@@ -225,17 +224,20 @@ def main() -> int:
             raise RuntimeError("semantic playback did not finish")
         coordinator.join()
 
-        # if len(triggers) < expected_triggers:
-        #     log.warning("expected %d triggers, got %d, missing triggers", expected_triggers, len(triggers))
+        if len(triggers) < expected_triggers:
+            log.warning("expected %d triggers, got %d, missing triggers", expected_triggers, len(triggers))
 
         # save events and triggers
         # np.save(run_dir / "triggers.npy", triggers)
         # np.save(run_dir / "events.npy", events)
+        # skipping start up leader and then do alignment.
+        triggers = camera.skip_startup_leader_triggers(triggers, leader["trigger_count"])
+        triggers = camera.align_triggers_to_event_range(triggers, events)
 
-        # # Process and save results
+        # Process and save results
         frames = camera.accumulate(triggers, events)
         camera.save(frames, run_dir / 'frames', save_as_jpg=True)
-        camera.contact_sheet(frames, run_dir, (20,ceil(expected_triggers/20)))
+        camera.contact_sheet(frames, run_dir, (20,ceil(len(triggers)/20)))
 
         dropped = engine.dropped_frames - dropped_before
         if dropped:

@@ -151,21 +151,40 @@ class Camera:
         self.offset_us = CONFIG.get('Camera', {}).get('Accumulation', {}).get('start_time_offset_us', 0)
         self.logger.info(f'Accumulation settings:\n {Font.BOLD}Time window (\u03bcs):{Font.ENDC} %s\n {Font.BOLD} Start time offset (\u03bcs):{Font.ENDC} %s', self.window_us, self.offset_us)
         
+        
         # Enable events and external triggers
         self.camera.setDetectorRunning(True)
         self.camera.setEventsRunning(True)
 
-    def flush(self):
+    def flush(self, flush_count: int):
         """
         Flush stale data.
         """
-        # Flush stale data from camera's buffers   
-        if self.camera.isEventStreamAvailable():
-            _ = self.camera.getNextEventBatch()
-        if self.camera.isTriggerStreamAvailable():
-            _ = self.camera.getNextTriggerBatch()
-            
-                    
+        e_discarded = 0
+        t_discarded = 0
+        e_check = False
+        t_check = False
+
+        for _ in range(flush_count):
+            e_check = False
+            t_check = False
+
+            if self.camera.isEventStreamAvailable():
+                e_check = self.camera.getNextEventBatch() is not None
+            if self.camera.isTriggerStreamAvailable():
+                t_check = self.camera.getNextTriggerBatch() is not None
+
+            if e_check:
+                e_discarded += 1
+            if t_check:
+                t_discarded += 1
+
+            if not e_check and not t_check:
+                break
+
+        self.logger.info('Flushed %s event batches and %s trigger batches', e_discarded, t_discarded)
+
+
     def record(self, trigger_count: int) -> tuple:
         """Record event data for a set amount of triggers
 
@@ -206,6 +225,45 @@ class Camera:
         self.logger.info(f'Recording complete.\n {Font.BOLD}Triggers:{Font.ENDC} %s\n {Font.BOLD}Events:{Font.ENDC} %s', len(triggers), len(events))
         return (triggers, events)
     
+    def skip_startup_leader_triggers(self, triggers: np.ndarray, leader_trigger_count: int) -> np.ndarray:
+        """Drop the leading non-semantic triggers the startup leader emitted."""
+        requested = int(leader_trigger_count or 0)
+        skipped = min(max(0, requested), len(triggers))
+        remaining = np.asarray(triggers)[skipped:]
+        self.logger.info('skipped %s leader triggers, %s remain', skipped, len(remaining))
+        return remaining
+
+    def align_triggers_to_event_range(self, triggers: np.ndarray, events: np.ndarray) -> np.ndarray:
+        """Drop triggers whose accumulation window falls outside the recorded events.
+
+        Uses ON events only, since accumulate() integrates only those.
+        """
+        if len(triggers) == 0 or len(events) == 0 or self.window_us <= 0:
+            return triggers
+
+        window_starts = np.asarray(triggers, dtype=np.int64) + int(self.offset_us)
+        window_ends = window_starts + int(self.window_us)
+
+        # Only events inside the span these triggers cover can land in a kept
+        # frame. Anything earlier belongs to the skipped startup region, and
+        # letting it set the range would anchor event_start before every window.
+        lit = events[events['polarity'] != 0]
+        lit = lit[(lit['timestamp'] >= window_starts[0])
+                  & (lit['timestamp'] < window_ends[-1])]
+        if len(lit) == 0:
+            return triggers
+
+        event_start = int(lit['timestamp'].min())
+        event_end = int(lit['timestamp'].max())
+
+        keep = (window_ends > event_start) & (window_starts <= event_end)
+        aligned = np.asarray(triggers)[keep]
+        self.logger.info('aligned to events, dropped %s before, %s after, %s remain',
+                         int(np.count_nonzero(window_ends <= event_start)),
+                         int(np.count_nonzero(window_starts > event_end)),
+                         len(aligned))
+        return aligned
+
     def accumulate(self, triggers: np.ndarray, events: np.ndarray) -> np.ndarray:
         """Accumulate the recorded data into frames.
 

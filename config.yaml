@@ -36,7 +36,7 @@ Camera:
   height: 260
   Writer:
     enable: True
-    
+  flush_count: 32
 DMD:
   A:
     usb_bus: 1
@@ -56,7 +56,7 @@ DMD:
   frame_utilization: 1.0
   dual_pixel: False
   exposure_us: 16000
-  paired_startup_leader_vsyncs: 0  # non-semantic blank vsyncs after sequencer start; their triggers are skipped
+  paired_startup_leader_vsyncs: 16  # non-semantic blank vsyncs after sequencer start; their triggers are skipped
   # constants
   dark_time_us: 0
   bitplanes: 24
