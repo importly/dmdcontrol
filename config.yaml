@@ -3,7 +3,7 @@ log_level: INFO
 Run:
   output_root: runs
   count_start: 1
-  count_end: 64
+  count_end: 512
   count_slots_per_frame: 1           # positive int, or 'auto' to fit the LUT budget
   count_blank_after_each_count: True # forces slots=1, doubles triggers per cycle
   number_size_px: 300
@@ -18,10 +18,10 @@ Run:
 
 Camera:
   ROI:
-    start_x: 0
-    start_y: 0
-    width: 346
-    height: 260
+    start_x: 145
+    start_y:  100
+    width: 60 # 75 346
+    height: 60 # 75 260
   Trigger:
     rising_edge: True
     falling_edge: False
@@ -80,4 +80,4 @@ DMD:
   first_active_line: 35
   bottom_field_first_line: 1
   pixel_clock_khz: 65000
-  max_count_sequence_frames: 128
+  max_count_sequence_frames: 1080 # 128

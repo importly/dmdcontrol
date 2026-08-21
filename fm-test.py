@@ -11,6 +11,7 @@ from functools import partial
 from rich.logging import RichHandler
 from math import ceil
 
+import requests
 import numpy as np
 
 from dmdcontrol.camera import Camera
@@ -122,25 +123,32 @@ def _cleanup_step(description: str, action) -> None:
         log.warning("Cleanup (%s): %s", description, exc)
 
 
-def generate_fm_k_sequence(length: int):
+def generate_fm_k_sequence():
     """Generate a sequence of (fm, k) pairs for testing."""
     # Feature maps
-    fm = np.zeros((32, 1080, 1920), dtype=np.uint8)
-    for count in range(1, 33):
+    count = np.arange(0, 100)
+    fm = np.zeros((256, 300, 300), dtype=np.uint8)
+    for idx in range(fm.shape[0]):
         count_mask = _decimal_number_display_masks(
-            (count,),
-            width=1920,
-            height=1080,
+            (count[idx % len(count)],),
+            width=300,
+            height=300,
             size_px=300,
         )
-        fm[count - 1] = count_mask[0]
+        fm[idx] = count_mask[0]
         
     fm = fm.astype(np.float64)
     fm *= 2
     fm -= 1
 
     # Kernel
-    k = generate_dot_frame()[:,:,0]
+    # k = generate_dot_frame(radius=42, shape='square')[:,:,0]
+    k = generate_dot_frame(radius=20, shape='circle')[:,:,0]
+    
+    # repeat the kernel to match the number of feature maps
+    # k = np.repeat(k[np.newaxis, :, :], fm.shape[0], axis=0)
+    
+    # fm = fm[-1]
 
     return fm, k
 
@@ -148,7 +156,7 @@ def generate_fm_k_sequence(length: int):
 def display_data(
     fm: np.ndarray,
     k: np.ndarray, 
-    contact_sheet_path: Path,
+    contact_sheet_path: Path | None = None,
     ) -> int:
 
     # dmds
@@ -229,16 +237,24 @@ def display_data(
             raise RuntimeError("semantic playback did not finish")
         coordinator.join()
 
-        # # Process and save results
-        frames = camera.accumulate(triggers, events)
-        # camera.save(frames, run_dir / 'frames', save_as_jpg=True)
-        camera.contact_sheet(frames, contact_sheet_path, (20,ceil(expected_triggers/20)))
-
         dropped = engine.dropped_frames - dropped_before
-        if dropped:
-            log.critical("%d frame(s) dropped during display: count/trigger alignment is off for this run", dropped)
         log.info("Displayed %d frames, %d dropped; count chunk complete (%d cycles)",
                  leader["vsyncs"] + semantic_frames, dropped, cycles)
+        if dropped:
+            log.critical("%d frame(s) dropped during display: count/trigger alignment is off for this run", dropped)
+            return 2
+        
+        # Process and save results
+        frames = camera.accumulate(triggers, events)
+        if contact_sheet_path is not None:
+            # camera.save(frames, contact_sheet_path.parent / 'frames', save_as_img=True)
+            camera.contact_sheet(frames, contact_sheet_path, (20,ceil(expected_triggers/20)))
+            
+            requests.put(
+                'https://ntfy.sh/eodla',
+                data=open(contact_sheet_path, 'rb'),
+                headers={'Filename': contact_sheet_path.name, 'Title': 'Contact Sheet'},
+            )
         
         return 0
     except Exception as exc:
@@ -270,17 +286,30 @@ def main() -> int:
     log.debug("Git: %s", git_hash())
     
     # Generate the feature maps and kernels
-    trial_length = 100
-    fm, k = generate_fm_k_sequence(trial_length)
+    fm, k = generate_fm_k_sequence()
     
     # loop one
-    ret = display_data(fm, k, run_dir / Path("contact_sheet_loop1.jpg"))
-    if ret != 0:
-        return ret
+    while True:
+        ret = display_data(fm, k, run_dir / Path("contact_sheet_loop1.jpg"))
+        match ret:
+            case 0:
+                break
+            case 1:
+                return ret
+            case 2:
+                log.warning("Retrying...")
     
     # loop two
-    ret = display_data(fm, k, run_dir / Path("contact_sheet_loop2.jpg"))
-    
+    while True:
+        ret = display_data(fm, k, run_dir / Path("contact_sheet_loop2.jpg"))
+        match ret:
+            case 0:
+                break
+            case 1:
+                return ret
+            case 2:
+                log.warning("Retrying...")
+
     return ret
 
 if __name__ == "__main__":

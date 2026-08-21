@@ -394,17 +394,28 @@ def pack_sequence_frames(data: np.ndarray) -> np.ndarray:
     Args:
         data (np.ndarray): A 3D numpy array of shape (batch_size, height, width) containing binary masks.
     '''
-    frames = np.zeros((data.shape[0] * 4, data.shape[1], data.shape[2], 3), dtype=np.uint8)
+    # Check data size (should be batchx128x128)
+    # if data.shape[1:] != (128, 128):
+    #     logger.warning('Input shape %s, expected (batch_size, 128, 128)', data.shape)
+    
+    # Pad up to 148x148 (20px padding)
+    # data = np.pad(data, ((0, 0), ((148-data.shape[1])//2, (148-data.shape[1])//2), ((148-data.shape[2])//2, (148-data.shape[2])//2)), mode='constant', constant_values=1)
+    
+    frames = np.zeros((data.shape[0] * 4, CONFIG.get('DMD', {}).get('height', 1080), CONFIG.get('DMD', {}).get('width', 1920), 3), dtype=np.uint8)
+    offset_h = (CONFIG.get('DMD', {}).get('height', 1080) - data.shape[1]) // 2
+    offset_w = (CONFIG.get('DMD', {}).get('width', 1920) - data.shape[2]) // 2
     for i, fm in enumerate(data):
         # Positive 
         pos_mask = pos_img(fm)
-        frames[4*i, :, :, 1] = pos_mask
+        frames[4*i, offset_h:offset_h+data.shape[1], offset_w:offset_w+data.shape[2], 1] = pos_mask
+        # frames[4*i, :, :, 1] = pos_mask
         
         # Negative
         neg_mask = neg_img(fm)
         # frames[4*i, 300:770, 650:1270, 1] = neg_mask[300:770,650:1270]
         # frames[4*i + 2, 300:770, 650:1270, 1] = neg_mask[300:770,650:1270]
-        frames[4*i + 2, :, :, 1] = pos_mask #
+        frames[4*i + 2, offset_h:offset_h+data.shape[1], offset_w:offset_w+data.shape[2], 1] = pos_mask #
+        # frames[4*i + 2, :, :, 1] = pos_mask #
         
     frames = np.ascontiguousarray(frames)
     return frames

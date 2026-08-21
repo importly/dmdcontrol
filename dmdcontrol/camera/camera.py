@@ -22,6 +22,8 @@ class BackgroundActivityNoiseFilter:
         Raises:
             ValueError: If background_activity_duration is less than 1
         """
+        self.logger = logging.getLogger('Filter')
+        
         if background_activity_duration < 1:
             raise ValueError(f"background_activity_duration must be greater than 0, got {background_activity_duration}")
         
@@ -66,16 +68,18 @@ class BackgroundActivityNoiseFilter:
             np.ndarray: Filtered events
         """
         # Grab the event coordinates, timestamps, and polarities
-        ts, xs, ys, ps = events[0], events[1], events[2], events[3]
+        ts, xs, ys = events['timestamp'], events['x'], events['y']
         
         # Filter events
-        mask = np.zeros(len(events[0]), dtype=bool)
-        for i in range(len(events[0])):
+        mask = np.zeros(events.shape[0], dtype=bool)
+        for i in range(events.shape[0]):
             # Update mask
             mask[i] = self._background_activity_lookup(xs[i], ys[i], ts[i])
             
             # Update time surface
             self.time_surface[ys[i], xs[i]] = ts[i]
+        # self.logger.info('Filtered %s events out of %s', np.sum(~mask), len(events[0]))
+        # self.logger.info('events shape: %s, mask shape: %s', events.shape, mask.shape)
         filtered_events = events[mask]
         
         return filtered_events
@@ -120,14 +124,15 @@ class Camera:
         if (self.roi_start_x + self.ROI_WIDTH > self.WIDTH) or (self.roi_start_y + self.ROI_HEIGHT > self.HEIGHT):
             self.logger.error(f"ROI exceeds camera resolution. ROI: ({self.roi_start_x}, {self.roi_start_y}, {self.ROI_WIDTH}, {self.ROI_HEIGHT}), Camera Resolution: ({self.WIDTH}, {self.HEIGHT})")
             raise ValueError(f"ROI exceeds camera resolution. ROI: ({self.roi_start_x}, {self.roi_start_y}, {self.ROI_WIDTH}, {self.ROI_HEIGHT}), Camera Resolution: ({self.WIDTH}, {self.HEIGHT})")
-        self.camera.setCropAreaEvents(
-            (
-                self.roi_start_x,
-                self.roi_start_y,
-                self.ROI_WIDTH,
-                self.ROI_HEIGHT
-            )
-        )
+        # self.camera.setCropArea(
+        #     (
+        #         self.roi_start_x,
+        #         self.roi_start_y,
+        #         self.ROI_WIDTH,
+        #         self.ROI_HEIGHT
+        #     )
+        # )
+        roi = self.camera.getCropArea()
         self.logger.info(f'ROI set. \n {Font.BOLD}start_x:{Font.ENDC} %s, {Font.BOLD}width:{Font.ENDC} %s\n {Font.BOLD} start_y:{Font.ENDC} %s, {Font.BOLD}height:{Font.ENDC} %s{Font.ENDC}', self.roi_start_x, self.ROI_WIDTH, self.roi_start_y, self.ROI_HEIGHT)
         
         # Trigger
@@ -139,7 +144,7 @@ class Camera:
         if CONFIG.get('Camera', {}).get('Filter', {}).get('enable', True):
             self.filter = BackgroundActivityNoiseFilter(
                 background_activity_duration=CONFIG.get('Camera', {}).get('Filter', {}).get('background_activity_duration', 2000),
-                resolution_limits=(self.ROI_WIDTH, self.ROI_HEIGHT)
+                resolution_limits=(self.WIDTH, self.HEIGHT)
             )
             self.logger.info('Background activity noise filter enabled with duration %s \u03bcs', self.filter.background_activity_duration)
         else:
@@ -244,28 +249,29 @@ class Camera:
             # Accumulate the events into a frame
             for event in event_slice:
                 x, y, polarity = event['x'], event['y'], event['polarity']
-                frames[idx, y, x] += 1 if polarity else 0
+                if (x >= self.roi_start_x) and (y >= self.roi_start_y) and (x < self.roi_start_x + self.ROI_WIDTH) and (y < self.roi_start_y + self.ROI_HEIGHT):
+                    frames[idx, y - self.roi_start_y, x - self.roi_start_x] += 1 if polarity else 0
                 
         self.logger.info(f'Accumulation complete.\n `frames` shape: %s', frames.shape)
             
         return frames
     
-    def save(self, frames: np.ndarray, folder: Path, save_as_jpg: Optional[bool] = False):
+    def save(self, frames: np.ndarray, folder: Path, save_as_img: Optional[bool] = False):
         """
         Saves accumulated event frames to a folder.
 
         Args:
             frames (np.ndarray): A numpy array of shape (len(triggers), ROI_HEIGHT, ROI_WIDTH) containing the accumulated frames.
             folder (str): Folder to save to.
-            save_as_jpg (Optional[bool], optional): Whether or not to save the frames as JPEG files. Defaults to False.
+            save_as_img (Optional[bool], optional): Whether or not to save the frames as image files. Defaults to False.
         """
         # Create the folder if it doesn't exist
         os.makedirs(folder, exist_ok=True)
         for idx, frame in enumerate(frames):
-            if save_as_jpg:
-                # Save the frames to a .jpg file
+            if save_as_img:
+                # Save the frames to a .png file
                 frame = (frame / np.max(frame) * 255).astype(np.uint8)
-                Image.fromarray(frame, mode='L').save(f'{folder}/frame_{idx}.jpg')
+                Image.fromarray(frame, mode='L').save(f'{folder}/frame_{idx}.png')
             else:
                 # Save the frames to a .npy file
                 np.save(f'{folder}/frame_{idx}.npy', frame)
