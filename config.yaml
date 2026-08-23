@@ -1,9 +1,9 @@
 log_level: INFO
 
 Run:
-  output_root: runs
+  output_root: data-collection-logs
   count_start: 1
-  count_end: 512
+  count_end: 110
   count_slots_per_frame: 1           # positive int, or 'auto' to fit the LUT budget
   count_blank_after_each_count: True # forces slots=1, doubles triggers per cycle
   number_size_px: 300

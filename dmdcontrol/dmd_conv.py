@@ -2,29 +2,29 @@ from __future__ import annotations
 
 import logging
 import os
+import gc
 import subprocess
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
 from functools import partial
 from rich.logging import RichHandler
 from math import ceil
+from contextlib import contextmanager
 
+import requests
 import numpy as np
 
-from dmdcontrol.camera import Camera
+from dmdcontrol.camera import Camera, contact_sheet
 from dmdcontrol.dmd import (
     DLPC900,
     load_from_config
 )
 from dmdcontrol.patterns import (
     PairedPatternEngine,
-    _decimal_number_display_masks,
-    generate_dot_frame
 )
 from dmdcontrol.runtime import (
-    build_count_static_sequence,
+    build_dynamic_fm_sequence,
     _start_pair_render_coordinator,
     load_pattern_sequence,
     prepare_pair_controllers,
@@ -41,9 +41,21 @@ DMD_CFG = CONFIG.get("DMD", {})
 DISPLAY_ID = ":0"
 
 
+@contextmanager
+def disable_gc():
+    # Check if GC is already disabled to preserve that state
+    was_enabled = gc.isenabled()
+    if was_enabled:
+        gc.disable()
+    try:
+        yield
+    finally:
+        if was_enabled:
+            gc.enable()
+
+
 def create_run_directory() -> Path:
-    root = WORKSPACE / str(RUN.get("output_root", "runs"))
-    run_dir = root / f"{datetime.now():%Y%m%d-%H%M%S}"
+    run_dir = WORKSPACE / f"{RUN.get("output_root", "data-collection-logs")}_{datetime.now():%Y%m%d-%H%M%S}"
     run_dir.mkdir(parents=True, exist_ok=False)
     return run_dir
 
@@ -61,19 +73,18 @@ def git_hash() -> str:
 
 def setup_logging(run_dir: Path) -> None:
     level = str(CONFIG.get("log_level", "INFO")).upper()
-    console_handler = RichHandler(
-        show_path=False, rich_tracebacks=True, markup=False,
-        omit_repeated_times=False, log_time_format="%H:%M:%S",
-        level=level,
-    )
-    console_handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))
+    # console_handler = RichHandler(
+    #     show_path=False, rich_tracebacks=True, markup=True,
+    #     omit_repeated_times=False, log_time_format="%H:%M:%S",
+    #     level=level,
+    # )
+    # console_handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))
     file_handler = logging.FileHandler(run_dir / "run.log")
     file_handler.setFormatter(logging.Formatter(
         "%(asctime)s %(levelname)-7s %(name)s: %(message)s", "%H:%M:%S"))
     root = logging.getLogger()
     root.setLevel(level)
-    root.handlers[:] = [console_handler, file_handler]
-    # logging.getLogger("OpenGL").setLevel(logging.INFO)  # third-party logs
+    root.handlers[:] = [file_handler]
 
 
 def wake_dmds(dlpc_a, dlpc_b) -> None:
@@ -121,32 +132,12 @@ def _cleanup_step(description: str, action) -> None:
         log.warning("Cleanup (%s): %s", description, exc)
 
 
-def generate_fm_k_sequence(length: int):
-    """Generate a sequence of (fm, k) pairs for testing."""
-    # Feature maps
-    fms = _decimal_number_display_masks(
-        numbers=range(length),
-        width=300,
-        height=300,
-        size_px=30
-    )
-
-    # Kernel
-    k = generate_dot_frame()
-
-    return fms, k
-
-
-def main() -> int:
-    # logging
-    run_dir = create_run_directory()
-    setup_logging(run_dir)
-    log.info("Run directory: %s", run_dir)
-    log.debug("Git: %s", git_hash())
-
-    # Generate the feature maps and kernels
-    trial_length = 100
-    fms, k = generate_fm_k_sequence(trial_length)
+def display_data(
+    fm: np.ndarray,
+    k: np.ndarray, 
+    kernel_pos: bool = True,
+    contact_sheet_path: Path | None = None,
+    ) -> tuple[np.ndarray, np.ndarray] | int:
 
     # dmds
     dmd_a, dmd_b = load_from_config()
@@ -156,8 +147,8 @@ def main() -> int:
     coordinator = None
 
     # Camera setup
-    camera = Camera(folder=run_dir)
-
+    camera = Camera()
+    
     try:
         # Get dmds up
         wake_dmds(dlpc_a, dlpc_b)
@@ -166,7 +157,7 @@ def main() -> int:
         validate_display()
 
         # A counts, B static dot, setup sequence
-        sequence = build_count_static_sequence()
+        sequence = build_dynamic_fm_sequence(fm, k, kernel_pos=kernel_pos)
         leader = sequence.startup_leader_metadata()
         cycles = int(RUN["cycles"])
         semantic_frames = cycles * len(sequence.frames)
@@ -206,11 +197,12 @@ def main() -> int:
         log.info("Displaying %d frames (%d leader + %d count)...",
                  leader["vsyncs"] + semantic_frames, leader["vsyncs"], semantic_frames)
         dropped_before = engine.dropped_frames  # stutters during DLPC setup are pre-display, ignore
-
+        
+        # with disable_gc():
         # Start display
-        expected_triggers = semantic_frames
+        expected_triggers = semantic_frames + leader["vsyncs"] + 8
         log.info("leader vsyncs: %d (%d triggers) semantic frames: %d expected triggers: %d",
-                 leader["vsyncs"], leader["trigger_count"], semantic_frames, expected_triggers)
+                leader["vsyncs"], leader["trigger_count"], semantic_frames, expected_triggers)
         log.info("starting display")
 
         coordinator.release_startup_leader()
@@ -219,30 +211,35 @@ def main() -> int:
 
         camera.flush()
         coordinator.release_semantic_frames()
-        triggers, events = camera.record(expected_triggers)
+        triggers, events = camera.record(expected_triggers+2)
 
         if not coordinator.wait_semantic_frames_done(timeout_s=8.0):
             raise RuntimeError("semantic playback did not finish")
         coordinator.join()
 
-        # if len(triggers) < expected_triggers:
-        #     log.warning("expected %d triggers, got %d, missing triggers", expected_triggers, len(triggers))
-
-        # save events and triggers
-        # np.save(run_dir / "triggers.npy", triggers)
-        # np.save(run_dir / "events.npy", events)
-
-        # # Process and save results
-        frames = camera.accumulate(triggers, events)
-        camera.save(frames, run_dir / 'frames', save_as_jpg=True)
-        camera.contact_sheet(frames, run_dir, (20,ceil(expected_triggers/20)))
-
         dropped = engine.dropped_frames - dropped_before
-        if dropped:
-            log.critical("%d frame(s) dropped during display: count/trigger alignment is off for this run", dropped)
         log.info("Displayed %d frames, %d dropped; count chunk complete (%d cycles)",
                  leader["vsyncs"] + semantic_frames, dropped, cycles)
-        return 0
+        if dropped:
+            log.critical("%d frame(s) dropped during display: count/trigger alignment is off for this run", dropped)
+            return 0
+        
+        # Process and save results
+        frames = camera.accumulate(triggers, events, semantic_frames//2)
+        
+        if contact_sheet_path is not None:
+            # camera.save(frames, contact_sheet_path.parent / 'frames', save_as_img=True)
+            contact_sheet(frames, contact_sheet_path, (20,ceil(frames.shape[0]/20)))
+            
+            requests.put(
+                'https://ntfy.sh/eodla',
+                data=open(contact_sheet_path, 'rb'),
+                headers={'Filename': contact_sheet_path.name, 'Title': 'Contact Sheet'},
+            )
+        
+        fm_pos = frames[:frames.shape[0]//2]
+        fm_neg = frames[frames.shape[0]//2:]
+        return fm_pos, fm_neg
     except Exception as exc:
         log.exception("Display chunk failed: %s", exc)
         return 1
@@ -260,8 +257,58 @@ def main() -> int:
         if engine is not None:
             _cleanup_step("engine cleanup", engine.cleanup)
 
-            _cleanup_step(f"DMD {name} close", dlpc_a.close)
-            _cleanup_step(f"DMD {name} close", dlpc_b.close)
 
-if __name__ == "__main__":
-    sys.exit(main())
+
+
+
+def dmd_conv(fm: np.ndarray, k: np.ndarray, save_sheet: bool, run_dir: Path | None) -> np.ndarray | int:
+    # logging
+    if run_dir is None:
+        run_dir = create_run_directory()
+    setup_logging(run_dir)
+    log.info("Run directory: %s", run_dir)
+    log.debug("Git: %s", git_hash())
+    
+    # Positive Kernel
+    while True:
+        ret = display_data(fm, k, True, run_dir / Path("contact_sheet_loop_0.jpg") if save_sheet else None)
+        if isinstance(ret, tuple):
+            k_pos_fm_pos, k_pos_fm_neg = ret
+            break
+        elif ret == 0:
+            log.warning("Retrying...")
+        else:
+            return ret
+            
+    # Negative Kernel
+    while True:
+        ret = display_data(fm, k, False, run_dir / Path("contact_sheet_loop_1.jpg") if save_sheet else None)
+        if isinstance(ret, tuple):
+            k_neg_fm_pos, k_neg_fm_neg = ret
+            break
+        elif ret == 0:
+            log.warning("Retrying...")
+        else:
+            return ret
+
+    k_pos_fm_pos = (k_pos_fm_pos - k_pos_fm_pos.min()) / (k_pos_fm_pos.max() - k_pos_fm_pos.min())
+    k_neg_fm_pos = (k_neg_fm_pos - k_neg_fm_pos.min()) / (k_neg_fm_pos.max() - k_neg_fm_pos.min())
+    k_pos_fm_neg = (k_pos_fm_neg - k_pos_fm_neg.min()) / (k_pos_fm_neg.max() - k_pos_fm_neg.min())
+    k_neg_fm_neg = (k_neg_fm_neg - k_neg_fm_neg.min()) / (k_neg_fm_neg.max() - k_neg_fm_neg.min())
+    gamma = 1.5
+    conv = k_pos_fm_pos**gamma - k_neg_fm_pos**gamma - k_pos_fm_neg**gamma + k_neg_fm_neg**gamma
+    
+    if save_sheet:
+        contact_sheet(
+            frames=conv, 
+            save_path=run_dir / Path('contact_sheet_conv.jpg'), 
+            grid_size=(20,ceil(conv.shape[0]/20)),
+            )
+                    
+        requests.put(
+            'https://ntfy.sh/eodla',
+            data=open(run_dir / Path('contact_sheet_conv.jpg'), 'rb'),
+            headers={'Filename': 'contact_sheet_conv.jpg', 'Title': 'Contact Sheet'},
+        )
+
+    return conv

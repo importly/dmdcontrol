@@ -1,11 +1,15 @@
 import os
 import logging
+import time
 from typing import Optional, Tuple
 from pathlib import Path
 import numpy as np
 from PIL import Image
 import dv_processing as dv
 from dmdcontrol.utils import Font, CONFIG
+
+ROI_WIDTH = CONFIG.get('Camera', {}).get('ROI', {}).get('width', CONFIG.get('Camera', {}).get('width', 346))
+ROI_HEIGHT = CONFIG.get('Camera', {}).get('ROI', {}).get('height', CONFIG.get('Camera', {}).get('height', 260))
 
 class BackgroundActivityNoiseFilter:
     """
@@ -118,22 +122,14 @@ class Camera:
         self.roi_start_y = CONFIG.get('Camera', {}).get('ROI', {}).get('start_y', 0)
         self.WIDTH = CONFIG.get('Camera', {}).get('width', 346)
         self.HEIGHT = CONFIG.get('Camera', {}).get('height', 260)
-        self.ROI_WIDTH = CONFIG.get('Camera', {}).get('ROI', {}).get('width', CONFIG.get('Camera', {}).get('width', 346))
-        self.ROI_HEIGHT = CONFIG.get('Camera', {}).get('ROI', {}).get('height', CONFIG.get('Camera', {}).get('height', 260))
+        self.roi_end_x = self.roi_start_x + ROI_WIDTH
+        self.roi_end_y = self.roi_start_y + ROI_HEIGHT
         # Error checking for ROI exceeding camera resolution
-        if (self.roi_start_x + self.ROI_WIDTH > self.WIDTH) or (self.roi_start_y + self.ROI_HEIGHT > self.HEIGHT):
-            self.logger.error(f"ROI exceeds camera resolution. ROI: ({self.roi_start_x}, {self.roi_start_y}, {self.ROI_WIDTH}, {self.ROI_HEIGHT}), Camera Resolution: ({self.WIDTH}, {self.HEIGHT})")
-            raise ValueError(f"ROI exceeds camera resolution. ROI: ({self.roi_start_x}, {self.roi_start_y}, {self.ROI_WIDTH}, {self.ROI_HEIGHT}), Camera Resolution: ({self.WIDTH}, {self.HEIGHT})")
-        # self.camera.setCropArea(
-        #     (
-        #         self.roi_start_x,
-        #         self.roi_start_y,
-        #         self.ROI_WIDTH,
-        #         self.ROI_HEIGHT
-        #     )
-        # )
+        if (self.roi_start_x + ROI_WIDTH > self.WIDTH) or (self.roi_start_y + ROI_HEIGHT > self.HEIGHT):
+            self.logger.error(f"ROI exceeds camera resolution. ROI: ({self.roi_start_x}, {self.roi_start_y}, {ROI_WIDTH}, {ROI_HEIGHT}), Camera Resolution: ({self.WIDTH}, {self.HEIGHT})")
+            raise ValueError(f"ROI exceeds camera resolution. ROI: ({self.roi_start_x}, {self.roi_start_y}, {ROI_WIDTH}, {ROI_HEIGHT}), Camera Resolution: ({self.WIDTH}, {self.HEIGHT})")
         roi = self.camera.getCropArea()
-        self.logger.info(f'ROI set. \n {Font.BOLD}start_x:{Font.ENDC} %s, {Font.BOLD}width:{Font.ENDC} %s\n {Font.BOLD} start_y:{Font.ENDC} %s, {Font.BOLD}height:{Font.ENDC} %s{Font.ENDC}', self.roi_start_x, self.ROI_WIDTH, self.roi_start_y, self.ROI_HEIGHT)
+        self.logger.info(f'ROI set. \n {Font.BOLD}start_x:{Font.ENDC} %s, {Font.BOLD}width:{Font.ENDC} %s\n {Font.BOLD} start_y:{Font.ENDC} %s, {Font.BOLD}height:{Font.ENDC} %s{Font.ENDC}', self.roi_start_x, ROI_WIDTH, self.roi_start_y, ROI_HEIGHT)
         
         # Trigger
         self.camera.setDetectorRisingEdges(CONFIG.get('Camera', {}).get('Trigger', {}).get('rising_edge', True))
@@ -170,7 +166,6 @@ class Camera:
         if self.camera.isTriggerStreamAvailable():
             _ = self.camera.getNextTriggerBatch()
             
-                    
     def record(self, trigger_count: int) -> tuple:
         """Record event data for a set amount of triggers
 
@@ -183,7 +178,7 @@ class Camera:
             
         triggers = np.zeros((trigger_count,))
         trigger_index = 0
-        events = np.zeros((1,), dtype=[('timestamp', '<i8'), ('x', '<i2'), ('y', '<i2'), ('polarity', 'i1')])
+        event_batches = []
         
         self.logger.info('Recording %s triggers...', trigger_count)
             
@@ -193,9 +188,9 @@ class Camera:
             event_batch = self.camera.getNextEventBatch()
             trigger_batch = self.camera.getNextTriggerBatch()
             
-            # Check if there is valid data and if so, concatenate it
+            # Check if there is valid data and if so, append it
             if event_batch is not None:
-                events = np.concatenate((events, event_batch.numpy()))
+                event_batches.append(event_batch.numpy())
                 
             if trigger_batch is not None:
                 while len(trigger_batch) > 0:
@@ -205,13 +200,23 @@ class Camera:
                         self.logger.info('Trigger type: %s', trigger.type) 
                         triggers[trigger_index] = trigger.timestamp
                         trigger_index += 1
+            
+            time.sleep(0.0001)
         
-        # Remove the initial zero from the triggers and events arrays
-        events = events[1:]
+        # Get potentially remaining data after the loop ends
+        while True:
+            event_batch = self.camera.getNextEventBatch()
+            if event_batch is not None:
+                event_batches.append(event_batch.numpy())
+                if event_batches[-1][-1]['timestamp'] > triggers[-1] + self.window_us:
+                    break
+        
+        # Concatenate all batches at once
+        events = np.concatenate(event_batches, dtype=[('timestamp', '<i8'), ('x', '<i2'), ('y', '<i2'), ('polarity', 'i1')])
         self.logger.info(f'Recording complete.\n {Font.BOLD}Triggers:{Font.ENDC} %s\n {Font.BOLD}Events:{Font.ENDC} %s', len(triggers), len(events))
         return (triggers, events)
     
-    def accumulate(self, triggers: np.ndarray, events: np.ndarray) -> np.ndarray:
+    def accumulate(self, triggers: np.ndarray, events: np.ndarray, frame_count: int) -> np.ndarray:
         """Accumulate the recorded data into frames.
 
         Args:
@@ -230,31 +235,80 @@ class Camera:
         # Filter events
         events = self.filter.accept(events) if self.filter is not None else events
         
+        index_test = np.zeros((13,), dtype=np.uint32)
+        for idx in range(13):
+            index_test[idx] = self._accumulate_total(events, triggers[idx]) if self._accumulate_total(events, triggers[idx]) is not None else 0 # pyright: ignore
+        start_diff = np.gradient(index_test)
+        first_frame_idx = np.argmax(start_diff[8:11]) + 8 + 1
+        
         # Slice up data between timestamps and accumulate
-        frames = np.zeros((len(triggers), self.ROI_HEIGHT, self.ROI_WIDTH))
-        for idx in range(len(triggers)):
-            # Clip to window size and offset
-            event_slice = events[
-                (events[:]['timestamp'] >= triggers[idx] + self.offset_us) &
-                (events[:]['timestamp'] < triggers[idx] + self.offset_us + self.window_us) 
-                # (events[:]['timestamp'] < triggers[idx + 1]) if idx + 1 < len(triggers) else False
-            ]
-            self.logger.debug('Accumulating frame %s with %s events', idx, len(event_slice))
+        frames = np.zeros((frame_count, ROI_HEIGHT, ROI_WIDTH), dtype=np.uint32)
+        for idx in range(frame_count):
+            frame = self._accumulate_frame(events, triggers[2*idx+first_frame_idx])
             
-            if len(event_slice) == 0:
-                self.logger.warning('No events found for frame %s. Frame will be empty.', idx)
-                self.logger.info('idx: %s, trigger ts - next trigger ts: %s', idx, triggers[idx+1] - triggers[idx] if idx + 1 < len(triggers) else 'N/A')
-                continue
+            if frame is not None:
+                frames[idx] = np.histogram2d(
+                    frame[1],
+                    frame[0],
+                    bins=(ROI_HEIGHT, ROI_WIDTH),
+                    weights=frame[2],
+                )[0].astype(np.uint32)
+            else:
+                self.logger.warning('No events found for frame %s. Frame will be empty.', 2*idx+first_frame_idx)
             
-            # Accumulate the events into a frame
-            for event in event_slice:
-                x, y, polarity = event['x'], event['y'], event['polarity']
-                if (x >= self.roi_start_x) and (y >= self.roi_start_y) and (x < self.roi_start_x + self.ROI_WIDTH) and (y < self.roi_start_y + self.ROI_HEIGHT):
-                    frames[idx, y - self.roi_start_y, x - self.roi_start_x] += 1 if polarity else 0
-                
         self.logger.info(f'Accumulation complete.\n `frames` shape: %s', frames.shape)
             
         return frames
+    
+    def _accumulate_frame(self, events: np.ndarray, trigger: int) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+            start_time = trigger + self.offset_us
+            end_time = start_time + self.window_us
+            
+            # Clip to window size and ROI
+            event_slice = events[
+                (events[:]['timestamp'] >= start_time) &
+                (events[:]['timestamp'] < end_time) 
+            ]
+            event_slice = event_slice[
+                (event_slice['x'] >= self.roi_start_x) & (event_slice['y'] >= self.roi_start_y) &
+                (event_slice['x'] < self.roi_end_x) & (event_slice['y'] < self.roi_end_y)
+            ]
+            
+            # Accumulate events into frames
+            if len(event_slice) > 0:
+                # Offset the event coordinates to the ROI
+                event_slice['x'] -= self.roi_start_x
+                event_slice['y'] -= self.roi_start_y
+                
+                # Get locs of positive events
+                locs = np.where(event_slice['polarity'], 1, 0).astype(np.uint32)
+                return event_slice['x'], event_slice['y'], locs
+                
+            else:
+                return None
+            
+    def _accumulate_total(self, events: np.ndarray, trigger: int) -> np.uint32 | None:
+            start_time = trigger + self.offset_us
+            end_time = start_time + self.window_us
+            
+            # Clip to window size and ROI
+            event_slice = events[
+                (events[:]['timestamp'] >= start_time) &
+                (events[:]['timestamp'] < end_time) 
+            ]
+            event_slice = event_slice[
+                (event_slice['x'] >= self.roi_start_x) & (event_slice['y'] >= self.roi_start_y) &
+                (event_slice['x'] < self.roi_end_x) & (event_slice['y'] < self.roi_end_y)
+            ]
+            
+            # Accumulate events into frames
+            if len(event_slice) > 0:
+                # Get locs of positive events
+                locs = np.where(event_slice['polarity'], 1, 0).astype(np.uint32)
+                return np.sum(locs)
+                
+            else:
+                return None
     
     def save(self, frames: np.ndarray, folder: Path, save_as_img: Optional[bool] = False):
         """
@@ -278,34 +332,33 @@ class Camera:
         
         self.logger.info('Saved %s frames to %s', len(frames), folder)
         
-    def contact_sheet(
-        self, 
-        frames: np.ndarray, 
-        save_path: Path = Path('./contact_sheet.jpg'), 
-        grid_size: Tuple[int, int] = (20, 10),
-    ):
-        """
-        Creates a contact sheet of the accumulated event frames and saves it to a file.
+        
+def contact_sheet(
+    frames: np.ndarray, 
+    save_path: Path = Path('./contact_sheet.jpg'), 
+    grid_size: Tuple[int, int] = (20, 10),
+):
+    """
+    Creates a contact sheet of the accumulated event frames and saves it to a file.
 
-        Args:
-            frames (np.ndarray): A numpy array of shape (len(triggers), ROI_HEIGHT, ROI_WIDTH) containing the accumulated frames.
-            folder (Path): Folder to save the contact sheet to.
-            grid_size (Tuple[int, int], optional): Size of the grid for the contact sheet. Defaults to (20, 10).
-            file_name (Path, optional): Name of the file to save the contact sheet to. Defaults to 'contact_sheet.jpg'.
-        """
-        # Create a blank canvas for the contact sheet
-        contact_sheet = Image.new('L', (self.ROI_WIDTH * grid_size[0], self.ROI_HEIGHT * grid_size[1]))
-        
-        for idx, frame in enumerate(frames):
-            if idx >= grid_size[0] * grid_size[1]:
-                break
-            # Normalize and convert frame to image
-            frame_img = Image.fromarray((frame / np.max(frame) * 255).astype(np.uint8), mode='L')
-            x_offset = (idx % grid_size[0]) * self.ROI_WIDTH
-            y_offset = (idx // grid_size[0]) * self.ROI_HEIGHT
-            contact_sheet.paste(frame_img, (x_offset, y_offset))
-        
-        # Save the contact sheet
-        contact_sheet.save(save_path)
-        self.logger.info('Saved contact sheet to %s', save_path)
-        
+    Args:
+        frames (np.ndarray): A numpy array of shape (len(triggers), ROI_HEIGHT, ROI_WIDTH) containing the accumulated frames.
+        folder (Path): Folder to save the contact sheet to.
+        grid_size (Tuple[int, int], optional): Size of the grid for the contact sheet. Defaults to (20, 10).
+        file_name (Path, optional): Name of the file to save the contact sheet to. Defaults to 'contact_sheet.jpg'.
+    """
+    # Create a blank canvas for the contact sheet
+    contact_sheet = Image.new('L', (ROI_WIDTH * grid_size[0], ROI_HEIGHT * grid_size[1]))
+    
+    for idx, frame in enumerate(frames):
+        if idx >= grid_size[0] * grid_size[1]:
+            break
+        # Normalize and convert frame to image
+        frame_img = Image.fromarray(((frame - np.min(frame)) / (np.max(frame) - np.min(frame)) * 255).astype(np.uint8), mode='L')
+        x_offset = (idx % grid_size[0]) * ROI_WIDTH
+        y_offset = (idx // grid_size[0]) * ROI_HEIGHT
+        contact_sheet.paste(frame_img, (x_offset, y_offset))
+    
+    # Save the contact sheet
+    contact_sheet.save(save_path)
+

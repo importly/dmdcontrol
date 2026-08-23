@@ -379,6 +379,7 @@ class FrameSequenceProvider(PairFrameProvider):
 def build_dynamic_fm_sequence(
     fm: np.ndarray,
     k: np.ndarray,
+    kernel_pos: bool = True,
 ) -> PairedDisplaySequence:
     run = CONFIG.get('Run', {})
     dmd = CONFIG.get('DMD', {})
@@ -396,7 +397,7 @@ def build_dynamic_fm_sequence(
     frame_b = pack_static_frames(
         data = k,
         batch_size = len(frames_a),
-        pos = True,
+        pos = kernel_pos,
     )
     # Match A's already-resolved exposure instead of filling B to the
     # nominal VSYNC budget. The latter is fragile when the controller's

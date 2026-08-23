@@ -12,4 +12,6 @@ from .paired import (
     generate_dot_frame,
     as_frame_pair,
     _decimal_number_display_masks,
+    pos_img,
+    neg_img,
 )

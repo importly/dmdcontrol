@@ -365,7 +365,8 @@ def pos_img(a: np.ndarray) -> np.ndarray:
         pass
     new_matrix += 1
     new_matrix /= 2
-    # new_matrix *= 255
+    new_matrix[new_matrix < 1] = 0
+    new_matrix *= 255
     return new_matrix.astype(np.uint8)
 
 
@@ -383,7 +384,8 @@ def neg_img(a: np.ndarray) -> np.ndarray:
     new_matrix *= -1
     new_matrix += 1
     new_matrix /= 2
-    # tmp = new_matrix * 255
+    new_matrix[new_matrix < 1] = 0
+    new_matrix *= 255
     return new_matrix.astype(np.uint8)
 
 
@@ -394,28 +396,23 @@ def pack_sequence_frames(data: np.ndarray) -> np.ndarray:
     Args:
         data (np.ndarray): A 3D numpy array of shape (batch_size, height, width) containing binary masks.
     '''
-    # Check data size (should be batchx128x128)
-    # if data.shape[1:] != (128, 128):
-    #     logger.warning('Input shape %s, expected (batch_size, 128, 128)', data.shape)
+    # Check data size (should be batchx300x300)
+    if data.shape[1:] != (300, 300):
+        logger.warning('Input shape %s, expected (batch_size, 300, 300)', data.shape)
     
-    # Pad up to 148x148 (20px padding)
-    # data = np.pad(data, ((0, 0), ((148-data.shape[1])//2, (148-data.shape[1])//2), ((148-data.shape[2])//2, (148-data.shape[2])//2)), mode='constant', constant_values=1)
-    
-    frames = np.zeros((data.shape[0] * 4, CONFIG.get('DMD', {}).get('height', 1080), CONFIG.get('DMD', {}).get('width', 1920), 3), dtype=np.uint8)
-    offset_h = (CONFIG.get('DMD', {}).get('height', 1080) - data.shape[1]) // 2
-    offset_w = (CONFIG.get('DMD', {}).get('width', 1920) - data.shape[2]) // 2
+    data_len = data.shape[0] * 2
+    frames = np.zeros((data_len * 2, DMD_HEIGHT, DMD_WIDTH, 3), dtype=np.uint8)
+    offset_h = (DMD_HEIGHT - data.shape[1]) // 2
+    offset_w = (DMD_WIDTH - data.shape[2]) // 2
     for i, fm in enumerate(data):
-        # Positive 
+        neg_mask = neg_img(fm)
         pos_mask = pos_img(fm)
-        frames[4*i, offset_h:offset_h+data.shape[1], offset_w:offset_w+data.shape[2], 1] = pos_mask
-        # frames[4*i, :, :, 1] = pos_mask
+        
+        # Positive 
+        frames[2*i, offset_h:offset_h+data.shape[1], offset_w:offset_w+data.shape[2], 1] = pos_mask #neg_mask
         
         # Negative
-        neg_mask = neg_img(fm)
-        # frames[4*i, 300:770, 650:1270, 1] = neg_mask[300:770,650:1270]
-        # frames[4*i + 2, 300:770, 650:1270, 1] = neg_mask[300:770,650:1270]
-        frames[4*i + 2, offset_h:offset_h+data.shape[1], offset_w:offset_w+data.shape[2], 1] = pos_mask #
-        # frames[4*i + 2, :, :, 1] = pos_mask #
+        frames[2*i + data_len, offset_h:offset_h+data.shape[1], offset_w:offset_w+data.shape[2], 1] = neg_mask #pos_mask
         
     frames = np.ascontiguousarray(frames)
     return frames
@@ -429,14 +426,19 @@ def pack_static_frames(data: np.ndarray, batch_size: int, pos: bool) -> np.ndarr
         batch_size (int): The number of frames to pack.
         pos (bool): If True, pack the positive half of the masks; if False, pack the negative half.
     '''
-    if len(data.shape) != 2:
-        raise ValueError("`data` must be a 2D numpy array")
-
-    frames = pos_img(data) if pos else neg_img(data)
-    frames = np.expand_dims(data, axis=(-1))
-    frames = np.tile(frames, (1, 1, 3))
-    frames = np.ascontiguousarray(frames)
-    return frames
+    # Check data size (should be batchx300x300)
+    if data.shape != (300, 300):
+        logger.warning('Input shape %s, expected (batch_size, 300, 300)', data.shape)
+    
+    offset_h = (DMD_HEIGHT - data.shape[0]) // 2
+    offset_w = (DMD_WIDTH - data.shape[1]) // 2
+    
+    dmd_frame = np.zeros((DMD_HEIGHT, DMD_WIDTH), dtype=np.uint8)
+    dmd_frame[offset_h:offset_h+data.shape[0], offset_w:offset_w+data.shape[1]] = pos_img(data) if pos else neg_img(data)
+    dmd_frame = np.expand_dims(dmd_frame, axis=(-1))
+    dmd_frame = np.tile(dmd_frame, (1, 1, 3))  # Convert to RGB
+    dmd_frame = np.ascontiguousarray(dmd_frame)
+    return dmd_frame
 
 
 def count_lut_entries_per_frame(
@@ -542,13 +544,13 @@ class PairedPatternEngine:
             RuntimeError: Raised if context setup fails.
         """
         # Set width
-        self.half_width = int(CONFIG.get('DMD', {}).get('width', 1920))
+        self.half_width = int(DMD_WIDTH)
         self.width = self.half_width * 2
         if self.width <= 0 or self.width % 2:
             raise ValueError('Paired width must be a positive even number')
         
         # Set height
-        self.height = int(CONFIG.get('DMD', {}).get('height', 1080))
+        self.height = int(DMD_HEIGHT)
         if self.height <= 0:
             raise ValueError('Paired height must be a positive number')
         
