@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from functools import partial
 from rich.logging import RichHandler
+from logging.handlers import RotatingFileHandler
 from math import ceil
 from contextlib import contextmanager
 
@@ -79,7 +80,7 @@ def setup_logging(run_dir: Path) -> None:
     #     level=level,
     # )
     # console_handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))
-    file_handler = logging.FileHandler(run_dir / "run.log")
+    file_handler = RotatingFileHandler(run_dir / "run.log", maxBytes=1024*1024, backupCount=5)
     file_handler.setFormatter(logging.Formatter(
         "%(asctime)s %(levelname)-7s %(name)s: %(message)s", "%H:%M:%S"))
     root = logging.getLogger()
@@ -217,6 +218,9 @@ def display_data(
             raise RuntimeError("semantic playback did not finish")
         coordinator.join()
 
+        camera.camera.setEventsRunning(False)
+        camera.camera.setDetectorRunning(False)
+        camera.flush()
         dropped = engine.dropped_frames - dropped_before
         log.info("Displayed %d frames, %d dropped; count chunk complete (%d cycles)",
                  leader["vsyncs"] + semantic_frames, dropped, cycles)
@@ -226,6 +230,8 @@ def display_data(
         
         # Process and save results
         frames = camera.accumulate(triggers, events, semantic_frames//2)
+        
+        del camera
         
         if contact_sheet_path is not None:
             # camera.save(frames, contact_sheet_path.parent / 'frames', save_as_img=True)

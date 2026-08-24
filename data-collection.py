@@ -11,9 +11,10 @@ from dmdcontrol.utils import CONFIG, WORKSPACE
 RUN = CONFIG.get("Run", {})
 
 ## error alert hook
-def global_error_handler(exctype, value):
+def global_error_handler(exc_type, exc_value, exc_traceback):
     laser.disable()
-    requests.post("https://ntfy.sh/eodla", data=f"Uncaught exception: {exctype.__name__}: {value}".encode(encoding='utf-8'))
+    h5py.File.close(data_file)
+    requests.post("https://ntfy.sh/eodla", data=f"Uncaught exception: {exc_type.__name__}: {exc_value}".encode(encoding='utf-8'))
 
 # Register the function as the global exception handler
 sys.excepthook = global_error_handler

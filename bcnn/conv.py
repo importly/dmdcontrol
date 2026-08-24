@@ -102,7 +102,7 @@ class Conv2dEODLA(Function):
                         dmd_conv(
                             k=temp_kernel[out_ch, in_ch], 
                             fm=temp_fm[:, in_ch],
-                            save_sheet=True if np.random.randint(0, 1000) < 10 else False,
+                            save_sheet=True if np.random.randint(0, 1000) < 100 else False,
                             run_dir=run_dir,
                         )
                     ).float().to(weight.device)
