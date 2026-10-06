@@ -1,5 +1,9 @@
 # dmdcontrol
 
+This is the optical accelerator project for Binary Convolutional Neural Networks. This controls both digital micromirrors and event camera for inference of some convolutional layer in a larger convolutional based model.
+
+---
+
 Pair-only DLPC900 1080p Video Pattern Mode runtime. It drives labeled DMDs A and B over USB HID, presents one
 3840x1080 DisplayPort source spanning both 1920x1080 devices, and optionally coordinates that paired output with a
 DVXplorer camera for sync checks and captures.
