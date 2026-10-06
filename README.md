@@ -2,6 +2,8 @@
 
 This is the optical accelerator project for Binary Convolutional Neural Networks. This controls both digital micromirrors and event camera for inference of some convolutional layer in a larger convolutional based model.
 
+Below is AI-Assisted documentation.
+
 ---
 
 Pair-only DLPC900 1080p Video Pattern Mode runtime. It drives labeled DMDs A and B over USB HID, presents one
