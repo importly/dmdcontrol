@@ -1,0 +1,19 @@
+[project]
+name = "evcam"
+version = "0.1.0"
+description = "Makes the OpenEB (Prophesee Metavision) build on the rig importable, plus open_camera()"
+# Only Python 3.14 actually works (that's what ~/openeb/build-py314 is built for); evcam raises a clear
+# ImportError otherwise. Kept loose so it doesn't fight dmdcontrol's own requires-python.
+requires-python = ">=3.13"
+# metavision_core.event_io imports numpy and h5py
+dependencies = [
+    "h5py",
+    "numpy",
+]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["evcam"]
