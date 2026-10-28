@@ -20,7 +20,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import evcam  # must come before any metavision import
+import evcam
 import numpy as np
 from metavision_core.event_io import EventsIterator
 from PIL import Image, ImageDraw, ImageFont
@@ -52,7 +52,6 @@ def cmd_info(device, args):
 
 
 def cmd_rate(device, args):
-    # 100 ms slices, summed and printed every 10 slices (1 s)
     it = EventsIterator.from_device(device, delta_t=100_000, max_duration=int(args.seconds * 1e6))
     on = off = 0
     for i, evs in enumerate(it, 1):
@@ -66,7 +65,7 @@ def cmd_rate(device, args):
 
 
 def render(evs, height, width):
-    img = np.full((height, width), 128, np.uint8)  # gray = no event, white = ON, black = OFF
+    img = np.full((height, width), 128, np.uint8)
     on = evs["p"] == 1
     img[evs["y"][on], evs["x"][on]] = 255
     img[evs["y"][~on], evs["x"][~on]] = 0
@@ -76,7 +75,7 @@ def render(evs, height, width):
 def cmd_snap(device, args):
     it = EventsIterator.from_device(device, delta_t=int(args.ms * 1000))
     height, width = it.get_size()
-    warmup = max(1, int(500 / args.ms))  # skip the first ~0.5 s while the sensor settles
+    warmup = max(1, int(500 / args.ms))
     for i, evs in enumerate(it):
         if i < warmup:
             continue
@@ -106,7 +105,7 @@ def cmd_stream(device, args):
         height, width = it.get_size()
         start = time.time()
         for i, evs in enumerate(it):
-            if args.input:  # files decode faster than real time, so pace replay to the wall clock
+            if args.input:
                 time.sleep(max(0.0, start + i / args.fps - time.time()))
             frame = render(evs, height, width)
             label = f"{evs.size * args.fps / 1e6:.2f} Mev/s"
@@ -139,7 +138,7 @@ def cmd_stream(device, args):
                     header = b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n"
                     self.wfile.write(header % len(jpg) + jpg + b"\r\n")
             except (BrokenPipeError, ConnectionResetError):
-                pass  # browser tab closed
+                pass
 
         def log_message(self, *_):
             pass

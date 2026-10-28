@@ -5,7 +5,6 @@ description = "DLPC900 DMD control and camera sync-check tooling."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    # Prophesee camera (prophesee/README.md); Linux-only because the OpenEB build exists only on the rig
     "evcam; sys_platform == 'linux'",
     "glfw",
     "numpy",

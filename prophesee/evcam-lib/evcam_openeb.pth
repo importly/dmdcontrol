@@ -1,0 +1,1 @@
+import os, sys; _b = os.path.expanduser("~/openeb/build-py314"); sys.path += [p for p in (_b + "/py3", os.path.expanduser("~/openeb/sdk/modules/core/python/pypkg")) if p not in sys.path]; os.environ.setdefault("MV_HAL_PLUGIN_PATH", _b + "/lib/metavision/hal/plugins"); os.environ.setdefault("HDF5_PLUGIN_PATH", _b + "/lib/hdf5/plugin"); del _b

@@ -9,8 +9,10 @@ uv sync
 uv run prophesee/bench.py info   # all commands: uv run prophesee/bench.py --help
 ```
 
+Other uv projects on the rig (Python 3.14): `uv add --editable ~/dmdcontrol/prophesee/evcam-lib`.
+
 ```python
-import evcam  # before any metavision import
+import evcam
 from metavision_core.event_io import EventsIterator
 
 for evs in EventsIterator.from_device(evcam.open_camera(), delta_t=10_000):
