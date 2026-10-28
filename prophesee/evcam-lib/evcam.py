@@ -32,7 +32,7 @@ from metavision_core.event_io.raw_reader import initiate_device  # noqa: E402
 
 
 @contextlib.contextmanager
-def _quiet_stderr():
+def quiet_stderr():
     # The HAL's legacy FX3 probe prints harmless LIBUSB_ERROR_PIPE / "FPGA is not properly configured"
     # lines from C++ on every camera open, so silence fd 2 while the device is being discovered.
     saved, devnull = os.dup(2), os.open(os.devnull, os.O_WRONLY)
@@ -48,7 +48,7 @@ def _quiet_stderr():
 def open_camera(path=""):
     """Open the live camera (path="") or a .raw recording and return the HAL device."""
     try:
-        with _quiet_stderr():
+        with quiet_stderr():
             device = initiate_device(path)
     except OSError:
         raise SystemExit(f"could not open {path or 'the camera'}: not plugged in, or another script is using it")
