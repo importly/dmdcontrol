@@ -6,17 +6,18 @@ Gen4.1 event camera (1280 x 720) used through OpenEB, Prophesee's open-source SD
 ```bash
 bash prophesee/setup_openeb.sh   # once per machine, ~5 min
 uv sync
-uv run prophesee/bench.py info   # all commands: uv run prophesee/bench.py --help
 ```
 
 Other uv projects on the rig (Python 3.14): `uv add --editable ~/dmdcontrol/prophesee/evcam-lib`.
 
 ```python
 import evcam
-from metavision_core.event_io import EventsIterator
+from metavision_sdk_stream import Camera, CameraStreamSlicer, SliceCondition
 
-for evs in EventsIterator.from_device(evcam.open_camera(), delta_t=10_000):
-    ...  # evs fields: x, y, p, t (us)
+with evcam.quiet_stderr():
+    camera = Camera.from_first_available()
+for s in CameraStreamSlicer(camera.move(), slice_condition=SliceCondition.make_n_us(10_000)):
+    ...  # s.events fields: x, y, p, t (us)
 ```
 
 - Power up DC first, then USB. Don't press RST!!

@@ -1,7 +1,7 @@
 [project]
 name = "evcam"
 version = "0.1.0"
-description = "Makes the OpenEB (Prophesee Metavision) build on the rig importable, plus open_camera()"
+description = "Makes the OpenEB (Prophesee Metavision) build on the rig importable"
 requires-python = ">=3.13"
 dependencies = [
     "h5py",
@@ -13,7 +13,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-only-include = ["evcam.py"]
+only-include = [
+    "evcam.py",
+    "metavision_hal-stubs",
+    "metavision_sdk_base-stubs",
+    "metavision_sdk_core-stubs",
+    "metavision_sdk_stream-stubs",
+    "metavision_sdk_ui-stubs",
+]
 
 [tool.hatch.build.targets.wheel.force-include]
 "evcam_openeb.pth" = "evcam_openeb.pth"
