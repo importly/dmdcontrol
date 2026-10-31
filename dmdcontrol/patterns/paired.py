@@ -272,14 +272,14 @@ class StaticPairFrameProvider(PairFrameProvider):
     dot_radius: int = 40
 
     def __post_init__(self) -> None:
-        self._frame_a = _static_frame(
+        self._frame_a = generate_static_frame(
             self.mode_a,
             self.width,
             self.height,
             "A",
             dot_radius=self.dot_radius,
         )
-        self._frame_b = _static_frame(
+        self._frame_b = generate_static_frame(
             self.mode_b,
             self.width,
             self.height,
@@ -625,6 +625,10 @@ class PairedPatternEngine:
         Releases the context of the window from the calling thread.
         """
         glfw.make_context_current(None) # pyright: ignore
+
+    def reset_cadence(self) -> None:
+        """Reset cadence tracking so phase transitions do not flag false stutters."""
+        self.last_frame_time = 0.0
 
     def display_pair(self, frame_a: RGBFrame, frame_b: RGBFrame) -> None:
         frame_start = time.perf_counter()

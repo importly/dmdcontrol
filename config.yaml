@@ -17,7 +17,7 @@ Run:
   time_max_s: 600
 
 Camera:
-  ROI:
+  ROI: # sensor silicon level; (0,0,1280,720) = full frame
     start_x: 0
     start_y: 0
     width: 1280

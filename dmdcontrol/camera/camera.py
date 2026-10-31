@@ -465,26 +465,47 @@ class CameraProphsee(CameraDAVIS):
 
     def flush(self, flush_count: int = 32):
         """Flush stale slices from the stream buffer."""
-        for _ in range(flush_count):
+        for _ in range(min(flush_count, 5)):
             try:
                 next(self._slicer_iter)
             except StopIteration:
                 break
 
-    def record(self, trigger_count: int) -> tuple:
-        """Record event data for a set amount of triggers."""
+    def record(self, trigger_count: int, on_complete: Any = None) -> tuple:
+        """Record event data for a set amount of triggers.
+
+        Args:
+            trigger_count: Target number of triggers to record.
+            on_complete: Optional callback invoked immediately when all triggers
+                have been recorded, before large event concatenation.
+        """
+        import gc
         events, triggers = [], []
         self.logger.info('Recording %s triggers from Prophesee camera...', trigger_count)
 
-        for s in self._slicer_iter:
-            events.append(s.events.copy())
-            if len(s.triggers) > 0:
-                matching = s.triggers["t"][s.triggers["p"] == 1]
-                triggers.extend(matching.tolist())
-            if len(triggers) >= trigger_count:
-                break
+        gc_was_enabled = gc.isenabled()
+        if gc_was_enabled:
+            gc.disable()
+        try:
+            for s in self._slicer_iter:
+                events.append(s.events.copy())
+                if len(s.triggers) > 0:
+                    matching = s.triggers["t"][s.triggers["p"] == 1]
+                    triggers.extend(matching.tolist())
+                if len(triggers) >= trigger_count:
+                    break
+        finally:
+            if gc_was_enabled:
+                gc.enable()
 
         triggers_arr = np.array(triggers[:trigger_count], dtype=np.int64)
+
+        if callable(on_complete):
+            try:
+                on_complete()
+            except Exception as e:
+                self.logger.warning("on_complete callback failed: %s", e)
+
         concatenated = np.concatenate(events) if len(events) > 0 else np.empty(0)
         self.logger.info('Recording complete. Triggers: %s, Events: %s', len(triggers_arr), len(concatenated))
         return (triggers_arr, concatenated)
@@ -518,14 +539,41 @@ class CameraProphsee(CameraDAVIS):
         if len(triggers) == 0 or len(events) == 0:
             return frames
 
+        ev_t, ev_x, ev_y, ev_p = events['t'], events['x'], events['y'], events['p']
+        starts = np.asarray(triggers, dtype=np.int64) + int(self.offset_us)
+        ends = starts + int(self.window_us)
+
+        idx_starts = np.searchsorted(ev_t, starts, 'left')
+        idx_ends = np.searchsorted(ev_t, ends, 'left')
+
         is_signed = self.polarity_mode == 'signed'
+        total_pixels = self.ROI_HEIGHT * self.ROI_WIDTH
+
         for idx in range(len(triggers)):
-            event_slice = events[
-                (events['t'] >= triggers[idx] + self.offset_us) &
-                (events['t'] < triggers[idx] + self.offset_us + self.window_us)
-            ]
-            for event in event_slice:
-                frames[idx, event['y'], event['x']] += (1 if event['p'] else -1) if is_signed else (1 if event['p'] else 0)
+            s_i, e_i = idx_starts[idx], idx_ends[idx]
+            if s_i >= e_i:
+                continue
+
+            sl_x = ev_x[s_i:e_i]
+            sl_y = ev_y[s_i:e_i]
+            sl_p = ev_p[s_i:e_i]
+
+            valid = (sl_x >= 0) & (sl_x < self.ROI_WIDTH) & (sl_y >= 0) & (sl_y < self.ROI_HEIGHT)
+            if not np.any(valid):
+                continue
+
+            flat_coords = sl_y[valid].astype(np.int64) * self.ROI_WIDTH + sl_x[valid].astype(np.int64)
+            if is_signed:
+                weights = np.where(sl_p[valid] != 0, 1.0, -1.0)
+                frame = np.bincount(flat_coords, weights=weights, minlength=total_pixels).reshape(
+                    (self.ROI_HEIGHT, self.ROI_WIDTH)
+                )
+            else:
+                on = sl_p[valid] != 0
+                frame = np.bincount(flat_coords[on], minlength=total_pixels).reshape(
+                    (self.ROI_HEIGHT, self.ROI_WIDTH)
+                )
+            frames[idx] = frame
 
         self.logger.info(f'Accumulation complete.\n `frames` shape: %s', frames.shape)
         return frames
