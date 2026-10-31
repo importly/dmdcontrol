@@ -20,8 +20,8 @@ Camera:
   ROI:
     start_x: 0
     start_y: 0
-    width: 346
-    height: 260
+    width: 1280
+    height: 720
   Trigger:
     rising_edge: True
     falling_edge: False
@@ -32,8 +32,8 @@ Camera:
     window_us: 16000       # accumulation window == DMD exposure_us (master tied these)
     start_time_offset_us: 0
     polarity_mode: positive # positive (ON events only) | signed (+1/-1) | ignore (all +1)
-  width: 346
-  height: 260
+  width: 1280
+  height: 720
   Writer:
     enable: True
   signal_fraction: 0.4
