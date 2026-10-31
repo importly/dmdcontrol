@@ -7,7 +7,7 @@ import numpy as np
 from PIL import Image
 import dv_processing as dv
 try:
-    from metavision_hal import I_TriggerIn  # type: ignore
+    from metavision_hal import I_TriggerIn, I_ROI  # type: ignore
     from metavision_sdk_stream import (  # type: ignore
         Camera as MetavisionCamera,
         CameraStreamSlicer,
@@ -15,6 +15,7 @@ try:
     )
 except ImportError:
     I_TriggerIn: Any = None
+    I_ROI: Any = None
     MetavisionCamera: Any = None
     CameraStreamSlicer: Any = None
     SliceCondition: Any = None
@@ -441,11 +442,8 @@ class CameraProphsee(CameraDAVIS):
         else:
             self.logger.warning('Prophesee device does not expose I_TriggerIn interface')
 
-        # Full native camera resolution (1280 x 720 on Gen4.1)
         self.WIDTH = self.camera.width()
         self.HEIGHT = self.camera.height()
-        self.ROI_WIDTH, self.ROI_HEIGHT = self.WIDTH, self.HEIGHT
-        self.roi_start_x, self.roi_start_y = 0, 0
         self.logger.info('Prophesee camera opened at %s x %s', self.WIDTH, self.HEIGHT)
 
         # ROI settings from config
@@ -601,11 +599,14 @@ class CameraProphsee(CameraDAVIS):
             sl_y = ev_y[s_i:e_i]
             sl_p = ev_p[s_i:e_i]
 
-            valid = (sl_x >= 0) & (sl_x < self.ROI_WIDTH) & (sl_y >= 0) & (sl_y < self.ROI_HEIGHT)
+            loc_x = sl_x - self.roi_start_x
+            loc_y = sl_y - self.roi_start_y
+
+            valid = (loc_x >= 0) & (loc_x < self.ROI_WIDTH) & (loc_y >= 0) & (loc_y < self.ROI_HEIGHT)
             if not np.any(valid):
                 continue
 
-            flat_coords = sl_y[valid].astype(np.int64) * self.ROI_WIDTH + sl_x[valid].astype(np.int64)
+            flat_coords = loc_y[valid].astype(np.int64) * self.ROI_WIDTH + loc_x[valid].astype(np.int64)
             if is_signed:
                 weights = np.where(sl_p[valid] != 0, 1.0, -1.0)
                 frame = np.bincount(flat_coords, weights=weights, minlength=total_pixels).reshape(
