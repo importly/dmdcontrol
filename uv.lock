@@ -419,6 +419,7 @@ name = "dmdcontrol"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "dv-processing" },
     { name = "evcam", marker = "sys_platform == 'linux'" },
     { name = "glfw" },
     { name = "numpy" },
@@ -448,6 +449,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "dv-processing" },
     { name = "dv-processing", marker = "extra == 'camera'" },
     { name = "evcam", marker = "sys_platform == 'linux'", editable = "prophesee/evcam-lib" },
     { name = "glfw" },

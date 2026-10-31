@@ -5,6 +5,7 @@ description = "DLPC900 DMD control and camera sync-check tooling."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "dv-processing",
     "evcam; sys_platform == 'linux'",
     "glfw",
     "numpy",
