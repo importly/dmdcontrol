@@ -8,6 +8,19 @@ from PIL import Image
 import dv_processing as dv
 from dmdcontrol.utils import Font, CONFIG
 
+try:
+    from metavision_hal import I_TriggerIn
+    from metavision_sdk_stream import Camera as MetavisionCamera, CameraStreamSlicer, SliceCondition
+except ImportError:
+    pass
+
+EVENT_DTYPE = np.dtype([
+    (('timestamp', 't'), '<i8'),
+    ('x', '<i2'),
+    ('y', '<i2'),
+    (('polarity', 'p'), 'i1'),
+])
+
 CONTRAST_THRESHOLDS = {'verylow': 15, 'low': 12, 'high': 6, 'veryhigh': 3}  # 'default' is 9
 
 
@@ -16,7 +29,7 @@ class BackgroundActivityNoiseFilter:
     Python rewrite of the BackgroundActivityNoiseFilter from dv_processing. This tests the neighborhoods of incoming events for other supporting events that happened within the background activity period. If an event is supported by a neighbor, it is considered valid; otherwise, it is considered noise and filtered out.
     """
     
-    def __init__(self, background_activity_duration: int = 2000, resolution_limits: Tuple[int, int] = (346, 260)):
+    def __init__(self, background_activity_duration: int = 2000, resolution_limits: Tuple[int, int] = (1280, 720)):
         """
         Initiate a background activity noise filter, which tests the neighbourhoods of incoming events for other supporting events that happened within the background activity period.
         
@@ -70,11 +83,11 @@ class BackgroundActivityNoiseFilter:
             np.ndarray: Filtered events
         """
         # Grab the event coordinates, timestamps, and polarities
-        ts, xs, ys, ps = events[0], events[1], events[2], events[3]
+        ts, xs, ys = events['t'], events['x'], events['y']
         
         # Filter events
         mask = np.zeros(len(events[0]), dtype=bool)
-        for i in range(len(events[0])):
+        for i in range(len(ts)):
             # Update mask
             mask[i] = self._background_activity_lookup(xs[i], ys[i], ts[i])
             

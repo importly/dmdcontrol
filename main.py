@@ -13,7 +13,7 @@ from math import ceil
 
 import numpy as np
 
-from dmdcontrol.camera import CameraDAVIS
+from dmdcontrol.camera import CameraProphsee
 from dmdcontrol.dmd import (
     DLPC900,
     load_from_config
@@ -122,33 +122,12 @@ def _cleanup_step(description: str, action) -> None:
         log.warning("Cleanup (%s): %s", description, exc)
 
 
-def generate_fm_k_sequence(length: int):
-    """Generate a sequence of (fm, k) pairs for testing."""
-    # Feature maps
-    fms = _decimal_number_display_masks(
-        numbers=range(length),
-        width=300,
-        height=300,
-        size_px=30
-    )
-
-    # Kernel
-    k = generate_dot_frame()
-
-    return fms, k
-
-
-
 def main() -> int:
     # logging
     run_dir = create_run_directory()
     setup_logging(run_dir)
     log.info("Run directory: %s", run_dir)
     log.debug("Git: %s", git_hash())
-
-    # Generate the feature maps and kernels
-    trial_length = 100
-    fms, k = generate_fm_k_sequence(trial_length)
 
     # dmds
     dmd_a, dmd_b = load_from_config()
@@ -158,7 +137,7 @@ def main() -> int:
     coordinator = None
 
     # Camera setup
-    camera = CameraDAVIS()
+    camera = CameraProphsee()
 
     try:
         # Get dmds up
