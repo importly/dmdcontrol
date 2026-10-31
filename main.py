@@ -242,8 +242,5 @@ def main() -> int:
         if engine is not None:
             _cleanup_step("engine cleanup", engine.cleanup)
 
-            _cleanup_step(f"DMD {name} close", dlpc_a.close)
-            _cleanup_step(f"DMD {name} close", dlpc_b.close)
-
 if __name__ == "__main__":
     sys.exit(main())
