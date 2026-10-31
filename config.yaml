@@ -44,10 +44,10 @@ DMD:
   A:
     usb_bus: 1
     usb_port: 2      # root-hub port; list for a hub chain, e.g. [2, 4]
-    xrandr_output: DP-2    
+    xrandr_output: DP-4    
   B:
     usb_bus: 1
-    usb_port: 8
+    usb_port: 9
     xrandr_output: DP-0
   width: 1920
   height: 1080
