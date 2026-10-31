@@ -588,15 +588,21 @@ class PairedPatternEngine:
         gl.glMatrixMode(gl.GL_MODELVIEW)
         gl.glLoadIdentity()
         gl.glEnable(gl.GL_TEXTURE_2D)
-        texture_ids = tuple(int(texture_id) for texture_id in gl.glGenTextures(2))
-        if len(texture_ids) != 2:
+        # Double-buffered texture streaming: 2 slots (ping-pong) to prevent GPU pipeline
+        # write-after-read stalls when streaming arbitrary dynamically generated frames at 60 Hz.
+        stream_textures = tuple(int(texture_id) for texture_id in gl.glGenTextures(4))
+        if len(stream_textures) != 4:
             self.cleanup()
-            logger.error('OpenGL allocated %d paired textures, expected 2', len(texture_ids))
-            raise RuntimeError(f'OpenGL allocated {len(texture_ids)} paired textures, expected 2')
-        self.texture_b, self.texture_a = texture_ids
+            logger.error('OpenGL allocated %d paired textures, expected 4', len(stream_textures))
+            raise RuntimeError(f'OpenGL allocated {len(stream_textures)} paired textures, expected 4')
+        self.textures_b = (stream_textures[0], stream_textures[1])
+        self.textures_a = (stream_textures[2], stream_textures[3])
+        self.texture_b = self.textures_b[0]
+        self.texture_a = self.textures_a[0]
+        self.stream_slot = 0
         self._textures_deleted = False
         gl.glPixelStorei(gl.GL_UNPACK_ALIGNMENT, 1)
-        for texture_id in texture_ids:
+        for texture_id in stream_textures:
             gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id)
             gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
             gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
@@ -639,18 +645,24 @@ class PairedPatternEngine:
         )
         self.last_frame_time = frame_start
 
+        # Rotate ping-pong texture slots to avoid GPU write-after-read hazards
+        slot = self.stream_slot
+        self.stream_slot = 1 - slot
+        tex_b = self.textures_b[slot]
+        tex_a = self.textures_a[slot]
+
         # prepared_a = self._prepare_dmd_frame(frame_a, "frame_a")
         # prepared_b = self._prepare_dmd_frame(frame_b, "frame_b")
         input_end = time.perf_counter()
 
-        self._upload_texture(self.texture_b, frame_a)
+        self._upload_texture(tex_b, frame_a)
         upload_b_end = time.perf_counter()
-        self._upload_texture(self.texture_a, frame_b)
+        self._upload_texture(tex_a, frame_b)
         upload_a_end = time.perf_counter()
 
         gl.glClear(gl.GL_COLOR_BUFFER_BIT)
-        self._draw_mirrored_texture(self.texture_b, 0, self.half_width)
-        self._draw_mirrored_texture(self.texture_a, self.half_width, self.width)
+        self._draw_mirrored_texture(tex_b, 0, self.half_width)
+        self._draw_mirrored_texture(tex_a, self.half_width, self.width)
         draw_end = time.perf_counter()
 
         glfw.swap_buffers(self.window)
@@ -717,6 +729,8 @@ class PairedPatternEngine:
             texture_id (int): Texture ID
             frame (RGBFrame): Frame
         """
+        if not frame.flags['C_CONTIGUOUS']:
+            frame = np.ascontiguousarray(frame)
         gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id)
         gl.glTexSubImage2D(
             gl.GL_TEXTURE_2D,
@@ -781,14 +795,10 @@ class PairedPatternEngine:
         try:
             if getattr(self, 'window', None):
                 glfw.make_context_current(self.window)
-                texture_ids = [
-                    texture_id
-                    for texture_id in (
-                        getattr(self, 'texture_b', None),
-                        getattr(self, 'texture_a', None),
-                    )
-                    if texture_id is not None
-                ]
+                texture_ids = list(getattr(self, 'textures_b', ())) + list(getattr(self, 'textures_a', ()))
+                for t in (getattr(self, 'texture_b', None), getattr(self, 'texture_a', None)):
+                    if t is not None and t not in texture_ids:
+                        texture_ids.append(t)
                 if texture_ids and not getattr(self, '_textures_deleted', False):
                     gl.glDeleteTextures(texture_ids)
                     self._textures_deleted = True

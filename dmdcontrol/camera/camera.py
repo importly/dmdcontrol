@@ -520,24 +520,16 @@ class CameraProphsee(CameraDAVIS):
             on_complete: Optional callback invoked immediately when all triggers
                 have been recorded, before large event concatenation.
         """
-        import gc
         events, triggers = [], []
         self.logger.info('Recording %s triggers from Prophesee camera...', trigger_count)
 
-        gc_was_enabled = gc.isenabled()
-        if gc_was_enabled:
-            gc.disable()
-        try:
-            for s in self._slicer_iter:
-                events.append(s.events.copy())
-                if len(s.triggers) > 0:
-                    matching = s.triggers["t"][s.triggers["p"] == 1]
-                    triggers.extend(matching.tolist())
-                if len(triggers) >= trigger_count:
-                    break
-        finally:
-            if gc_was_enabled:
-                gc.enable()
+        for s in self._slicer_iter:
+            events.append(s.events.copy())
+            if len(s.triggers) > 0:
+                matching = s.triggers["t"][s.triggers["p"] == 1]
+                triggers.extend(matching.tolist())
+            if len(triggers) >= trigger_count:
+                break
 
         triggers_arr = np.array(triggers[:trigger_count], dtype=np.int64)
 

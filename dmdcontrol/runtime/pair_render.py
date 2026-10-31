@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
 from typing import Any
@@ -163,7 +164,11 @@ class PairRenderCoordinator:
         return bool(should_close()) if should_close is not None else False
 
     def _run(self) -> None:
+        old_switch_interval = sys.getswitchinterval()
         try:
+            # Lower GIL switch interval (500us vs default 5ms) during display
+            # so the render thread is not preempted/starved by concurrent threads.
+            sys.setswitchinterval(0.0005)
             self.engine.make_context_current()
             self._ready.set()
             # Nothing displayed before `release_semantic_frames()` is allowed to
@@ -185,6 +190,7 @@ class PairRenderCoordinator:
                 self.engine.release_context()
             except Exception:
                 pass
+            sys.setswitchinterval(old_switch_interval)
 
     def _run_startup_pair_until_released(self) -> None:
         while (
