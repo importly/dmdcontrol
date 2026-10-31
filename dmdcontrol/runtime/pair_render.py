@@ -92,6 +92,8 @@ class PairRenderCoordinator:
         self._stop = threading.Event()
         self._error: BaseException | None = None
         self._primed_first_semantic_pair: FramePair | None = None
+        self.semantic_dropped_frames: int = 0
+        self.semantic_frames_displayed: int = 0
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def start(self) -> PairRenderCoordinator:
@@ -197,6 +199,9 @@ class PairRenderCoordinator:
                 _display_frame_pair(self.engine, self.startup_leader_pair)
 
     def _run_startup_leader(self) -> None:
+        reset_fn = getattr(self.engine, "reset_cadence", None)
+        if reset_fn is not None:
+            reset_fn()
         for _ in range(max(0, self.startup_leader_vsyncs)):
             if self._stop.is_set() or self._engine_should_close():
                 return
@@ -212,6 +217,10 @@ class PairRenderCoordinator:
             _display_frame_pair(self.engine, self.startup_leader_pair)
 
     def _run_semantic_frames(self) -> None:
+        reset_fn = getattr(self.engine, "reset_cadence", None)
+        if reset_fn is not None:
+            reset_fn()
+        dropped_start = getattr(self.engine, "dropped_frames", 0)
         displayed = 0
         end_t = (
             None
@@ -231,6 +240,10 @@ class PairRenderCoordinator:
             else:
                 frame_pair = as_frame_pair(self.provider.next_pair())
             _display_frame_pair(self.engine, frame_pair)
+
+        self.semantic_frames_displayed = displayed
+        dropped_end = getattr(self.engine, "dropped_frames", 0)
+        self.semantic_dropped_frames = max(0, dropped_end - dropped_start)
 
     def _first_semantic_pair(self) -> FramePair:
         if self._primed_first_semantic_pair is None:
