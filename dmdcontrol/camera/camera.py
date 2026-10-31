@@ -448,6 +448,49 @@ class CameraProphsee(CameraDAVIS):
         self.roi_start_x, self.roi_start_y = 0, 0
         self.logger.info('Prophesee camera opened at %s x %s', self.WIDTH, self.HEIGHT)
 
+        # ROI settings from config
+        roi_cfg = CONFIG.get('Camera', {}).get('ROI', {})
+        self.roi_start_x = int(roi_cfg.get('start_x', 0))
+        self.roi_start_y = int(roi_cfg.get('start_y', 0))
+        self.ROI_WIDTH = int(roi_cfg.get('width', self.WIDTH))
+        self.ROI_HEIGHT = int(roi_cfg.get('height', self.HEIGHT))
+
+        # Hardware ROI on sensor silicon (I_ROI)
+        is_full_frame = (
+            self.roi_start_x == 0 and
+            self.roi_start_y == 0 and
+            self.ROI_WIDTH == self.WIDTH and
+            self.ROI_HEIGHT == self.HEIGHT
+        )
+
+        i_roi = device.get_i_roi() if device is not None else None
+        if i_roi is not None:
+            if is_full_frame:
+                try:
+                    i_roi.enable(False)
+                    self.logger.info("Prophesee hardware ROI disabled (full sensor %dx%d)", self.WIDTH, self.HEIGHT)
+                except Exception as exc:
+                    self.logger.debug("Could not disable hardware ROI: %s", exc)
+            else:
+                try:
+                    if hasattr(I_ROI, "Mode") and hasattr(I_ROI.Mode, "ROI"):
+                        i_roi.set_mode(I_ROI.Mode.ROI)
+                    if hasattr(I_ROI, "Window"):
+                        window = I_ROI.Window(self.roi_start_x, self.roi_start_y, self.ROI_WIDTH, self.ROI_HEIGHT)
+                        i_roi.set_window(window)
+                    else:
+                        i_roi.set_window(self.roi_start_x, self.roi_start_y, self.ROI_WIDTH, self.ROI_HEIGHT)
+                    i_roi.enable(True)
+                    self.logger.info(
+                        "Enabled Prophesee hardware ROI on sensor silicon: origin=(%d, %d), size=%dx%d",
+                        self.roi_start_x, self.roi_start_y, self.ROI_WIDTH, self.ROI_HEIGHT,
+                    )
+                except Exception as exc:
+                    self.logger.warning("Failed to configure hardware I_ROI: %s", exc)
+        else:
+            if not is_full_frame:
+                self.logger.warning("Prophesee device does not expose I_ROI interface; software cropping will apply")
+
         # No background noise filtering
         self.filter = None
 
