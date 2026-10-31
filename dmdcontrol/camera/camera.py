@@ -1,25 +1,26 @@
 import os
 import time
 import logging
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 from pathlib import Path
 import numpy as np
 from PIL import Image
 import dv_processing as dv
+try:
+    from metavision_hal import I_TriggerIn  # type: ignore
+    from metavision_sdk_stream import (  # type: ignore
+        Camera as MetavisionCamera,
+        CameraStreamSlicer,
+        SliceCondition,
+    )
+except ImportError:
+    I_TriggerIn: Any = None
+    MetavisionCamera: Any = None
+    CameraStreamSlicer: Any = None
+    SliceCondition: Any = None
 from dmdcontrol.utils import Font, CONFIG
 
-try:
-    from metavision_hal import I_TriggerIn
-    from metavision_sdk_stream import Camera as MetavisionCamera, CameraStreamSlicer, SliceCondition
-except ImportError:
-    pass
-
-EVENT_DTYPE = np.dtype([
-    (('timestamp', 't'), '<i8'),
-    ('x', '<i2'),
-    ('y', '<i2'),
-    (('polarity', 'p'), 'i1'),
-])
+EVENT_DTYPE = np.dtype([('timestamp', '<i8'), ('x', '<i2'), ('y', '<i2'), ('polarity', 'i1')])
 
 CONTRAST_THRESHOLDS = {'verylow': 15, 'low': 12, 'high': 6, 'veryhigh': 3}  # 'default' is 9
 
@@ -29,7 +30,7 @@ class BackgroundActivityNoiseFilter:
     Python rewrite of the BackgroundActivityNoiseFilter from dv_processing. This tests the neighborhoods of incoming events for other supporting events that happened within the background activity period. If an event is supported by a neighbor, it is considered valid; otherwise, it is considered noise and filtered out.
     """
     
-    def __init__(self, background_activity_duration: int = 2000, resolution_limits: Tuple[int, int] = (1280, 720)):
+    def __init__(self, background_activity_duration: int = 2000, resolution_limits: Tuple[int, int] = (346, 260)):
         """
         Initiate a background activity noise filter, which tests the neighbourhoods of incoming events for other supporting events that happened within the background activity period.
         
@@ -83,11 +84,11 @@ class BackgroundActivityNoiseFilter:
             np.ndarray: Filtered events
         """
         # Grab the event coordinates, timestamps, and polarities
-        ts, xs, ys = events['t'], events['x'], events['y']
+        ts, xs, ys, ps = events[0], events[1], events[2], events[3]
         
         # Filter events
         mask = np.zeros(len(events[0]), dtype=bool)
-        for i in range(len(ts)):
+        for i in range(len(events[0])):
             # Update mask
             mask[i] = self._background_activity_lookup(xs[i], ys[i], ts[i])
             
@@ -101,13 +102,6 @@ class BackgroundActivityNoiseFilter:
         """Reset the time surface to zeros."""
         self.time_surface = np.zeros((self.resolution_limits[1], self.resolution_limits[0]), dtype=np.int64)
     
-
-class CameraProphsee:
-    """
-    class to control Prophsee
-    """
-    def __init__(self):
-       self.logger = logging.getLogger('Camera') 
 
 class CameraDAVIS:
     """
@@ -195,13 +189,14 @@ class CameraDAVIS:
         if threshold is None:
             self.logger.info('Bias sensitivity left at camera default')
             return
-        if not (hasattr(self.camera, 'setContrastThresholdOn')
-                and hasattr(self.camera, 'setContrastThresholdOff')):
+        set_on = getattr(self.camera, 'setContrastThresholdOn', None)
+        set_off = getattr(self.camera, 'setContrastThresholdOff', None)
+        if not (callable(set_on) and callable(set_off)):
             self.logger.warning('Camera does not expose contrast thresholds; '
                                 'bias_sensitivity=%s not applied', preset)
             return
-        self.camera.setContrastThresholdOn(threshold)
-        self.camera.setContrastThresholdOff(threshold)
+        set_on(threshold)
+        set_off(threshold)
         self.logger.info('Bias sensitivity %s: contrast threshold %s', preset, threshold)
 
     def flush(self, flush_count: int):
@@ -427,4 +422,110 @@ class CameraDAVIS:
         # Save the contact sheet
         contact_sheet.save(save_path, format='PNG')
         self.logger.info('Saved contact sheet to %s', save_path)
-        
+
+
+class CameraProphsee(CameraDAVIS):
+    """
+    Class to control Prophesee event cameras via OpenEB.
+    """
+    def __init__(self):
+        self.logger = logging.getLogger('Camera')
+
+        # Open camera & enable trigger input
+        self.camera = MetavisionCamera.from_first_available()
+        device = self.camera.get_device()
+        trigger_in = device.get_i_trigger_in()
+        if trigger_in is not None:
+            trigger_in.enable(I_TriggerIn.Channel.MAIN)
+            self.logger.info('Enabled Prophesee trigger input on Channel.MAIN')
+        else:
+            self.logger.warning('Prophesee device does not expose I_TriggerIn interface')
+
+        # Full native camera resolution (1280 x 720 on Gen4.1)
+        self.WIDTH = self.camera.width()
+        self.HEIGHT = self.camera.height()
+        self.ROI_WIDTH, self.ROI_HEIGHT = self.WIDTH, self.HEIGHT
+        self.roi_start_x, self.roi_start_y = 0, 0
+        self.logger.info('Prophesee camera opened at %s x %s', self.WIDTH, self.HEIGHT)
+
+        # No background noise filtering
+        self.filter = None
+
+        # Slicer
+        slice_us = int(CONFIG.get('Camera', {}).get('slice_duration_us', 10_000))
+        self.slicer = CameraStreamSlicer(self.camera.move(), slice_condition=SliceCondition.make_n_us(slice_us))
+        self._slicer_iter = iter(self.slicer)
+
+        # Accumulation settings
+        self.window_us = CONFIG.get('Camera', {}).get('Accumulation', {}).get('window_us', 16000)
+        self.offset_us = CONFIG.get('Camera', {}).get('Accumulation', {}).get('start_time_offset_us', 0)
+        self.polarity_mode = str(CONFIG.get('Camera', {}).get('Accumulation', {}).get('polarity_mode', 'positive')).lower()
+        self.normalize_scale_max = CONFIG.get('Camera', {}).get('normalize_scale_max', 255)
+        self.signal_fraction = CONFIG.get('Camera', {}).get('signal_fraction', 0.1)
+
+    def flush(self, flush_count: int = 32):
+        """Flush stale slices from the stream buffer."""
+        for _ in range(flush_count):
+            try:
+                next(self._slicer_iter)
+            except StopIteration:
+                break
+
+    def record(self, trigger_count: int) -> tuple:
+        """Record event data for a set amount of triggers."""
+        events, triggers = [], []
+        self.logger.info('Recording %s triggers from Prophesee camera...', trigger_count)
+
+        for s in self._slicer_iter:
+            events.append(s.events.copy())
+            if len(s.triggers) > 0:
+                matching = s.triggers["t"][s.triggers["p"] == 1]
+                triggers.extend(matching.tolist())
+            if len(triggers) >= trigger_count:
+                break
+
+        triggers_arr = np.array(triggers[:trigger_count], dtype=np.int64)
+        concatenated = np.concatenate(events) if len(events) > 0 else np.empty(0)
+        self.logger.info('Recording complete. Triggers: %s, Events: %s', len(triggers_arr), len(concatenated))
+        return (triggers_arr, concatenated)
+
+    def align_triggers_to_event_range(self, triggers: np.ndarray, events: np.ndarray) -> np.ndarray:
+        """Drop triggers whose accumulation window falls outside the recorded events."""
+        if len(triggers) == 0 or len(events) == 0:
+            return triggers
+
+        window_starts = np.asarray(triggers, dtype=np.int64) + int(self.offset_us)
+        window_ends = window_starts + int(self.window_us)
+
+        lit = events[events['p'] != 0]
+        if len(lit) == 0:
+            return triggers
+        ts = np.sort(lit['t'].astype(np.int64))
+
+        counts = np.searchsorted(ts, window_ends, 'left') - np.searchsorted(ts, window_starts, 'left')
+        threshold = max(1.0, self.signal_fraction * np.percentile(counts, 75))
+        strong = np.flatnonzero(counts >= threshold)
+        if len(strong) == 0:
+            return triggers
+
+        first, last = int(strong[0]), int(strong[-1])
+        return np.asarray(triggers)[first:last + 1]
+
+    def accumulate(self, triggers: np.ndarray, events: np.ndarray) -> np.ndarray:
+        """Accumulate recorded event stream into frames."""
+        self.logger.info('Accumulating %s events into %s frames...', len(events), len(triggers))
+        frames = np.zeros((len(triggers), self.ROI_HEIGHT, self.ROI_WIDTH))
+        if len(triggers) == 0 or len(events) == 0:
+            return frames
+
+        is_signed = self.polarity_mode == 'signed'
+        for idx in range(len(triggers)):
+            event_slice = events[
+                (events['t'] >= triggers[idx] + self.offset_us) &
+                (events['t'] < triggers[idx] + self.offset_us + self.window_us)
+            ]
+            for event in event_slice:
+                frames[idx, event['y'], event['x']] += (1 if event['p'] else -1) if is_signed else (1 if event['p'] else 0)
+
+        self.logger.info(f'Accumulation complete.\n `frames` shape: %s', frames.shape)
+        return frames
