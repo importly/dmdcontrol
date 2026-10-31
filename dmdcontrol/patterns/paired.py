@@ -588,15 +588,16 @@ class PairedPatternEngine:
         gl.glMatrixMode(gl.GL_MODELVIEW)
         gl.glLoadIdentity()
         gl.glEnable(gl.GL_TEXTURE_2D)
-        # Double-buffered texture streaming: 2 slots (ping-pong) to prevent GPU pipeline
+        # Multi-buffered texture streaming: 4 slots to prevent GPU pipeline
         # write-after-read stalls when streaming arbitrary dynamically generated frames at 60 Hz.
-        stream_textures = tuple(int(texture_id) for texture_id in gl.glGenTextures(4))
-        if len(stream_textures) != 4:
+        self.STREAM_BUFFERS = 4
+        stream_textures = tuple(int(texture_id) for texture_id in gl.glGenTextures(self.STREAM_BUFFERS * 2))
+        if len(stream_textures) != self.STREAM_BUFFERS * 2:
             self.cleanup()
-            logger.error('OpenGL allocated %d paired textures, expected 4', len(stream_textures))
-            raise RuntimeError(f'OpenGL allocated {len(stream_textures)} paired textures, expected 4')
-        self.textures_b = (stream_textures[0], stream_textures[1])
-        self.textures_a = (stream_textures[2], stream_textures[3])
+            logger.error('OpenGL allocated %d paired textures, expected %d', len(stream_textures), self.STREAM_BUFFERS * 2)
+            raise RuntimeError(f'OpenGL allocated {len(stream_textures)} paired textures, expected {self.STREAM_BUFFERS * 2}')
+        self.textures_b = stream_textures[:self.STREAM_BUFFERS]
+        self.textures_a = stream_textures[self.STREAM_BUFFERS:]
         self.texture_b = self.textures_b[0]
         self.texture_a = self.textures_a[0]
         self.stream_slot = 0
@@ -647,22 +648,23 @@ class PairedPatternEngine:
 
         # Rotate ping-pong texture slots to avoid GPU write-after-read hazards
         slot = self.stream_slot
-        self.stream_slot = 1 - slot
+        self.stream_slot = (slot + 1) % len(self.textures_b)
         tex_b = self.textures_b[slot]
         tex_a = self.textures_a[slot]
 
-        # prepared_a = self._prepare_dmd_frame(frame_a, "frame_a")
-        # prepared_b = self._prepare_dmd_frame(frame_b, "frame_b")
         input_end = time.perf_counter()
 
-        self._upload_texture(tex_b, frame_a)
+        # DMD B (Left half, DP-0)
+        self._upload_texture(tex_b, frame_b)
         upload_b_end = time.perf_counter()
-        self._upload_texture(tex_a, frame_b)
+
+        # DMD A (Right half, DP-4)
+        self._upload_texture(tex_a, frame_a)
         upload_a_end = time.perf_counter()
 
         gl.glClear(gl.GL_COLOR_BUFFER_BIT)
-        self._draw_mirrored_texture(tex_b, 0, self.half_width)
-        self._draw_mirrored_texture(tex_a, self.half_width, self.width)
+        self._draw_mirrored_texture(tex_b, 0, self.half_width)             # Left: DMD B
+        self._draw_mirrored_texture(tex_a, self.half_width, self.width)    # Right: DMD A
         draw_end = time.perf_counter()
 
         glfw.swap_buffers(self.window)
