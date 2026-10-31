@@ -186,7 +186,6 @@ def main() -> int:
                      name, f"0x{hw:02X}" if hw is not None else "n/a")
         log.info("Displaying %d frames (%d leader + %d count)...",
                  leader["vsyncs"] + semantic_frames, leader["vsyncs"], semantic_frames)
-        dropped_before = engine.dropped_frames  # stutters during DLPC setup are pre-display, ignore
 
         # Start display
         nonsemantic_triggers = leader["trigger_count"] + DMD_CFG["display_pipeline_vsyncs"]
@@ -195,14 +194,21 @@ def main() -> int:
                  leader["vsyncs"], leader["trigger_count"], semantic_frames, expected_triggers)
         log.info("starting display")
 
-        camera.flush(CAMERA_CFG["flush_count"]) # moved flush before
+        camera.flush(CAMERA_CFG["flush_count"])
         coordinator.release_startup_leader()
         coordinator.release_semantic_frames()
-        triggers, events = camera.record(expected_triggers)
 
-        if not coordinator.wait_semantic_frames_done(timeout_s=8.0):
-            raise RuntimeError("semantic playback did not finish")
-        coordinator.join()
+        def _on_record_complete():
+            if not coordinator.wait_semantic_frames_done(timeout_s=8.0):
+                raise RuntimeError("semantic playback did not finish")
+            coordinator.join()
+
+        triggers, events = camera.record(expected_triggers, on_complete=_on_record_complete)
+
+        if coordinator._thread.is_alive():
+            if not coordinator.wait_semantic_frames_done(timeout_s=8.0):
+                raise RuntimeError("semantic playback did not finish")
+            coordinator.join()
 
         if len(triggers) < expected_triggers:
             log.warning("expected %d triggers, got %d, missing triggers", expected_triggers, len(triggers))
@@ -219,11 +225,16 @@ def main() -> int:
         camera.save(frames, run_dir / 'frames', save_as_png=True)
         camera.contact_sheet(frames, run_dir / 'contact_sheet.png', (20,ceil(len(triggers)/20)))
 
-        dropped = engine.dropped_frames - dropped_before
+        dropped = coordinator.semantic_dropped_frames
         if dropped:
-            log.critical("%d frame(s) dropped during display: count/trigger alignment is off for this run", dropped)
-        log.info("Displayed %d frames, %d dropped; count chunk complete (%d cycles)",
-                 leader["vsyncs"] + semantic_frames, dropped, cycles)
+            log.critical("%d frame(s) dropped during semantic display: count/trigger alignment is off for this run", dropped)
+        else:
+            log.info("0 frames dropped during semantic display (count/trigger alignment intact)")
+        log.info("Displayed %d frames (%d semantic), %d dropped during semantic playback; count chunk complete (%d cycles)",
+                 leader["vsyncs"] + coordinator.semantic_frames_displayed,
+                 coordinator.semantic_frames_displayed,
+                 dropped,
+                 cycles)
         return 0
     except Exception as exc:
         log.exception("Display chunk failed: %s", exc)
