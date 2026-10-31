@@ -13,7 +13,7 @@ from math import ceil
 
 import numpy as np
 
-from dmdcontrol.camera import Camera
+from dmdcontrol.camera import CameraDAVIS
 from dmdcontrol.dmd import (
     DLPC900,
     load_from_config
@@ -159,7 +159,7 @@ def display_data(
     coordinator = None
 
     # Camera setup
-    camera = Camera()
+    camera = CameraDAVIS()
 
     try:
         # Get dmds up

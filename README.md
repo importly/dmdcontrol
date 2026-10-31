@@ -139,8 +139,7 @@ Current mapping:
 
 | DMD | USB identity                    | Physical USB path | DisplayPort output |
 |-----|---------------------------------|-------------------|--------------------|
-| A   | `pci-0000:03:00.0-usb-0:1:1.0` | `usb1/1-1`        | `DP-2`             |
-| B   | `pci-0000:03:00.0-usb-0:8:1.0` | `usb1/1-8`        | `DP-0`             |
+check config.yaml
 
 Both controllers report serial `C900`, so mapping is by labeled USB and DisplayPort ports. It has been verified after
 reboot; keep the hardware plugged into the same labeled ports.

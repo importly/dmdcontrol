@@ -89,7 +89,14 @@ class BackgroundActivityNoiseFilter:
         self.time_surface = np.zeros((self.resolution_limits[1], self.resolution_limits[0]), dtype=np.int64)
     
 
-class Camera:
+class CameraProphsee:
+    """
+    class to control Prophsee
+    """
+    def __init__(self):
+       self.logger = logging.getLogger('Camera') 
+
+class CameraDAVIS:
     """
     Class to control DAVIS346.
     """
