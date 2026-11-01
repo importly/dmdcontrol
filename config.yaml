@@ -3,9 +3,7 @@ log_level: INFO
 Run:
   output_root: runs/camera2_master_30hz_blank
   count_start: 5
-  count_end: 15
-  count_slots_per_frame: 1           # positive int, or 'auto' to fit the LUT budget
-  count_blank_after_each_count: True # forces slots=1, doubles triggers per cycle
+  count_end: 15                      # A shows count, blank, count, blank, ...
   number_size_px: 300
   test_b: dot                        # B-side static pattern: dot | checkerboard
   b_dot_x: 960
@@ -67,22 +65,9 @@ DMD:
   bitplanes: 24
   VID: 0x0451
   PID: 0xC900
-  max_binary_rate_hz: 9523
-  max_vsync_deviation_ratio: 0.25
   trigger_out:
     channel: TRIG_OUT_2
     source_dmd: A
     edge: rising
     pulse_width_us: 20
     rising_delay_us: 0
-    delay_max_us: 20000
-    delay_min_us: -20
-  total_pixels_per_line: 1344
-  total_lines_per_frame: 806
-  active_pixels_per_line: 1024
-  active_lines_per_frame: 768
-  first_active_pixel: 160
-  first_active_line: 35
-  bottom_field_first_line: 1
-  pixel_clock_khz: 65000
-  max_count_sequence_frames: 128

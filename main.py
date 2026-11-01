@@ -18,11 +18,7 @@ from dmdcontrol.dmd import (
     DLPC900,
     load_from_config
 )
-from dmdcontrol.patterns import (
-    PairedPatternEngine,
-    _decimal_number_display_masks,
-    generate_dot_frame
-)
+from dmdcontrol.patterns import PairedPatternEngine
 from dmdcontrol.runtime import (
     build_count_static_sequence,
     _start_pair_render_coordinator,
@@ -148,12 +144,11 @@ def main() -> int:
 
         # A counts, B static dot, setup sequence
         sequence = build_count_static_sequence()
-        leader = sequence.startup_leader_metadata()
         cycles = int(RUN["cycles"])
         semantic_frames = cycles * len(sequence.frames)
         log.info("Recipe: counts %d..%d | %d frames per cycle | %d cycles = %d frames | %d leader vsyncs",
                  RUN["count_start"], RUN["count_end"], len(sequence.frames),
-                 cycles, semantic_frames, leader["vsyncs"])
+                 cycles, semantic_frames, sequence.leader_vsyncs)
 
         # hold the startup pair until the sequencers are running
         engine = PairedPatternEngine()
@@ -161,37 +156,29 @@ def main() -> int:
             engine,
             sequence.provider,
             startup_leader_pair=sequence.startup_pair,
-            startup_leader_vsyncs=leader["vsyncs"],
+            startup_leader_vsyncs=sequence.leader_vsyncs,
             semantic_frames=semantic_frames,
         )
         if not coordinator.wait_until_ready(timeout_s=2.0):
             raise RuntimeError("render coordinator did not become ready")
 
-        # lut plans
-        plan_a = sequence.lut_plan_a()
-        plan_b = sequence.lut_plan_b()
-
-        prepare_pair_controllers(
-            dlpc_a, dlpc_b,
-            entries_count_a=len(plan_a.entries),
-            entries_count_b=len(plan_b.entries),
-        )
-        load_pattern_sequence(dlpc_a, plan_a.entries)
-        load_pattern_sequence(dlpc_b, plan_b.entries)
-        start_loaded_pattern_sequences(dlpc_a, dlpc_b, post_start_delay_s=0, verify=False)
+        prepare_pair_controllers(dlpc_a, dlpc_b)
+        load_pattern_sequence(dlpc_a, sequence.entries_a)
+        load_pattern_sequence(dlpc_b, sequence.entries_b)
+        start_loaded_pattern_sequences(dlpc_a, dlpc_b)
 
         for name, dlpc in (("A", dlpc_a), ("B", dlpc_b)):
             hw = verify_started_pattern_sequence(dlpc, label=f"DMD {name}")
             log.info("DMD %s sequencer running in Video Pattern Mode (hw=%s)",
                      name, f"0x{hw:02X}" if hw is not None else "n/a")
         log.info("Displaying %d frames (%d leader + %d count)...",
-                 leader["vsyncs"] + semantic_frames, leader["vsyncs"], semantic_frames)
+                 sequence.leader_vsyncs + semantic_frames, sequence.leader_vsyncs, semantic_frames)
 
         # Start display
-        nonsemantic_triggers = leader["trigger_count"] + DMD_CFG["display_pipeline_vsyncs"]
+        nonsemantic_triggers = sequence.leader_triggers + DMD_CFG["display_pipeline_vsyncs"]
         expected_triggers = nonsemantic_triggers + semantic_frames
         log.info("leader vsyncs: %d (%d triggers) semantic frames: %d expected triggers: %d",
-                 leader["vsyncs"], leader["trigger_count"], semantic_frames, expected_triggers)
+                 sequence.leader_vsyncs, sequence.leader_triggers, semantic_frames, expected_triggers)
         log.info("starting display")
 
         camera.flush(CAMERA_CFG["flush_count"])
@@ -226,7 +213,7 @@ def main() -> int:
         else:
             log.info("0 frames dropped during semantic display (count/trigger alignment intact)")
         log.info("Displayed %d frames (%d semantic), %d dropped during semantic playback; count chunk complete (%d cycles)",
-                 leader["vsyncs"] + coordinator.semantic_frames_displayed,
+                 sequence.leader_vsyncs + coordinator.semantic_frames_displayed,
                  coordinator.semantic_frames_displayed,
                  dropped,
                  cycles)

@@ -18,6 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 analysis = [
+    "h5py>=3.16.0",
     "opencv-python",
 ]
 camera = [
