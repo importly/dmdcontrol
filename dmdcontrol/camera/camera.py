@@ -1,6 +1,9 @@
 import os
 import time
 import logging
+import multiprocessing as mp
+import traceback
+from itertools import islice
 from typing import Any, Optional, Tuple
 from pathlib import Path
 import numpy as np
@@ -427,189 +430,174 @@ class CameraDAVIS:
 
 class CameraProphsee(CameraDAVIS):
     """
-    Class to control Prophesee event cameras via OpenEB.
+    Prophesee event camera via OpenEB.
+
+    The device lives in a process this object owns: OpenEB's CameraStreamSlicer waits for each
+    slice inside C++ while holding the GIL, so reading it in the rendering process stalls the
+    render thread and drops frames. flush() and record() run in the camera process, processing
+    runs here. Call close() when done.
     """
     def __init__(self):
         self.logger = logging.getLogger('Camera')
+        context = mp.get_context('spawn')
+        self._conn, child_conn = context.Pipe()
+        self._process = context.Process(target=_camera_process, args=(child_conn,), daemon=True)
+        self._process.start()
+        child_conn.close()  # so a dead camera process shows up here as EOF
+        self.WIDTH, self.HEIGHT = self._receive()
 
-        # Open camera & enable trigger input
-        self.camera = MetavisionCamera.from_first_available()
-        device = self.camera.get_device()
-        trigger_in = device.get_i_trigger_in()
-        if trigger_in is not None:
-            trigger_in.enable(I_TriggerIn.Channel.MAIN)
-            self.logger.info('Enabled Prophesee trigger input on Channel.MAIN')
-        else:
-            self.logger.warning('Prophesee device does not expose I_TriggerIn interface')
-
-        self.WIDTH = self.camera.width()
-        self.HEIGHT = self.camera.height()
-        self.logger.info('Prophesee camera opened at %s x %s', self.WIDTH, self.HEIGHT)
-
-        # ROI settings from config
-        roi_cfg = CONFIG.get('Camera', {}).get('ROI', {})
+        camera_cfg = CONFIG.get('Camera', {})
+        roi_cfg = camera_cfg.get('ROI', {})
         self.roi_start_x = int(roi_cfg.get('start_x', 0))
         self.roi_start_y = int(roi_cfg.get('start_y', 0))
         self.ROI_WIDTH = int(roi_cfg.get('width', self.WIDTH))
         self.ROI_HEIGHT = int(roi_cfg.get('height', self.HEIGHT))
 
-        # Hardware ROI on sensor silicon (I_ROI)
-        is_full_frame = (
-            self.roi_start_x == 0 and
-            self.roi_start_y == 0 and
-            self.ROI_WIDTH == self.WIDTH and
-            self.ROI_HEIGHT == self.HEIGHT
-        )
-
-        i_roi = device.get_i_roi() if device is not None else None
-        if i_roi is not None:
-            if is_full_frame:
-                try:
-                    i_roi.enable(False)
-                    self.logger.info("Prophesee hardware ROI disabled (full sensor %dx%d)", self.WIDTH, self.HEIGHT)
-                except Exception as exc:
-                    self.logger.debug("Could not disable hardware ROI: %s", exc)
-            else:
-                try:
-                    if hasattr(I_ROI, "Mode") and hasattr(I_ROI.Mode, "ROI"):
-                        i_roi.set_mode(I_ROI.Mode.ROI)
-                    if hasattr(I_ROI, "Window"):
-                        window = I_ROI.Window(self.roi_start_x, self.roi_start_y, self.ROI_WIDTH, self.ROI_HEIGHT)
-                        i_roi.set_window(window)
-                    else:
-                        i_roi.set_window(self.roi_start_x, self.roi_start_y, self.ROI_WIDTH, self.ROI_HEIGHT)
-                    i_roi.enable(True)
-                    self.logger.info(
-                        "Enabled Prophesee hardware ROI on sensor silicon: origin=(%d, %d), size=%dx%d",
-                        self.roi_start_x, self.roi_start_y, self.ROI_WIDTH, self.ROI_HEIGHT,
-                    )
-                except Exception as exc:
-                    self.logger.warning("Failed to configure hardware I_ROI: %s", exc)
-        else:
-            if not is_full_frame:
-                self.logger.warning("Prophesee device does not expose I_ROI interface; software cropping will apply")
-
-        # No background noise filtering
+        accumulation_cfg = camera_cfg.get('Accumulation', {})
+        self.window_us = accumulation_cfg.get('window_us', 16000)
+        self.offset_us = accumulation_cfg.get('start_time_offset_us', 0)
+        self.polarity_mode = str(accumulation_cfg.get('polarity_mode', 'positive')).lower()
+        self.normalize_scale_max = camera_cfg.get('normalize_scale_max', 255)
+        self.signal_fraction = camera_cfg.get('signal_fraction', 0.1)
         self.filter = None
 
-        # Slicer
-        slice_us = int(CONFIG.get('Camera', {}).get('slice_duration_us', 10_000))
-        self.slicer = CameraStreamSlicer(self.camera.move(), slice_condition=SliceCondition.make_n_us(slice_us))
-        self._slicer_iter = iter(self.slicer)
-
-        # Accumulation settings
-        self.window_us = CONFIG.get('Camera', {}).get('Accumulation', {}).get('window_us', 16000)
-        self.offset_us = CONFIG.get('Camera', {}).get('Accumulation', {}).get('start_time_offset_us', 0)
-        self.polarity_mode = str(CONFIG.get('Camera', {}).get('Accumulation', {}).get('polarity_mode', 'positive')).lower()
-        self.normalize_scale_max = CONFIG.get('Camera', {}).get('normalize_scale_max', 255)
-        self.signal_fraction = CONFIG.get('Camera', {}).get('signal_fraction', 0.1)
-
     def flush(self, flush_count: int = 32):
-        """Flush stale slices from the stream buffer."""
-        for _ in range(min(flush_count, 5)):
-            try:
-                next(self._slicer_iter)
-            except StopIteration:
-                break
+        """Discard stale slices; the slicer queue holds at most 5."""
+        self._conn.send(('flush', flush_count))
+        self._receive()
 
     def record(self, trigger_count: int, on_complete: Any = None) -> tuple:
-        """Record event data for a set amount of triggers.
+        """Record events until trigger_count triggers have arrived.
 
-        Args:
-            trigger_count: Target number of triggers to record.
-            on_complete: Optional callback invoked immediately when all triggers
-                have been recorded, before large event concatenation.
+        on_complete runs once the triggers are in, before the events are copied over from the camera process.
         """
-        events, triggers = [], []
         self.logger.info('Recording %s triggers from Prophesee camera...', trigger_count)
+        self._conn.send(('record', trigger_count))
+        triggers, chunk_count = self._receive()
+        if on_complete is not None:
+            on_complete()
+        events = np.concatenate([self._conn.recv() for _ in range(chunk_count)])
+        self.logger.info('Recording complete. Triggers: %s, Events: %s', len(triggers), len(events))
+        return triggers, events
 
-        for s in self._slicer_iter:
-            events.append(s.events.copy())
-            if len(s.triggers) > 0:
-                matching = s.triggers["t"][s.triggers["p"] == 1]
-                triggers.extend(matching.tolist())
-            if len(triggers) >= trigger_count:
-                break
+    def close(self):
+        """Stop the camera process; the device is released when it exits."""
+        if self._process.is_alive():
+            self._conn.send(('close', None))
+            self._process.join(1)
+            if self._process.is_alive():  # still inside record()
+                self._process.terminate()
+                self._process.join()
 
-        triggers_arr = np.array(triggers[:trigger_count], dtype=np.int64)
-
-        if callable(on_complete):
-            try:
-                on_complete()
-            except Exception as e:
-                self.logger.warning("on_complete callback failed: %s", e)
-
-        concatenated = np.concatenate(events) if len(events) > 0 else np.empty(0)
-        self.logger.info('Recording complete. Triggers: %s, Events: %s', len(triggers_arr), len(concatenated))
-        return (triggers_arr, concatenated)
+    def _receive(self):
+        """Next reply from the camera process, passing its log records to logging on the way."""
+        while True:
+            kind, payload = self._conn.recv()
+            if kind == 'log':
+                logging.getLogger(payload.name).handle(payload)
+            elif kind == 'error':
+                raise RuntimeError(payload)
+            else:
+                return payload
 
     def align_triggers_to_event_range(self, triggers: np.ndarray, events: np.ndarray) -> np.ndarray:
         """Drop triggers whose accumulation window falls outside the recorded events."""
-        if len(triggers) == 0 or len(events) == 0:
-            return triggers
-
         window_starts = np.asarray(triggers, dtype=np.int64) + int(self.offset_us)
         window_ends = window_starts + int(self.window_us)
-
-        lit = events[events['p'] != 0]
-        if len(lit) == 0:
-            return triggers
-        ts = np.sort(lit['t'].astype(np.int64))
+        ts = np.sort(events['t'][events['p'] != 0].astype(np.int64))
 
         counts = np.searchsorted(ts, window_ends, 'left') - np.searchsorted(ts, window_starts, 'left')
         threshold = max(1.0, self.signal_fraction * np.percentile(counts, 75))
         strong = np.flatnonzero(counts >= threshold)
         if len(strong) == 0:
             return triggers
-
-        first, last = int(strong[0]), int(strong[-1])
-        return np.asarray(triggers)[first:last + 1]
+        return np.asarray(triggers)[strong[0]:strong[-1] + 1]
 
     def accumulate(self, triggers: np.ndarray, events: np.ndarray) -> np.ndarray:
-        """Accumulate recorded event stream into frames."""
+        """Accumulate recorded event stream into frames (signed: ON +1 / OFF -1, otherwise ON only)."""
         self.logger.info('Accumulating %s events into %s frames...', len(events), len(triggers))
-        frames = np.zeros((len(triggers), self.ROI_HEIGHT, self.ROI_WIDTH))
-        if len(triggers) == 0 or len(events) == 0:
-            return frames
-
-        ev_t, ev_x, ev_y, ev_p = events['t'], events['x'], events['y'], events['p']
         starts = np.asarray(triggers, dtype=np.int64) + int(self.offset_us)
-        ends = starts + int(self.window_us)
+        idx_starts = np.searchsorted(events['t'], starts, 'left')
+        idx_ends = np.searchsorted(events['t'], starts + int(self.window_us), 'left')
+        signed = self.polarity_mode == 'signed'
 
-        idx_starts = np.searchsorted(ev_t, starts, 'left')
-        idx_ends = np.searchsorted(ev_t, ends, 'left')
+        frames = np.zeros((len(triggers), self.ROI_HEIGHT, self.ROI_WIDTH))
+        for idx, (start, end) in enumerate(zip(idx_starts, idx_ends)):
+            x = events['x'][start:end].astype(np.int64) - self.roi_start_x
+            y = events['y'][start:end].astype(np.int64) - self.roi_start_y
+            on = events['p'][start:end] != 0
+            keep = (x >= 0) & (x < self.ROI_WIDTH) & (y >= 0) & (y < self.ROI_HEIGHT) & (on | signed)
+            weights = np.where(on[keep], 1.0, -1.0) if signed else None
+            frames[idx] = np.bincount(y[keep] * self.ROI_WIDTH + x[keep], weights=weights,
+                                      minlength=self.ROI_HEIGHT * self.ROI_WIDTH).reshape(self.ROI_HEIGHT, self.ROI_WIDTH)
 
-        is_signed = self.polarity_mode == 'signed'
-        total_pixels = self.ROI_HEIGHT * self.ROI_WIDTH
-
-        for idx in range(len(triggers)):
-            s_i, e_i = idx_starts[idx], idx_ends[idx]
-            if s_i >= e_i:
-                continue
-
-            sl_x = ev_x[s_i:e_i]
-            sl_y = ev_y[s_i:e_i]
-            sl_p = ev_p[s_i:e_i]
-
-            loc_x = sl_x - self.roi_start_x
-            loc_y = sl_y - self.roi_start_y
-
-            valid = (loc_x >= 0) & (loc_x < self.ROI_WIDTH) & (loc_y >= 0) & (loc_y < self.ROI_HEIGHT)
-            if not np.any(valid):
-                continue
-
-            flat_coords = loc_y[valid].astype(np.int64) * self.ROI_WIDTH + loc_x[valid].astype(np.int64)
-            if is_signed:
-                weights = np.where(sl_p[valid] != 0, 1.0, -1.0)
-                frame = np.bincount(flat_coords, weights=weights, minlength=total_pixels).reshape(
-                    (self.ROI_HEIGHT, self.ROI_WIDTH)
-                )
-            else:
-                on = sl_p[valid] != 0
-                frame = np.bincount(flat_coords[on], minlength=total_pixels).reshape(
-                    (self.ROI_HEIGHT, self.ROI_WIDTH)
-                )
-            frames[idx] = frame
-
-        self.logger.info(f'Accumulation complete.\n `frames` shape: %s', frames.shape)
+        self.logger.info('Accumulation complete. frames shape: %s', frames.shape)
         return frames
+
+
+class _PipeLogHandler(logging.Handler):
+    """Sends the camera process's log records to CameraProphsee."""
+
+    def __init__(self, conn: Any):
+        super().__init__()
+        self.conn = conn
+
+    def emit(self, record: logging.LogRecord):
+        record.msg, record.args, record.exc_info = record.getMessage(), None, None  # picklable
+        self.conn.send(('log', record))
+
+
+def _camera_process(conn: Any) -> None:
+    """Owns the Prophesee device: open and configure it, then serve flush/record until close."""
+    logging.getLogger().handlers[:] = [_PipeLogHandler(conn)]
+    logging.getLogger().setLevel(str(CONFIG.get('log_level', 'INFO')).upper())
+
+    try:
+        camera = MetavisionCamera.from_first_available()
+    except Exception as exc:
+        conn.send(('error', f'No Prophesee camera found, is it plugged in? ({exc})'))
+        return
+
+    try:
+        device = camera.get_device()
+        device.get_i_trigger_in().enable(I_TriggerIn.Channel.MAIN)
+
+        # Hardware ROI on sensor silicon; (0, 0, width, height) = full frame
+        width, height = camera.width(), camera.height()
+        roi_cfg = CONFIG.get('Camera', {}).get('ROI', {})
+        window = (int(roi_cfg.get('start_x', 0)), int(roi_cfg.get('start_y', 0)),
+                  int(roi_cfg.get('width', width)), int(roi_cfg.get('height', height)))
+        roi = device.get_i_roi()
+        if window == (0, 0, width, height):
+            roi.enable(False)
+        else:
+            roi.set_mode(I_ROI.Mode.ROI)
+            roi.set_window(I_ROI.Window(*window))
+            roi.enable(True)
+        logging.getLogger('Camera').info('Prophesee camera opened at %sx%s, trigger input on, ROI %s',
+                                         width, height, window)
+
+        slice_us = int(CONFIG.get('Camera', {}).get('slice_duration_us', 10_000))
+        slices = iter(CameraStreamSlicer(camera.move(), slice_condition=SliceCondition.make_n_us(slice_us)))
+        conn.send(('ok', (width, height)))
+
+        while True:
+            command, arg = conn.recv()
+            if command == 'flush':
+                for _ in islice(slices, min(arg, 5)):
+                    pass
+                conn.send(('ok', None))
+            elif command == 'record':
+                chunks, triggers = [], []
+                for s in slices:
+                    chunks.append(s.events.copy())
+                    triggers.extend(s.triggers['t'][s.triggers['p'] == 1].tolist())
+                    if len(triggers) >= arg:
+                        break
+                conn.send(('ok', (np.array(triggers[:arg], dtype=np.int64), len(chunks))))
+                for chunk in chunks:
+                    conn.send(chunk)
+            else:
+                return
+    except Exception:
+        conn.send(('error', traceback.format_exc()))

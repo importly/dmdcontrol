@@ -205,11 +205,6 @@ def main() -> int:
 
         triggers, events = camera.record(expected_triggers, on_complete=_on_record_complete)
 
-        if coordinator._thread.is_alive():
-            if not coordinator.wait_semantic_frames_done(timeout_s=8.0):
-                raise RuntimeError("semantic playback did not finish")
-            coordinator.join()
-
         if len(triggers) < expected_triggers:
             log.warning("expected %d triggers, got %d, missing triggers", expected_triggers, len(triggers))
 
@@ -242,6 +237,7 @@ def main() -> int:
     finally:
         if coordinator is not None:
             _cleanup_step("render coordinator stop", coordinator.stop)
+        _cleanup_step("camera close", camera.close)
         for name, dlpc in (("A", dlpc_a), ("B", dlpc_b)):
             _cleanup_step(f"DMD {name} stop pattern display",
                           partial(dlpc.start_pattern_display, 0))
