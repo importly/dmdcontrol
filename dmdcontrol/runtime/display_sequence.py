@@ -42,8 +42,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger('DisplaySequence')
 
-DMD = CONFIG['DMD']
-RUN = CONFIG['Run']
+DMD = CONFIG.DMD
+RUN = CONFIG.Run
 
 
 @dataclass(frozen=True)
@@ -68,9 +68,9 @@ def build_lut_entries(hold_last: bool = False, trigger_first_only: bool = False)
     hold_last keeps the last pattern on for the rest of the VSYNC instead of clearing it;
     trigger_first_only fires TRIG_OUT_2 on entry 0 only.
     """
-    exposure_us, dark_us = int(DMD['exposure_us']), int(DMD['dark_time_us'])
-    usable_us = (1e6 / float(DMD['target_hz']) - float(DMD['safe_margin_us'])) * float(DMD['frame_utilization'])
-    count = min(int(DMD['bitplanes']), int(usable_us // (exposure_us + dark_us)))
+    exposure_us, dark_us = DMD.exposure_us, DMD.dark_time_us
+    usable_us = (1e6 / DMD.target_hz - DMD.safe_margin_us) * DMD.frame_utilization
+    count = min(DMD.bitplanes, int(usable_us // (exposure_us + dark_us)))
     if count < 1:
         raise ValueError(f'exposure_us {exposure_us} + dark_time_us {dark_us} does not fit in one VSYNC '
                          f'({usable_us:.0f} us usable)')
@@ -121,9 +121,9 @@ class PairedDisplaySequence:
 
 def build_count_static_sequence() -> PairedDisplaySequence:
     """A: count, blank, count, blank, ... over Run.count_start..count_end. B: Run.test_b held."""
-    start, end = int(RUN['count_start']), int(RUN['count_end'])
+    start, end = RUN.count_start, RUN.count_end
     labels = [label for count in range(start, end + 1) for label in (f'count:{count}', 'blank')]
-    return _paired_sequence(pack_count_sequence_frames(start, end, RUN.get('number_size_px')), _static_b(), labels)
+    return _paired_sequence(pack_count_sequence_frames(start, end, RUN.number_size_px), _static_b(), labels)
 
 
 def build_dynamic_fm_sequence(fm: np.ndarray, kernel: Frame) -> PairedDisplaySequence:
@@ -136,20 +136,20 @@ def build_dynamic_fm_sequence(fm: np.ndarray, kernel: Frame) -> PairedDisplaySeq
 
 
 def _static_b() -> RGBFrame:
-    if RUN.get('test_b', 'dot') == 'checkerboard':
+    if RUN.test_b == 'checkerboard':
         return checkerboard_frame()
-    return generate_dot_frame(x=RUN.get('b_dot_x'), y=RUN.get('b_dot_y'), radius=RUN.get('b_dot_radius', 40))
+    return generate_dot_frame(x=RUN.b_dot_x, y=RUN.b_dot_y, radius=RUN.b_dot_radius)
 
 
 def _paired_sequence(frames_a, frame_b: Frame, labels: list[str]) -> PairedDisplaySequence:
-    blank = np.zeros((int(DMD['height']), int(DMD['width']), 3), dtype=np.uint8)
+    blank = np.zeros((DMD.height, DMD.width, 3), dtype=np.uint8)
     return PairedDisplaySequence(
         frames=tuple(FramePair(a=frame_a, b=frame_b) for frame_a in frames_a),
         labels=tuple(labels),
         startup_pair=FramePair(a=blank, b=frame_b),
         entries_a=build_lut_entries(),
         entries_b=build_lut_entries(hold_last=True, trigger_first_only=True),
-        leader_vsyncs=int(DMD['paired_startup_leader_vsyncs']),
+        leader_vsyncs=DMD.paired_startup_leader_vsyncs,
     )
 
 
@@ -163,8 +163,7 @@ def prepare_pair_controllers(dlpc_a: DLPC900, dlpc_b: DLPC900) -> None:
 
 
 def _prepare_controller(label: str, dlpc: DLPC900) -> None:
-    target_hz = float(DMD['target_hz'])
-    logger.info('[DMD %s] Configuring for %sx%s @ %sHz Video Pattern Mode', label, DMD['width'], DMD['height'], target_hz)
+    logger.info('[DMD %s] Configuring for %sx%s @ %sHz Video Pattern Mode', label, DMD.width, DMD.height, DMD.target_hz)
 
     # Pattern Stop is NACKed outside Pattern Mode, so only stop if a pattern is running
     if dlpc.get_display_mode()[0] == 2:
@@ -179,8 +178,8 @@ def _prepare_controller(label: str, dlpc: DLPC900) -> None:
     dlpc.set_input_source(0, 1)
     dlpc.set_input_pixel_format(0)       # RGB888
     dlpc.set_data_channel_swap(0, 4)     # EVM ABC -> BAC on port 1
-    dlpc.toggle_dual_pixel_mode(bool(DMD['dual_pixel']))
-    dlpc.set_input_display_resolution(0, 0, int(DMD['width']), int(DMD['height']))  # else a stale flash crop
+    dlpc.toggle_dual_pixel_mode(DMD.dual_pixel)
+    dlpc.set_input_display_resolution(0, 0, DMD.width, DMD.height)  # else a stale flash crop
     dlpc.apply_block_lock_workaround()
 
     if not wait_for_external_lock(dlpc, timeout_s=4.0):
@@ -206,14 +205,13 @@ def _prepare_controller(label: str, dlpc: DLPC900) -> None:
         logger.warning('[DMD %s] Video Pattern Mode input not continuously stable for 2s; continuing', label)
 
     # Non-inverted, rising <= falling, 20 us minimum pulse (DLPU018J Tables 2-118/2-120)
-    trigger = DMD['trigger_out']
-    rising_us = int(trigger['rising_delay_us'])
+    rising_us = DMD.trigger_out.rising_delay_us
     dlpc.configure_trigger_out_1(polarity_high=True, rising_delay_us=0, falling_delay_us=20)
     dlpc.configure_trigger_out_2(polarity_high=True, rising_delay_us=rising_us,
-                                 falling_delay_us=rising_us + int(trigger['pulse_width_us']))
+                                 falling_delay_us=rising_us + DMD.trigger_out.pulse_width_us)
 
     # Arming before several VSYNCs in mode 2 causes forced-swap (0x08) and then abort (0x40)
-    if not wait_for_stable_external_lock(dlpc, timeout_s=1.0, stable_for_s=max(0.2, 8.0 / target_hz), required_mode=2):
+    if not wait_for_stable_external_lock(dlpc, timeout_s=1.0, stable_for_s=max(0.2, 8.0 / DMD.target_hz), required_mode=2):
         logger.warning('[DMD %s] Final VSYNC input not continuously stable for 1s; continuing', label)
     logger.info('[DMD %s] Controller ready', label)
 

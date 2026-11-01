@@ -132,12 +132,9 @@ class CameraDAVIS:
         self.camera.setFramesRunning(False)
         
         # ROI
-        self.roi_start_x = CONFIG.get('Camera', {}).get('ROI', {}).get('start_x', 0)
-        self.roi_start_y = CONFIG.get('Camera', {}).get('ROI', {}).get('start_y', 0)
-        self.WIDTH = CONFIG.get('Camera', {}).get('width', 346)
-        self.HEIGHT = CONFIG.get('Camera', {}).get('height', 260)
-        self.ROI_WIDTH = CONFIG.get('Camera', {}).get('ROI', {}).get('width', CONFIG.get('Camera', {}).get('width', 346))
-        self.ROI_HEIGHT = CONFIG.get('Camera', {}).get('ROI', {}).get('height', CONFIG.get('Camera', {}).get('height', 260))
+        roi = CONFIG.Camera.ROI
+        self.roi_start_x, self.roi_start_y, self.ROI_WIDTH, self.ROI_HEIGHT = roi.start_x, roi.start_y, roi.width, roi.height
+        self.WIDTH, self.HEIGHT = CONFIG.Camera.width, CONFIG.Camera.height
         # Error checking for ROI exceeding camera resolution
         if (self.roi_start_x + self.ROI_WIDTH > self.WIDTH) or (self.roi_start_y + self.ROI_HEIGHT > self.HEIGHT):
             self.logger.error(f"ROI exceeds camera resolution. ROI: ({self.roi_start_x}, {self.roi_start_y}, {self.ROI_WIDTH}, {self.ROI_HEIGHT}), Camera Resolution: ({self.WIDTH}, {self.HEIGHT})")
@@ -153,14 +150,14 @@ class CameraDAVIS:
         self.logger.info(f'ROI set. \n {Font.BOLD}start_x:{Font.ENDC} %s, {Font.BOLD}width:{Font.ENDC} %s\n {Font.BOLD} start_y:{Font.ENDC} %s, {Font.BOLD}height:{Font.ENDC} %s{Font.ENDC}', self.roi_start_x, self.ROI_WIDTH, self.roi_start_y, self.ROI_HEIGHT)
         
         # Trigger
-        self.camera.setDetectorRisingEdges(CONFIG.get('Camera', {}).get('Trigger', {}).get('rising_edge', True))
-        self.camera.setDetectorFallingEdges(CONFIG.get('Camera', {}).get('Trigger', {}).get('falling_edge', False))
+        self.camera.setDetectorRisingEdges(CONFIG.Camera.Trigger.rising_edge)
+        self.camera.setDetectorFallingEdges(CONFIG.Camera.Trigger.falling_edge)
         self.camera.setDetectorRunning(False)
         
         # Filter
-        if CONFIG.get('Camera', {}).get('Filter', {}).get('enable', True):
+        if CONFIG.Camera.Filter.enable:
             self.filter = BackgroundActivityNoiseFilter(
-                background_activity_duration=CONFIG.get('Camera', {}).get('Filter', {}).get('background_activity_duration', 2000),
+                background_activity_duration=CONFIG.Camera.Filter.background_activity_duration,
                 resolution_limits=(self.ROI_WIDTH, self.ROI_HEIGHT)
             )
             self.logger.info('Background activity noise filter enabled with duration %s \u03bcs', self.filter.background_activity_duration)
@@ -169,15 +166,15 @@ class CameraDAVIS:
             self.logger.info('Background activity noise filter disabled')
                 
         # Accumulation
-        self.window_us = CONFIG.get('Camera', {}).get('Accumulation', {}).get('window_us', 16666)
-        self.offset_us = CONFIG.get('Camera', {}).get('Accumulation', {}).get('start_time_offset_us', 0)
+        self.window_us = CONFIG.Camera.Accumulation.window_us
+        self.offset_us = CONFIG.Camera.Accumulation.start_time_offset_us
         self.logger.info(f'Accumulation settings:\n {Font.BOLD}Time window (\u03bcs):{Font.ENDC} %s\n {Font.BOLD} Start time offset (\u03bcs):{Font.ENDC} %s', self.window_us, self.offset_us)
         
         
-        self.normalize_scale_max = CONFIG.get('Camera', {}).get('normalize_scale_max', 255)
-        self.signal_fraction = CONFIG.get('Camera', {}).get('signal_fraction', 0.1)
+        self.normalize_scale_max = CONFIG.Camera.normalize_scale_max
+        self.signal_fraction = CONFIG.Camera.signal_fraction
         
-        self._apply_bias_sensitivity(CONFIG.get('Camera', {}).get('bias_sensitivity', 'default'))
+        self._apply_bias_sensitivity(CONFIG.Camera.bias_sensitivity)
         
         # Enable events and external triggers
         self.camera.setDetectorRunning(True)
@@ -446,19 +443,13 @@ class CameraProphsee(CameraDAVIS):
         child_conn.close()  # so a dead camera process shows up here as EOF
         self.WIDTH, self.HEIGHT = self._receive()
 
-        camera_cfg = CONFIG.get('Camera', {})
-        roi_cfg = camera_cfg.get('ROI', {})
-        self.roi_start_x = int(roi_cfg.get('start_x', 0))
-        self.roi_start_y = int(roi_cfg.get('start_y', 0))
-        self.ROI_WIDTH = int(roi_cfg.get('width', self.WIDTH))
-        self.ROI_HEIGHT = int(roi_cfg.get('height', self.HEIGHT))
-
-        accumulation_cfg = camera_cfg.get('Accumulation', {})
-        self.window_us = accumulation_cfg.get('window_us', 16000)
-        self.offset_us = accumulation_cfg.get('start_time_offset_us', 0)
-        self.polarity_mode = str(accumulation_cfg.get('polarity_mode', 'positive')).lower()
-        self.normalize_scale_max = camera_cfg.get('normalize_scale_max', 255)
-        self.signal_fraction = camera_cfg.get('signal_fraction', 0.1)
+        roi, accumulation = CONFIG.Camera.ROI, CONFIG.Camera.Accumulation
+        self.roi_start_x, self.roi_start_y, self.ROI_WIDTH, self.ROI_HEIGHT = roi.start_x, roi.start_y, roi.width, roi.height
+        self.window_us = accumulation.window_us
+        self.offset_us = accumulation.start_time_offset_us
+        self.polarity_mode = accumulation.polarity_mode
+        self.normalize_scale_max = CONFIG.Camera.normalize_scale_max
+        self.signal_fraction = CONFIG.Camera.signal_fraction
         self.filter = None
 
     def flush(self, flush_count: int = 32):
@@ -550,7 +541,7 @@ class _PipeLogHandler(logging.Handler):
 def _camera_process(conn: Any) -> None:
     """Owns the Prophesee device: open and configure it, then serve flush/record until close."""
     logging.getLogger().handlers[:] = [_PipeLogHandler(conn)]
-    logging.getLogger().setLevel(str(CONFIG.get('log_level', 'INFO')).upper())
+    logging.getLogger().setLevel(CONFIG.log_level.upper())
 
     try:
         camera = MetavisionCamera.from_first_available()
@@ -564,21 +555,20 @@ def _camera_process(conn: Any) -> None:
 
         # Hardware ROI on sensor silicon; (0, 0, width, height) = full frame
         width, height = camera.width(), camera.height()
-        roi_cfg = CONFIG.get('Camera', {}).get('ROI', {})
-        window = (int(roi_cfg.get('start_x', 0)), int(roi_cfg.get('start_y', 0)),
-                  int(roi_cfg.get('width', width)), int(roi_cfg.get('height', height)))
-        roi = device.get_i_roi()
+        roi = CONFIG.Camera.ROI
+        window = (roi.start_x, roi.start_y, roi.width, roi.height)
+        i_roi = device.get_i_roi()
         if window == (0, 0, width, height):
-            roi.enable(False)
+            i_roi.enable(False)
         else:
-            roi.set_mode(I_ROI.Mode.ROI)
-            roi.set_window(I_ROI.Window(*window))
-            roi.enable(True)
+            i_roi.set_mode(I_ROI.Mode.ROI)
+            i_roi.set_window(I_ROI.Window(*window))
+            i_roi.enable(True)
         logging.getLogger('Camera').info('Prophesee camera opened at %sx%s, trigger input on, ROI %s',
                                          width, height, window)
 
-        slice_us = int(CONFIG.get('Camera', {}).get('slice_duration_us', 10_000))
-        slices = iter(CameraStreamSlicer(camera.move(), slice_condition=SliceCondition.make_n_us(slice_us)))
+        slices = iter(CameraStreamSlicer(camera.move(),
+                                         slice_condition=SliceCondition.make_n_us(CONFIG.Camera.slice_duration_us)))
         conn.send(('ok', (width, height)))
 
         while True:

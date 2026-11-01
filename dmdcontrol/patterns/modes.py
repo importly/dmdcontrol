@@ -7,8 +7,8 @@ from numpy.typing import NDArray
 
 from dmdcontrol.utils import CONFIG
 
-DMD_WIDTH = CONFIG.get('DMD', {}).get('width')
-DMD_HEIGHT = CONFIG.get('DMD', {}).get('height')
+DMD_WIDTH = CONFIG.DMD.width
+DMD_HEIGHT = CONFIG.DMD.height
 
 BinaryMask = NDArray[np.uint8]
 RGBFrame = NDArray[np.uint8]

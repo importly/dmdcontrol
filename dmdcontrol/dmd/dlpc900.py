@@ -43,43 +43,19 @@ class DMD:
     
 
 def load_from_config() -> list[DMD]:
-    """
-    Load DMDs from dictionary config.
-    
-    **Required Keys:**
-    - `name`: The name of the DMD device.
-        - `usb_bus`, `usb_port`: physical usb location
-        - `xrandr_output`: The xrandr output name for the DMD device.
-        - `width`: The width of the DMD device.
-        - `height`: The height of the DMD device.
-        - `offset`: The offset of the DMD device.
-        - `target_hz`: The target refresh rate in Hz.
-
-    Raises:
-        RuntimeError: Raises if any required key is missing in the config.
-
-    Returns:
-        list[DMD]: A list of loaded DMD objects.
-    """
+    """DMD A and B from config.yaml's DMD section (USB location, xrandr output, size, refresh)."""
     dmds = []
-    # Check for required keys
-    for name in ['A', 'B']:
-        try:
-            dmds.append(
-                DMD(
-                    name=name,
-                    usb_bus=int(CONFIG['DMD'][name]['usb_bus']),
-                    usb_port=tuple(port) if isinstance(port := CONFIG['DMD'][name]['usb_port'], list) else (int(port),),
-                    xrandr_output=CONFIG['DMD'][name]['xrandr_output'],
-                    width=int(CONFIG['DMD']['width']),
-                    height=int(CONFIG['DMD']['height']),
-                    offset=tuple(CONFIG['DMD']['offset']),
-                    target_hz=int(CONFIG['DMD']['target_hz'])
-                )
-            )
-        except KeyError as e:
-            raise RuntimeError(f"Missing required key in config for DMD '{name}': {e}")
-
+    for name, port in (('A', CONFIG.DMD.A), ('B', CONFIG.DMD.B)):
+        dmds.append(DMD(
+            name=name,
+            usb_bus=port.usb_bus,
+            usb_port=tuple(port.usb_port) if isinstance(port.usb_port, list) else (port.usb_port,),
+            xrandr_output=port.xrandr_output,
+            width=CONFIG.DMD.width,
+            height=CONFIG.DMD.height,
+            offset=(CONFIG.DMD.offset[0], CONFIG.DMD.offset[1]),
+            target_hz=CONFIG.DMD.target_hz,
+        ))
     return dmds
 
 

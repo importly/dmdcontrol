@@ -10,8 +10,6 @@ Run:
   b_dot_y: 540
   b_dot_radius: 30
   cycles: 20                        # count sequence is displayed this many times, then the run ends
-  save_filtered_events: True
-  save_jpg: False
   time_max_s: 600
 
 Camera:
@@ -29,11 +27,9 @@ Camera:
   Accumulation:
     window_us: 16000       # accumulation window == DMD exposure_us (master tied these)
     start_time_offset_us: 0
-    polarity_mode: signed  # positive (ON events only) | signed (+1/-1) | ignore (all +1)
+    polarity_mode: signed  # positive (ON events only) | signed (ON +1, OFF -1)
   width: 1280
   height: 720
-  Writer:
-    enable: True
   signal_fraction: 0.4
   normalize_scale_max: 255    # fixed reference for log scaling (master uses 255)
   bias_sensitivity: low       
@@ -52,7 +48,6 @@ DMD:
   height: 1080
   offset: [0, 0]
   target_hz: 60
-  wake_dp: False
   safe_margin_us: 250.0
   min_exposure_us: 150
   frame_utilization: 1.0
@@ -65,9 +60,6 @@ DMD:
   bitplanes: 24
   VID: 0x0451
   PID: 0xC900
-  trigger_out:
-    channel: TRIG_OUT_2
-    source_dmd: A
-    edge: rising
+  trigger_out:                      # A's TRIG_OUT_2 rising edge -> camera trigger input
     pulse_width_us: 20
     rising_delay_us: 0

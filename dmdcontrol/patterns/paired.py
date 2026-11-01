@@ -29,9 +29,9 @@ from dmdcontrol.utils import CONFIG
 
 logger = logging.getLogger('Paired')
 
-DMD_WIDTH = int(CONFIG['DMD']['width'])
-DMD_HEIGHT = int(CONFIG['DMD']['height'])
-TARGET_HZ = int(CONFIG['DMD']['target_hz'])
+DMD_WIDTH = CONFIG.DMD.width
+DMD_HEIGHT = CONFIG.DMD.height
+TARGET_HZ = CONFIG.DMD.target_hz
 
 RGBFrame = NDArray[np.uint8]
 

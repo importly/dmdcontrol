@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 def dlpc900_devices() -> list[usb.core.Device]:
     """All DLPC900s pyusb can see (VID/PID from config)."""
-    return list(usb.core.find(find_all=True, idVendor=CONFIG['DMD']['VID'], idProduct=CONFIG['DMD']['PID']) or []) # pyright: ignore
+    return list(usb.core.find(find_all=True, idVendor=CONFIG.DMD.VID, idProduct=CONFIG.DMD.PID) or []) # pyright: ignore
 
 
 def select_pyusb_device(usb_bus: int, usb_port: tuple[int, ...]) -> usb.core.Device:

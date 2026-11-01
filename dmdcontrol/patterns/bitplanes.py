@@ -8,7 +8,7 @@ from numpy.typing import NDArray
 
 from dmdcontrol.utils import CONFIG
 
-BITPLANES = CONFIG.get('DMD', {}).get('bitplanes')
+BITPLANES = CONFIG.DMD.bitplanes
 
 BITPLANE_LABELS = tuple(
     [f"G{bit}" for bit in range(8)]

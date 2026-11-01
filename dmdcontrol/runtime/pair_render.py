@@ -17,9 +17,9 @@ from dmdcontrol.patterns import (
 )
 from dmdcontrol.utils import CONFIG
 
-DMD_WIDTH = CONFIG.get('DMD', {}).get('width')
-DMD_HEIGHT = CONFIG.get('DMD', {}).get('height')
-MAX_RUNTIME_SECONDS = CONFIG.get('Run', {}).get('time_max_s', 9999999)
+DMD_WIDTH = CONFIG.DMD.width
+DMD_HEIGHT = CONFIG.DMD.height
+MAX_RUNTIME_SECONDS = CONFIG.Run.time_max_s
 
 
 def _blank_dmd_frame() -> RGBFrame:

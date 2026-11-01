@@ -30,16 +30,13 @@ from dmdcontrol.runtime import (
 from dmdcontrol.utils import CONFIG, WORKSPACE
 
 log = logging.getLogger("main")
-log.setLevel(str(CONFIG.get("log_level", "INFO")).upper())
+log.setLevel(CONFIG.log_level.upper())
 
-RUN = CONFIG.get("Run", {})
-DMD_CFG = CONFIG.get("DMD", {})
-CAMERA_CFG = CONFIG.get("Camera", {})
 DISPLAY_ID = ":0"
 
 
 def create_run_directory() -> Path:
-    root = WORKSPACE / str(RUN.get("output_root", "runs"))
+    root = WORKSPACE / CONFIG.Run.output_root
     run_dir = root / f"{datetime.now():%Y%m%d-%H%M%S}"
     run_dir.mkdir(parents=True, exist_ok=False)
     return run_dir
@@ -57,7 +54,7 @@ def git_hash() -> str:
 
 
 def setup_logging(run_dir: Path) -> None:
-    level = str(CONFIG.get("log_level", "INFO")).upper()
+    level = CONFIG.log_level.upper()
     console_handler = RichHandler(
         show_path=False, rich_tracebacks=True, markup=False,
         omit_repeated_times=False, log_time_format="%H:%M:%S",
@@ -91,8 +88,8 @@ def setup_displays() -> None:
 
 
 def validate_display() -> None:
-    out_a = DMD_CFG["A"]["xrandr_output"]
-    out_b = DMD_CFG["B"]["xrandr_output"]
+    out_a = CONFIG.DMD.A.xrandr_output
+    out_b = CONFIG.DMD.B.xrandr_output
     query = subprocess.run(
         ["xrandr", "--display", os.environ.get("DISPLAY", DISPLAY_ID), "--query"],
         capture_output=True, text=True, check=True,
@@ -144,10 +141,10 @@ def main() -> int:
 
         # A counts, B static dot, setup sequence
         sequence = build_count_static_sequence()
-        cycles = int(RUN["cycles"])
+        cycles = CONFIG.Run.cycles
         semantic_frames = cycles * len(sequence.frames)
         log.info("Recipe: counts %d..%d | %d frames per cycle | %d cycles = %d frames | %d leader vsyncs",
-                 RUN["count_start"], RUN["count_end"], len(sequence.frames),
+                 CONFIG.Run.count_start, CONFIG.Run.count_end, len(sequence.frames),
                  cycles, semantic_frames, sequence.leader_vsyncs)
 
         # hold the startup pair until the sequencers are running
@@ -175,13 +172,13 @@ def main() -> int:
                  sequence.leader_vsyncs + semantic_frames, sequence.leader_vsyncs, semantic_frames)
 
         # Start display
-        nonsemantic_triggers = sequence.leader_triggers + DMD_CFG["display_pipeline_vsyncs"]
+        nonsemantic_triggers = sequence.leader_triggers + CONFIG.DMD.display_pipeline_vsyncs
         expected_triggers = nonsemantic_triggers + semantic_frames
         log.info("leader vsyncs: %d (%d triggers) semantic frames: %d expected triggers: %d",
                  sequence.leader_vsyncs, sequence.leader_triggers, semantic_frames, expected_triggers)
         log.info("starting display")
 
-        camera.flush(CAMERA_CFG["flush_count"])
+        camera.flush(CONFIG.Camera.flush_count)
         coordinator.release_startup_leader()
         coordinator.release_semantic_frames()
 
