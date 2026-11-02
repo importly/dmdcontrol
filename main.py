@@ -120,7 +120,7 @@ def main() -> int:
     run_dir = create_run_directory()
     setup_logging(run_dir)
     log.info("Run directory: %s", run_dir)
-    log.debug("Git: %s", git_hash())
+    log.info("Git: %s", git_hash())
 
     # dmds
     dmd_a, dmd_b = load_from_config()
@@ -187,17 +187,13 @@ def main() -> int:
                 raise RuntimeError("semantic playback did not finish")
             coordinator.join()
 
-        triggers, events = camera.record(expected_triggers, on_complete=_on_record_complete)
-
-        if len(triggers) < expected_triggers:
-            log.warning("expected %d triggers, got %d, missing triggers", expected_triggers, len(triggers))
+        # a few extra triggers so a late semantic start still has all its frames
+        triggers, events = camera.record(expected_triggers + 4, on_complete=_on_record_complete)
 
         # save events and triggers
         np.save(run_dir / "triggers.npy", triggers)
         np.save(run_dir / "events.npy", events)
-        # skipping start up leader and then do alignment.
-        triggers = camera.skip_startup_leader_triggers(triggers, nonsemantic_triggers)
-        triggers = camera.align_triggers_to_event_range(triggers, events)
+        triggers = camera.find_semantic_frames(triggers, events, nonsemantic_triggers, semantic_frames, search=4)
 
         # Process and save results
         frames = camera.accumulate(triggers, events)

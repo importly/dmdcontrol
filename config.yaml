@@ -27,7 +27,7 @@ Camera:
   Accumulation:
     window_us: 16000       # accumulation window == DMD exposure_us (master tied these)
     start_time_offset_us: 0
-    polarity_mode: signed  # positive (ON events only) | signed (ON +1, OFF -1)
+    polarity_mode: positive  # positive (ON events only) | signed (ON +1, OFF -1); signed shows the previous digit's late OFF events as a ghost
   width: 1280
   height: 720
   signal_fraction: 0.4
@@ -37,9 +37,9 @@ Camera:
     bias_diff: 80     # 80, 52..100; reference for on/off, leave it
     bias_diff_on: 115 # 115, bias_diff+15..140; higher = fewer ON events
     bias_diff_off: 52 # 52, 25..bias_diff-15; lower = fewer OFF events
-    bias_fo: 90       # 74, 45..110; higher = wider bandwidth, faster response
+    bias_fo: 74       # 74, 45..110; higher = wider bandwidth (90 gave +11% signal, +20% noise, same timing)
     bias_hpf: 0       # 0, 0..120; higher = ignores slow light changes
-    bias_refr: 85     # 68, 30..100; higher = shorter dead time after each event
+    bias_refr: 68     # 68, 30..100; higher = shorter dead time after each event (85: no timing change)
 
 DMD:
   A:
@@ -59,7 +59,7 @@ DMD:
   frame_utilization: 1.0
   dual_pixel: False
   exposure_us: 16000
-  display_pipeline_vsyncs: 5
+  display_pipeline_vsyncs: 4        # triggers after the leader before the first semantic frame
   paired_startup_leader_vsyncs: 16  # non-semantic blank vsyncs after sequencer start; their triggers are skipped
   # constants
   dark_time_us: 0

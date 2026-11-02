@@ -493,22 +493,31 @@ class CameraProphsee(CameraDAVIS):
             else:
                 return payload
 
-    def align_triggers_to_event_range(self, triggers: np.ndarray, events: np.ndarray) -> np.ndarray:
-        """Drop triggers whose accumulation window falls outside the recorded events."""
-        window_starts = np.asarray(triggers, dtype=np.int64) + int(self.offset_us)
-        window_ends = window_starts + int(self.window_us)
-        ts = np.sort(events['t'][events['p'] != 0].astype(np.int64))
+    def find_semantic_frames(self, triggers: np.ndarray, events: np.ndarray, expected_start: int,
+                             frame_count: int, search: int = 4) -> np.ndarray:
+        """Triggers of the frame_count semantic frames.
 
-        counts = np.searchsorted(ts, window_ends, 'left') - np.searchsorted(ts, window_starts, 'left')
-        threshold = max(1.0, self.signal_fraction * np.percentile(counts, 75))
-        strong = np.flatnonzero(counts >= threshold)
-        if len(strong) == 0:
-            self.logger.warning('no trigger window reached the signal threshold (%.0f events)', threshold)
-            return triggers
-        first, last = int(strong[0]), int(strong[-1])
-        self.logger.info('aligned to events: dropped %s before, %s after, %s remain',
-                         first, len(triggers) - 1 - last, last - first + 1)
-        return np.asarray(triggers)[first:last + 1]
+        How many held VSYNCs land between flush() and the leader release varies, so the start can
+        be a trigger or two off expected_start. Semantic frames alternate content and blank, so the
+        start is the one within `search` of expected_start where even windows have the most
+        ON-minus-OFF events relative to odd ones.
+        """
+        starts = np.asarray(triggers, dtype=np.int64) + int(self.offset_us)
+        ends = starts + int(self.window_us)
+        on = events['p'] != 0
+        per_window = [np.searchsorted(ts, ends) - np.searchsorted(ts, starts)
+                      for ts in (events['t'][on], events['t'][~on])]
+        net = np.concatenate([per_window[0] - per_window[1], np.zeros(frame_count + search)])
+        sign = np.where(np.arange(frame_count) % 2 == 0, 1, -1)
+        candidates = range(max(0, expected_start - search), expected_start + search + 1)
+        start = max(candidates, key=lambda k: float(net[k:k + frame_count] @ sign))
+
+        semantic = np.asarray(triggers)[start:start + frame_count]
+        self.logger.info('semantic frames start at trigger %s (expected %s), %s frames',
+                         start, expected_start, len(semantic))
+        if len(semantic) < frame_count:
+            self.logger.warning('only %s of %s semantic triggers recorded', len(semantic), frame_count)
+        return semantic
 
     def accumulate(self, triggers: np.ndarray, events: np.ndarray) -> np.ndarray:
         """Accumulate recorded event stream into frames (signed: ON +1 / OFF -1, otherwise ON only)."""
