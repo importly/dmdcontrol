@@ -178,7 +178,7 @@ def main() -> int:
                  sequence.leader_vsyncs, sequence.leader_triggers, semantic_frames, expected_triggers)
         log.info("starting display")
 
-        camera.flush(CONFIG.Camera.flush_count)
+        camera.flush()
         coordinator.release_startup_leader()
         coordinator.release_semantic_frames()
 

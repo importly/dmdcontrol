@@ -3,7 +3,7 @@ import time
 import logging
 import multiprocessing as mp
 import traceback
-from itertools import islice
+from dataclasses import asdict
 from typing import Any, Optional, Tuple
 from pathlib import Path
 import numpy as np
@@ -431,7 +431,8 @@ class CameraProphsee(CameraDAVIS):
 
     The device lives in a process this object owns: OpenEB's CameraStreamSlicer waits for each
     slice inside C++ while holding the GIL, so reading it in the rendering process stalls the
-    render thread and drops frames. flush() and record() run in the camera process, processing
+    render thread and drops frames. That process reads the camera nonstop so nothing queues up;
+    flush() marks where a recording starts and record() returns what arrived since. Processing
     runs here. Call close() when done.
     """
     def __init__(self):
@@ -452,13 +453,14 @@ class CameraProphsee(CameraDAVIS):
         self.signal_fraction = CONFIG.Camera.signal_fraction
         self.filter = None
 
-    def flush(self, flush_count: int = 32):
-        """Discard stale slices; the slicer queue holds at most 5."""
-        self._conn.send(('flush', flush_count))
+    def flush(self):  # pyright: ignore[reportIncompatibleMethodOverride]
+        """Drop everything the camera has seen so far; record() keeps what arrives from here on."""
+        self._conn.send(('flush', None))
         self._receive()
 
     def record(self, trigger_count: int, on_complete: Any = None) -> tuple:
-        """Record events until trigger_count triggers have arrived.
+        """Record from the last flush() until trigger_count triggers have arrived and the last
+        one's accumulation window is complete.
 
         on_complete runs once the triggers are in, before the events are copied over from the camera process.
         """
@@ -501,8 +503,12 @@ class CameraProphsee(CameraDAVIS):
         threshold = max(1.0, self.signal_fraction * np.percentile(counts, 75))
         strong = np.flatnonzero(counts >= threshold)
         if len(strong) == 0:
+            self.logger.warning('no trigger window reached the signal threshold (%.0f events)', threshold)
             return triggers
-        return np.asarray(triggers)[strong[0]:strong[-1] + 1]
+        first, last = int(strong[0]), int(strong[-1])
+        self.logger.info('aligned to events: dropped %s before, %s after, %s remain',
+                         first, len(triggers) - 1 - last, last - first + 1)
+        return np.asarray(triggers)[first:last + 1]
 
     def accumulate(self, triggers: np.ndarray, events: np.ndarray) -> np.ndarray:
         """Accumulate recorded event stream into frames (signed: ON +1 / OFF -1, otherwise ON only)."""
@@ -564,29 +570,47 @@ def _camera_process(conn: Any) -> None:
             i_roi.set_mode(I_ROI.Mode.ROI)
             i_roi.set_window(I_ROI.Window(*window))
             i_roi.enable(True)
-        logging.getLogger('Camera').info('Prophesee camera opened at %sx%s, trigger input on, ROI %s',
-                                         width, height, window)
+
+        biases = device.get_i_ll_biases()
+        for name, value in asdict(CONFIG.Camera.Biases).items():
+            if not biases.set(name, value):
+                raise RuntimeError(f'camera rejected {name}={value}')
+        logging.getLogger('Camera').info('Prophesee camera opened at %sx%s, trigger input on, ROI %s, biases %s',
+                                         width, height, window, biases.get_all_biases())
 
         slices = iter(CameraStreamSlicer(camera.move(),
                                          slice_condition=SliceCondition.make_n_us(CONFIG.Camera.slice_duration_us)))
         conn.send(('ok', (width, height)))
 
+        # Slices are read nonstop so none queue up in the camera; until flush they are dropped.
+        accumulation = CONFIG.Camera.Accumulation
+        chunks: list | None = None
+        triggers: list[int] = []
         while True:
+            if not conn.poll():
+                s = next(slices)
+                if chunks is not None:
+                    chunks.append(s.events.copy())
+                    triggers += s.triggers['t'][s.triggers['p'] == 1].tolist()
+                continue
             command, arg = conn.recv()
             if command == 'flush':
-                for _ in islice(slices, min(arg, 5)):
-                    pass
+                chunks, triggers = [], []
                 conn.send(('ok', None))
             elif command == 'record':
-                chunks, triggers = [], []
-                for s in slices:
+                chunks = [] if chunks is None else chunks
+                while len(triggers) < arg:
+                    s = next(slices)
                     chunks.append(s.events.copy())
-                    triggers.extend(s.triggers['t'][s.triggers['p'] == 1].tolist())
-                    if len(triggers) >= arg:
-                        break
+                    triggers += s.triggers['t'][s.triggers['p'] == 1].tolist()
+                # keep reading until the last trigger's accumulation window is complete
+                end_us = triggers[arg - 1] + accumulation.start_time_offset_us + accumulation.window_us
+                while len(chunks[-1]) == 0 or chunks[-1]['t'][-1] < end_us:
+                    chunks.append(next(slices).events.copy())
                 conn.send(('ok', (np.array(triggers[:arg], dtype=np.int64), len(chunks))))
                 for chunk in chunks:
                     conn.send(chunk)
+                chunks, triggers = None, []
             else:
                 return
     except Exception:

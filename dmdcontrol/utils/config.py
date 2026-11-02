@@ -56,6 +56,16 @@ class AccumulationConfig:
 
 
 @dataclass(frozen=True)
+class BiasConfig:             # Prophesee Gen4.1 absolute values, set in this order
+    bias_diff: int
+    bias_diff_on: int
+    bias_diff_off: int
+    bias_fo: int
+    bias_hpf: int
+    bias_refr: int
+
+
+@dataclass(frozen=True)
 class CameraConfig:
     ROI: RoiConfig
     Trigger: TriggerInConfig  # DAVIS
@@ -66,7 +76,7 @@ class CameraConfig:
     signal_fraction: float
     normalize_scale_max: int
     bias_sensitivity: str     # DAVIS
-    flush_count: int
+    Biases: BiasConfig        # Prophesee
     slice_duration_us: int = 10_000
 
 

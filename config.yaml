@@ -32,8 +32,14 @@ Camera:
   height: 720
   signal_fraction: 0.4
   normalize_scale_max: 255    # fixed reference for log scaling (master uses 255)
-  bias_sensitivity: low       
-  flush_count: 32
+  bias_sensitivity: low
+  Biases:             # Prophesee Gen4.1, absolute values; camera default and allowed range in comments
+    bias_diff: 80     # 80, 52..100; reference for on/off, leave it
+    bias_diff_on: 115 # 115, bias_diff+15..140; higher = fewer ON events
+    bias_diff_off: 52 # 52, 25..bias_diff-15; lower = fewer OFF events
+    bias_fo: 90       # 74, 45..110; higher = wider bandwidth, faster response
+    bias_hpf: 0       # 0, 0..120; higher = ignores slow light changes
+    bias_refr: 85     # 68, 30..100; higher = shorter dead time after each event
 
 DMD:
   A:
