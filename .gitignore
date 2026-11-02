@@ -21,3 +21,5 @@ typings
 *tmp.py
 tests
 .peak
+
+datasets/

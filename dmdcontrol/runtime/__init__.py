@@ -5,7 +5,7 @@ from .display_sequence import (
     LutEntry,
     PairedDisplaySequence,
     build_count_static_sequence,
-    build_dynamic_fm_sequence,
+    build_kernel_sequence,
     build_lut_entries,
     load_pattern_sequence,
     prepare_pair_controllers,
@@ -17,3 +17,8 @@ from .pair_render import (
     _blank_pair_frames,
     _start_pair_render_coordinator,
 )
+from .rig import (
+    Capture,
+    PairRig,
+)
+from .dmd_conv import dmd_conv

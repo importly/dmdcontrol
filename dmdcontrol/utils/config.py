@@ -1,4 +1,4 @@
-"""config.yaml, loaded once into typed sections: CONFIG.Run, CONFIG.Camera, CONFIG.DMD.
+"""config.yaml, loaded once into typed sections: CONFIG.Run, CONFIG.Laser, CONFIG.Camera, CONFIG.DMD.
 
 Every key in the file must be a field here and every field without a default must be in the
 file, so a typo or a leftover key fails at import instead of silently falling back.
@@ -15,17 +15,48 @@ CONFIG_PATH = WORKSPACE / "config.yaml"
 
 
 @dataclass(frozen=True)
-class RunConfig:
-    output_root: str
-    count_start: int
-    count_end: int
+class CountConfig:
+    start: int
+    end: int
     number_size_px: int
+    cycles: int
     test_b: str               # dot | checkerboard
     b_dot_x: int
     b_dot_y: int
     b_dot_radius: int
-    cycles: int
+
+
+@dataclass(frozen=True)
+class KernelConfig:
+    dataset_size: int
+    batch_size: int
+    image_size: int
+    kernel_size: int
+    fm_px: int
+    kernel_px: int
+    gamma: float
+    sheet_fraction: float
+    max_attempts: int
+
+
+@dataclass(frozen=True)
+class RunConfig:
+    mode: str                 # count | kernel
+    output_root: str
     time_max_s: float
+    Count: CountConfig
+    Kernel: KernelConfig
+
+    def __post_init__(self):
+        if self.mode not in ('count', 'kernel'):
+            raise ValueError(f'config.yaml Run.mode must be count or kernel, got {self.mode!r}')
+
+
+@dataclass(frozen=True)
+class LaserConfig:
+    control: bool
+    port: str
+    power_mw: float
 
 
 @dataclass(frozen=True)
@@ -125,6 +156,7 @@ class DmdConfig:
 class Config:
     log_level: str
     Run: RunConfig
+    Laser: LaserConfig
     Camera: CameraConfig
     DMD: DmdConfig
 

@@ -33,8 +33,8 @@ from dmdcontrol.patterns import (
     checkerboard_frame,
     generate_dot_frame,
     pack_count_sequence_frames,
-    pack_sequence_frames,
 )
+from dmdcontrol.patterns.gpu import BLANK, MaskPattern
 from dmdcontrol.utils import CONFIG
 
 if TYPE_CHECKING:
@@ -121,32 +121,48 @@ class PairedDisplaySequence:
 
 def build_count_static_sequence() -> PairedDisplaySequence:
     """A: count, blank, count, blank, ... over Run.count_start..count_end. B: Run.test_b held."""
-    start, end = RUN.count_start, RUN.count_end
+    start, end = RUN.Count.start, RUN.Count.end
     labels = [label for count in range(start, end + 1) for label in (f'count:{count}', 'blank')]
-    return _paired_sequence(pack_count_sequence_frames(start, end, RUN.number_size_px), _static_b(), labels)
+    return _paired_sequence(pack_count_sequence_frames(start, end, RUN.Count.number_size_px), _static_b(), labels)
 
 
-def build_dynamic_fm_sequence(fm: np.ndarray, kernel: Frame) -> PairedDisplaySequence:
-    """A: each feature map as positive part, blank, positive part, blank. B: the kernel held.
+def build_kernel_sequence(fm: np.ndarray, kernel: np.ndarray) -> PairedDisplaySequence:
+    """One kernel-collection pass over N feature maps; fm (N, h, w) and kernel (h, w) hold +-1.
 
-    kernel is an RGB frame (e.g. generate_dot_frame() for a 1x1 kernel) or a GpuPattern.
+    Each pattern is drawn centred at its own size on the GPU. B holds kernel > 0 for the first
+    half and kernel < 0 for the second; in each half A shows every fm > 0, then every fm < 0, each
+    followed by a blank. So the content frames come in four blocks of N:
+    (k+ fm+), (k+ fm-), (k- fm+), (k- fm-).
     """
-    labels = [label for index in range(len(fm)) for label in (f'fm:{index}', 'blank') * 2]
-    return _paired_sequence(pack_sequence_frames(fm), kernel, labels)
+    fm_parts = {'+': [MaskPattern(mask) for mask in fm > 0], '-': [MaskPattern(mask) for mask in fm < 0]}
+    frames: list[FramePair] = []
+    labels: list[str] = []
+    for kernel_sign, kernel_mask in (('+', kernel > 0), ('-', kernel < 0)):
+        b = MaskPattern(kernel_mask)
+        for fm_sign in '+-':
+            for index, a in enumerate(fm_parts[fm_sign]):
+                frames += [FramePair(a=a, b=b), FramePair(a=BLANK, b=b)]
+                labels += [f'k{kernel_sign} fm{fm_sign}:{index}', 'blank']
+    return _sequence(frames, labels, startup_pair=FramePair(a=BLANK, b=frames[0].b))
 
 
 def _static_b() -> RGBFrame:
-    if RUN.test_b == 'checkerboard':
+    if RUN.Count.test_b == 'checkerboard':
         return checkerboard_frame()
-    return generate_dot_frame(x=RUN.b_dot_x, y=RUN.b_dot_y, radius=RUN.b_dot_radius)
+    return generate_dot_frame(x=RUN.Count.b_dot_x, y=RUN.Count.b_dot_y, radius=RUN.Count.b_dot_radius)
 
 
 def _paired_sequence(frames_a, frame_b: Frame, labels: list[str]) -> PairedDisplaySequence:
     blank = np.zeros((DMD.height, DMD.width, 3), dtype=np.uint8)
+    return _sequence([FramePair(a=frame_a, b=frame_b) for frame_a in frames_a], labels,
+                     startup_pair=FramePair(a=blank, b=frame_b))
+
+
+def _sequence(frames: list[FramePair], labels: list[str], startup_pair: FramePair) -> PairedDisplaySequence:
     return PairedDisplaySequence(
-        frames=tuple(FramePair(a=frame_a, b=frame_b) for frame_a in frames_a),
+        frames=tuple(frames),
         labels=tuple(labels),
-        startup_pair=FramePair(a=blank, b=frame_b),
+        startup_pair=startup_pair,
         entries_a=build_lut_entries(),
         entries_b=build_lut_entries(hold_last=True, trigger_first_only=True),
         leader_vsyncs=DMD.paired_startup_leader_vsyncs,

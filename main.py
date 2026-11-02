@@ -1,38 +1,21 @@
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 import sys
-import time
 from datetime import datetime
-from pathlib import Path
-from functools import partial
-from rich.logging import RichHandler
 from math import ceil
+from pathlib import Path
 
 import numpy as np
+from rich.logging import RichHandler
 
-from dmdcontrol.camera import CameraProphsee
-from dmdcontrol.dmd import (
-    DLPC900,
-    load_from_config
-)
-from dmdcontrol.patterns import PairedPatternEngine
-from dmdcontrol.runtime import (
-    build_count_static_sequence,
-    _start_pair_render_coordinator,
-    load_pattern_sequence,
-    prepare_pair_controllers,
-    start_loaded_pattern_sequences,
-    verify_started_pattern_sequence,
-)
+from dmdcontrol.laser import Laser
+from dmdcontrol.runtime import PairRig, build_count_static_sequence
 from dmdcontrol.utils import CONFIG, WORKSPACE
 
 log = logging.getLogger("main")
 log.setLevel(CONFIG.log_level.upper())
-
-DISPLAY_ID = ":0"
 
 
 def create_run_directory() -> Path:
@@ -58,7 +41,8 @@ def setup_logging(run_dir: Path) -> None:
     console_handler = RichHandler(
         show_path=False, rich_tracebacks=True, markup=False,
         omit_repeated_times=False, log_time_format="%H:%M:%S",
-        level=level,
+        # kernel mode shows a progress bar; per-pass logs go to run.log only
+        level="WARNING" if CONFIG.Run.mode == "kernel" else level,
     )
     console_handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))
     file_handler = logging.FileHandler(run_dir / "run.log")
@@ -67,167 +51,49 @@ def setup_logging(run_dir: Path) -> None:
     root = logging.getLogger()
     root.setLevel(level)
     root.handlers[:] = [console_handler, file_handler]
-    # logging.getLogger("OpenGL").setLevel(logging.INFO)  # third-party logs
 
 
-def wake_dmds(dlpc_a, dlpc_b) -> None:
-    for name, dlpc in (("A", dlpc_a), ("B", dlpc_b)):
-        log.info("Waking DisplayPort receiver on DMD %s", name)
-        dlpc.wake_displayport_receiver()
-        time.sleep(1)
-        dlpc.set_input_source(0, 1)
-        dlpc.set_display_mode(0)
-        dlpc.apply_block_lock_workaround()
+def run_count(rig: PairRig, run_dir: Path) -> None:
+    """A counts, B static dot; frames, contact sheet and the raw recording go to run_dir."""
+    sequence = build_count_static_sequence()
+    count = CONFIG.Run.Count
+    log.info("Recipe: counts %d..%d | %d frames per cycle | %d cycles = %d frames | %d leader vsyncs",
+             count.start, count.end, len(sequence.frames), count.cycles,
+             count.cycles * len(sequence.frames), sequence.leader_vsyncs)
 
+    capture = rig.play(sequence, count.cycles)
+    np.save(run_dir / "triggers.npy", capture.triggers)
+    np.save(run_dir / "events.npy", capture.events)
 
-def setup_displays() -> None:
-    script = WORKSPACE / "scripts" / "setup_displays.sh"
-    log.info("Running display setup: %s", script)
-    subprocess.run(["bash", str(script)], check=True)
-    os.environ.setdefault("DISPLAY", DISPLAY_ID)
-
-
-def validate_display() -> None:
-    out_a = CONFIG.DMD.A.xrandr_output
-    out_b = CONFIG.DMD.B.xrandr_output
-    query = subprocess.run(
-        ["xrandr", "--display", os.environ.get("DISPLAY", DISPLAY_ID), "--query"],
-        capture_output=True, text=True, check=True,
-    ).stdout
-    problems = []
-    if "current 3840 x 1080" not in query:
-        problems.append("screen is not 3840x1080")
-    if f"{out_b} connected primary 1920x1080+0+0" not in query:
-        problems.append(f"{out_b} (DMD B) is not primary at +0+0")
-    if f"{out_a} connected 1920x1080+1920+0" not in query \
-            and f"{out_a} connected primary 1920x1080+1920+0" not in query:
-        problems.append(f"{out_a} (DMD A) is not at +1920+0")
-    if problems:
-        raise RuntimeError("display validation failed: " + "; ".join(problems))
-    log.info("Display validated: 3840x1080, %s left (B, primary), %s right (A)",
-             out_b, out_a)
-
-
-def _cleanup_step(description: str, action) -> None:
-    try:
-        action()
-    except Exception as exc:
-        log.warning("Cleanup (%s): %s", description, exc)
+    frames = rig.camera.accumulate(capture.semantic, capture.events)
+    rig.camera.save(frames, run_dir / "frames", save_as_png=True)
+    rig.camera.contact_sheet(frames, run_dir / "contact_sheet.png", (20, ceil(len(frames) / 20)))
+    if capture.dropped:
+        log.critical("%d frame(s) dropped during semantic display: count/trigger alignment is off for this run",
+                     capture.dropped)
+    else:
+        log.info("0 frames dropped during semantic display (count/trigger alignment intact)")
 
 
 def main() -> int:
-    # logging
     run_dir = create_run_directory()
     setup_logging(run_dir)
     log.info("Run directory: %s", run_dir)
     log.info("Git: %s", git_hash())
-
-    # dmds
-    dmd_a, dmd_b = load_from_config()
-    dlpc_a = DLPC900(dmd_a)
-    dlpc_b = DLPC900(dmd_b)
-    engine = None
-    coordinator = None
-
-    # Camera setup
-    camera = CameraProphsee()
+    log.info("Mode: %s", CONFIG.Run.mode)
 
     try:
-        # Get dmds up
-        wake_dmds(dlpc_a, dlpc_b)
-        # Setup xorg display and validate
-        setup_displays()
-        validate_display()
-
-        # A counts, B static dot, setup sequence
-        sequence = build_count_static_sequence()
-        cycles = CONFIG.Run.cycles
-        semantic_frames = cycles * len(sequence.frames)
-        log.info("Recipe: counts %d..%d | %d frames per cycle | %d cycles = %d frames | %d leader vsyncs",
-                 CONFIG.Run.count_start, CONFIG.Run.count_end, len(sequence.frames),
-                 cycles, semantic_frames, sequence.leader_vsyncs)
-
-        # hold the startup pair until the sequencers are running
-        engine = PairedPatternEngine()
-        coordinator = _start_pair_render_coordinator(
-            engine,
-            sequence.provider,
-            startup_leader_pair=sequence.startup_pair,
-            startup_leader_vsyncs=sequence.leader_vsyncs,
-            semantic_frames=semantic_frames,
-        )
-        if not coordinator.wait_until_ready(timeout_s=2.0):
-            raise RuntimeError("render coordinator did not become ready")
-
-        prepare_pair_controllers(dlpc_a, dlpc_b)
-        load_pattern_sequence(dlpc_a, sequence.entries_a)
-        load_pattern_sequence(dlpc_b, sequence.entries_b)
-        start_loaded_pattern_sequences(dlpc_a, dlpc_b)
-
-        for name, dlpc in (("A", dlpc_a), ("B", dlpc_b)):
-            hw = verify_started_pattern_sequence(dlpc, label=f"DMD {name}")
-            log.info("DMD %s sequencer running in Video Pattern Mode (hw=%s)",
-                     name, f"0x{hw:02X}" if hw is not None else "n/a")
-        log.info("Displaying %d frames (%d leader + %d count)...",
-                 sequence.leader_vsyncs + semantic_frames, sequence.leader_vsyncs, semantic_frames)
-
-        # Start display
-        nonsemantic_triggers = sequence.leader_triggers + CONFIG.DMD.display_pipeline_vsyncs
-        expected_triggers = nonsemantic_triggers + semantic_frames
-        log.info("leader vsyncs: %d (%d triggers) semantic frames: %d expected triggers: %d",
-                 sequence.leader_vsyncs, sequence.leader_triggers, semantic_frames, expected_triggers)
-        log.info("starting display")
-
-        camera.flush()
-        coordinator.release_startup_leader()
-        coordinator.release_semantic_frames()
-
-        def _on_record_complete():
-            if not coordinator.wait_semantic_frames_done(timeout_s=8.0):
-                raise RuntimeError("semantic playback did not finish")
-            coordinator.join()
-
-        # a few extra triggers so a late semantic start still has all its frames
-        triggers, events = camera.record(expected_triggers + 4, on_complete=_on_record_complete)
-
-        # save events and triggers
-        np.save(run_dir / "triggers.npy", triggers)
-        np.save(run_dir / "events.npy", events)
-        triggers = camera.find_semantic_frames(triggers, events, nonsemantic_triggers, semantic_frames, search=4)
-
-        # Process and save results
-        frames = camera.accumulate(triggers, events)
-        camera.save(frames, run_dir / 'frames', save_as_png=True)
-        camera.contact_sheet(frames, run_dir / 'contact_sheet.png', (20,ceil(len(triggers)/20)))
-
-        dropped = coordinator.semantic_dropped_frames
-        if dropped:
-            log.critical("%d frame(s) dropped during semantic display: count/trigger alignment is off for this run", dropped)
-        else:
-            log.info("0 frames dropped during semantic display (count/trigger alignment intact)")
-        log.info("Displayed %d frames (%d semantic), %d dropped during semantic playback; count chunk complete (%d cycles)",
-                 sequence.leader_vsyncs + coordinator.semantic_frames_displayed,
-                 coordinator.semantic_frames_displayed,
-                 dropped,
-                 cycles)
+        with Laser(), PairRig() as rig:
+            if CONFIG.Run.mode == "count":
+                run_count(rig, run_dir)
+            else:
+                from collect import collect_kernels  # torch is only needed here
+                collect_kernels(rig, run_dir)
         return 0
     except Exception as exc:
-        log.exception("Display chunk failed: %s", exc)
+        log.exception("%s run failed: %s", CONFIG.Run.mode, exc)
         return 1
-    finally:
-        if coordinator is not None:
-            _cleanup_step("render coordinator stop", coordinator.stop)
-        _cleanup_step("camera close", camera.close)
-        for name, dlpc in (("A", dlpc_a), ("B", dlpc_b)):
-            _cleanup_step(f"DMD {name} stop pattern display",
-                          partial(dlpc.start_pattern_display, 0))
-            _cleanup_step(f"DMD {name} restore video mode",
-                          partial(dlpc.set_display_mode, 0))
-            _cleanup_step(f"DMD {name} block-lock workaround",
-                          dlpc.apply_block_lock_workaround)
-            _cleanup_step(f"DMD {name} close", dlpc.close)
-        if engine is not None:
-            _cleanup_step("engine cleanup", engine.cleanup)
+
 
 if __name__ == "__main__":
     sys.exit(main())

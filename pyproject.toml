@@ -8,17 +8,21 @@ dependencies = [
     "dv-processing",
     "evcam; sys_platform == 'linux'",
     "glfw",
+    "h5py>=3.16.0",
     "numpy",
     "pillow",
     "pyopengl",
     "pyusb",
     "pyyaml",
     "rich",
+    "torch",
+    "torchvision",
+    "tqdm",
+    "vortran_laser",
 ]
 
 [project.optional-dependencies]
 analysis = [
-    "h5py>=3.16.0",
     "opencv-python",
 ]
 camera = [
@@ -40,6 +44,7 @@ default-groups = ["dev"]
 
 [tool.uv.sources]
 evcam = { path = "prophesee/evcam-lib", editable = true }
+vortran_laser = { git = "https://github.com/AllenNeuralDynamics/vortran_laser", rev = "9f229b946e371964671339927f1a0028f1d459ab" }
 
 [tool.basedpyright]
 include = ["dmdcontrol"]
