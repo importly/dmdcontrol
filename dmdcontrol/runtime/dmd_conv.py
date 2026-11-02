@@ -25,7 +25,8 @@ def dmd_conv(rig: PairRig, fm: np.ndarray, kernel: np.ndarray, sheet_path: Path 
     One pass gives the four sign products (k+ fm+, k+ fm-, k- fm+, k- fm-); each is min-max
     normalized over the batch and raised to Run.Kernel.gamma, then combined as
     pp - np - pn + nn. Returns (N, ROI height, ROI width). A pass that drops frames is redone.
-    sheet_path, if given, gets <name>_frames.png (all four products) and <name>_conv.png.
+    sheet_path, if given, gets <name>_frames.png (all four products) and <name>_conv.png
+    (mid-grey = 0, brighter = positive).
     """
     settings = CONFIG.Run.Kernel
     for attempt in range(1, settings.max_attempts + 1):
@@ -46,7 +47,7 @@ def dmd_conv(rig: PairRig, fm: np.ndarray, kernel: np.ndarray, sheet_path: Path 
         rig.camera.contact_sheet(frames, sheet_path.with_name(f'{sheet_path.name}_frames.png'),
                                  (20, ceil(len(frames) / 20)))
         rig.camera.contact_sheet(conv, sheet_path.with_name(f'{sheet_path.name}_conv.png'),
-                                 (20, ceil(len(conv) / 20)))
+                                 (20, ceil(len(conv) / 20)), signed=True)
     return conv
 
 

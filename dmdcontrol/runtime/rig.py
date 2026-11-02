@@ -61,8 +61,8 @@ class PairRig:
         return self
 
     def __exit__(self, *_) -> None:
+        # play() already stopped the sequencers and restored video mode; stopping again is NACKed
         _cleanup_step('camera close', self.camera.close)
-        self._stop_sequencers()
         for name, dlpc in self.dlpcs.items():
             _cleanup_step(f'DMD {name} close', dlpc.close)
 

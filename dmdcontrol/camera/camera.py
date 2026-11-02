@@ -398,6 +398,7 @@ class CameraDAVIS:
         frames: np.ndarray, 
         save_path: Path = Path('./contact_sheet.jpg'), 
         grid_size: Tuple[int, int] = (20, 10),
+        signed: bool = False,
     ):
         """
         Creates a contact sheet of the accumulated event frames and saves it to a file.
@@ -407,15 +408,20 @@ class CameraDAVIS:
             folder (Path): Folder to save the contact sheet to.
             grid_size (Tuple[int, int], optional): Size of the grid for the contact sheet. Defaults to (20, 10).
             file_name (Path, optional): Name of the file to save the contact sheet to. Defaults to 'contact_sheet.jpg'.
+            signed (bool, optional): Draw values linearly with 0 as mid-grey, scaled to the sheet's largest
+                |value| (for dmd_conv output), instead of the event-count log scale. Defaults to False.
         """
         # Create a blank canvas for the contact sheet
         contact_sheet = Image.new('L', (self.ROI_WIDTH * grid_size[0], self.ROI_HEIGHT * grid_size[1]))
-        
+        peak = float(np.abs(frames).max()) or 1.0
+
         for idx, frame in enumerate(frames):
             if idx >= grid_size[0] * grid_size[1]:
                 break
             # Normalize and convert frame to image
-            frame_img = Image.fromarray(self._to_image(frame), mode='L')
+            pixels = (np.rint(127.5 + 127.5 * np.asarray(frame) / peak).astype(np.uint8) if signed
+                      else self._to_image(frame))
+            frame_img = Image.fromarray(pixels, mode='L')
             x_offset = (idx % grid_size[0]) * self.ROI_WIDTH
             y_offset = (idx // grid_size[0]) * self.ROI_HEIGHT
             contact_sheet.paste(frame_img, (x_offset, y_offset))
