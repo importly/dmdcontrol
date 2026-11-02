@@ -7,20 +7,35 @@ data.h5 holds, per batch: output (optical result), kernel, input (feature maps) 
 from __future__ import annotations
 
 import logging
+import urllib.request
 from pathlib import Path
 
 import h5py
 import numpy as np
 import torch
-from tqdm import tqdm
+import torchvision.datasets.utils as torchvision_utils
 
 from bcnn import Conv2dEODLA, KernelGen, TranslatorDataGen
 from dmdcontrol.runtime import PairRig
-from dmdcontrol.utils import CONFIG
+from dmdcontrol.utils import CONFIG, progress_bar
 
 log = logging.getLogger('collect')
 
 IN_CHANNELS = OUT_CHANNELS = 1
+
+
+def _urlretrieve(url: str, filename: str | Path, chunk_size: int = 1024 * 32) -> None:
+    """torchvision's dataset download, drawn with the run's rich bar instead of tqdm."""
+    request = urllib.request.Request(url, headers={'User-Agent': torchvision_utils.USER_AGENT})
+    with urllib.request.urlopen(request) as response, open(filename, 'wb') as file, \
+            progress_bar(download=True) as bar:
+        task = bar.add_task(f'Downloading {Path(filename).name}', total=response.length)
+        while chunk := response.read(chunk_size):
+            file.write(chunk)
+            bar.advance(task, len(chunk))
+
+
+torchvision_utils._urlretrieve = _urlretrieve
 
 
 def collect_kernels(rig: PairRig, run_dir: Path) -> None:
@@ -56,13 +71,17 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
             'input', (batches, settings.batch_size, IN_CHANNELS, settings.image_size, settings.image_size), np.float32)
         label_data = data_file.create_dataset('label', (batches, settings.batch_size, 3), np.float32)
 
-        for index, (fm, label) in tqdm(enumerate(loader), total=batches):
-            kernel = kernels.get_kernel(index)
-            sheet = run_dir / 'sheets' / f'batch_{index:04d}' if rng.random() < settings.sheet_fraction else None
-            result = Conv2dEODLA.apply(fm, kernel, None, 1, [settings.kernel_size // 2] * 2, 1, 1,
-                                       rig, OUT_CHANNELS, sheet)
-            output[index] = result.cpu().numpy()
-            kernel_data[index] = kernel.cpu().numpy().astype(np.float32)
-            input_data[index] = fm.cpu().numpy().astype(np.float32)
-            label_data[index] = label.cpu().numpy().astype(np.float32)
+        # redrawn once a second: the bar's thread shares the GIL with the render thread during a pass
+        with progress_bar(refresh_per_second=1) as bar:
+            task = bar.add_task('Collecting batches', total=batches)
+            for index, (fm, label) in enumerate(loader):
+                kernel = kernels.get_kernel(index)
+                sheet = run_dir / 'sheets' / f'batch_{index:04d}' if rng.random() < settings.sheet_fraction else None
+                result = Conv2dEODLA.apply(fm, kernel, None, 1, [settings.kernel_size // 2] * 2, 1, 1,
+                                           rig, OUT_CHANNELS, sheet)
+                output[index] = result.cpu().numpy()
+                kernel_data[index] = kernel.cpu().numpy().astype(np.float32)
+                input_data[index] = fm.cpu().numpy().astype(np.float32)
+                label_data[index] = label.cpu().numpy().astype(np.float32)
+                bar.advance(task)
     log.info('Collection complete: %d batches in %s', batches, run_dir / 'data.h5')

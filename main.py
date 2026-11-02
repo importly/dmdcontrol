@@ -12,7 +12,7 @@ from rich.logging import RichHandler
 
 from dmdcontrol.laser import Laser
 from dmdcontrol.runtime import PairRig, build_count_static_sequence
-from dmdcontrol.utils import CONFIG, WORKSPACE
+from dmdcontrol.utils import CONFIG, CONSOLE, WORKSPACE
 
 log = logging.getLogger("main")
 log.setLevel(CONFIG.log_level.upper())
@@ -39,10 +39,10 @@ def git_hash() -> str:
 def setup_logging(run_dir: Path) -> None:
     level = CONFIG.log_level.upper()
     console_handler = RichHandler(
+        console=CONSOLE,  # shared with the progress bars, so log lines print above them
         show_path=False, rich_tracebacks=True, markup=False,
         omit_repeated_times=False, log_time_format="%H:%M:%S",
-        # kernel mode shows a progress bar; per-pass logs go to run.log only
-        level="WARNING" if CONFIG.Run.mode == "kernel" else level,
+        level=level,
     )
     console_handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))
     file_handler = logging.FileHandler(run_dir / "run.log")

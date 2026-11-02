@@ -5,3 +5,4 @@
 from .env import WORKSPACE
 from .font import Font
 from .config import CONFIG
+from .console import CONSOLE, progress_bar
