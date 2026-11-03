@@ -37,6 +37,7 @@ class KernelConfig:
     gamma: float
     sheet_fraction: float
     max_attempts: int
+    kernel_seed: int | None
 
 
 @dataclass(frozen=True)

@@ -459,7 +459,8 @@ class TranslatorDataGen():
                  dataset_size:int = 2800, 
                  image_size:int = 16, 
                  kernel_size:int = 3,
-                 in_channels:int = 3):
+                 in_channels:int = 3,
+                 kernel_seed:Optional[int] = None):
         
         self.dataset_size = dataset_size
         self.image_size = image_size
@@ -483,7 +484,7 @@ class TranslatorDataGen():
         # ])
         
         if download:
-            self.make_kernels(dataset_size=self.dataset_size, kernel_size=self.kernel_size)
+            self.make_kernels(dataset_size=self.dataset_size, kernel_size=self.kernel_size, seed=kernel_seed)
         
         if train:
             self.dvl = DigitsVsLetters(train=True, download=download)
@@ -522,9 +523,9 @@ class TranslatorDataGen():
         return data, label
         
     @staticmethod
-    def make_kernels(dataset_size:int, kernel_size:int = 3, train_test_split:float = 0.7, val_split:float = 0.1):
+    def make_kernels(dataset_size:int, kernel_size:int = 3, train_test_split:float = 0.7, val_split:float = 0.1, seed:Optional[int] = None):
         # generate ints
-        rng = np.random.default_rng()
+        rng = np.random.default_rng(seed)  # same seed, same kernels
         kernel_ints = rng.choice(2 ** (6 ** 2), size=dataset_size, replace=False)
         
         # split data

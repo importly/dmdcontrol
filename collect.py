@@ -48,6 +48,7 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
         image_size=settings.image_size,
         kernel_size=settings.kernel_size,
         in_channels=IN_CHANNELS,
+        kernel_seed=settings.kernel_seed,
     )
     loader = torch.utils.data.DataLoader(dataset, batch_size=settings.batch_size, shuffle=False,  # pyright: ignore[reportArgumentType]  (duck-typed Dataset)
                                          num_workers=1, drop_last=True)

@@ -23,6 +23,7 @@ Run:
     gamma: 1.5                       # applied to each normalized sign product before they are combined
     sheet_fraction: 1.0              # share of batches that save contact sheets (full run: 0.1)
     max_attempts: 3                  # a pass that drops frames is redone this many times at most
+    kernel_seed: 0                   # same seed = same kernels every run; null = new random kernels each run
 
 Laser:
   control: True                      # on at power_mw for the run, off after; warns and carries on if not connected
