@@ -61,7 +61,7 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
     if (height, width) == (CONFIG.Camera.height, CONFIG.Camera.width):
         log.warning('Camera.ROI is the full sensor, so data.h5 will be %.0f GB: set the kernel ROI in config.yaml',
                     size_gb)
-    
+
     rng = np.random.default_rng(4)
     # closed on any exit, so a crash leaves the batches written so far readable
     with h5py.File(run_dir / 'data.h5', 'x') as data_file:
@@ -121,7 +121,7 @@ def comparison_sheet(path: Path, fm: torch.Tensor, kernel: torch.Tensor, output:
     if optical.numel() == 0:
         raise ValueError(f'the feature map footprint is outside the {output.shape[-1]}x{output.shape[-2]} ROI')
     optical_small = torch.nn.functional.adaptive_avg_pool2d(optical, (expected.shape[-2], expected.shape[-1]))
-
+    
     def panel(values: torch.Tensor, binary: bool = False) -> Image.Image:
         v = values.detach().cpu().numpy().astype(np.float64)
         if binary:
