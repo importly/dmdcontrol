@@ -42,7 +42,7 @@ torchvision_utils._urlretrieve = _urlretrieve
 def collect_kernels(rig: PairRig, run_dir: Path) -> None:
     settings = CONFIG.Run.Kernel
     dataset = TranslatorDataGen(
-        train=True,
+        train=False,
         download=True,
         dataset_size=settings.dataset_size,
         image_size=settings.image_size,
@@ -60,8 +60,8 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
     if (height, width) == (CONFIG.Camera.height, CONFIG.Camera.width):
         log.warning('Camera.ROI is the full sensor, so data.h5 will be %.0f GB: set the kernel ROI in config.yaml',
                     size_gb)
-
-    rng = np.random.default_rng()
+    
+    rng = np.random.default_rng(4)
     # closed on any exit, so a crash leaves the batches written so far readable
     with h5py.File(run_dir / 'data.h5', 'x') as data_file:
         output = data_file.create_dataset(

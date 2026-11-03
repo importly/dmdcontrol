@@ -39,7 +39,7 @@ def dmd_conv(rig: PairRig, fm: np.ndarray, kernel: np.ndarray, sheet_path: Path 
 
     frames = rig.camera.accumulate(capture.semantic[0::2], capture.events)  # content frames only
     k_pos_fm_pos, k_pos_fm_neg, k_neg_fm_pos, k_neg_fm_neg = (
-        _normalize(part) ** settings.gamma for part in frames.reshape(4, len(fm), *frames.shape[1:]))
+        (part) ** settings.gamma for part in frames.reshape(4, len(fm), *frames.shape[1:]))
     conv = k_pos_fm_pos - k_neg_fm_pos - k_pos_fm_neg + k_neg_fm_neg
 
     if sheet_path is not None:
