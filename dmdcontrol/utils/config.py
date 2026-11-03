@@ -28,16 +28,25 @@ class CountConfig:
 
 @dataclass(frozen=True)
 class KernelConfig:
+    operands: str             # the translator's operands.npz, relative to the repo
+    split: str                # train | val | test
+    seed: int | None
     dataset_size: int
     batch_size: int
-    image_size: int
-    kernel_size: int
-    fm_px: int
-    kernel_px: int
+    mirrors_per_px: int
+    grid_centre: list[float]  # sensor px (x, y) of the output grid's centre
+    grid_px: list[float]      # camera px per output pixel (x, y)
     gamma: float
     sheet_fraction: float
     max_attempts: int
-    kernel_seed: int | None
+
+    def __post_init__(self):
+        if self.split not in ('train', 'val', 'test'):
+            raise ValueError(f'config.yaml Run.Kernel.split must be train, val or test, got {self.split!r}')
+        if self.mirrors_per_px < 1:
+            raise ValueError(f'config.yaml Run.Kernel.mirrors_per_px must be at least 1, got {self.mirrors_per_px}')
+        if len(self.grid_centre) != 2 or len(self.grid_px) != 2 or min(self.grid_px) <= 0:
+            raise ValueError('config.yaml Run.Kernel.grid_centre and grid_px must each be [x, y], grid_px positive')
 
 
 @dataclass(frozen=True)

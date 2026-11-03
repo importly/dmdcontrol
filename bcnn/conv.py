@@ -8,6 +8,7 @@ from torch.nn import functional as F, grad as G, Parameter, BatchNorm2d, Dropout
 from torch.types import _int, _size
 from torch.autograd import Function
 from dmdcontrol.runtime import dmd_conv
+from dmdcontrol.runtime.output_grid import SIDE, Grid, region16
 from dmdcontrol.utils import CONFIG
 
 if TYPE_CHECKING:
@@ -95,21 +96,23 @@ class Conv2dEODLA(Function):
                 temp_kernel = weight.data.detach().clone()
                 temp_fm = input.detach().clone()
 
-            # make dmd sized kernel and feature map
-            kernel_px, fm_px = CONFIG.Run.Kernel.kernel_px, CONFIG.Run.Kernel.fm_px
-            temp_kernel = torch.nn.functional.interpolate(temp_kernel, size=(kernel_px, kernel_px), mode='nearest', align_corners=None).numpy()
-            temp_fm = torch.nn.functional.interpolate(temp_fm, size=(fm_px, fm_px), mode='nearest', align_corners=None).numpy()
+            # +-1 operands as they are: the display sequence draws each pixel as a square of mirrors
+            temp_kernel = temp_kernel.numpy()
+            temp_fm = temp_fm.numpy()
 
-            eodla_output = torch.empty([temp_fm.shape[0], out_channels, temp_fm.shape[1], eodla.camera.ROI_HEIGHT, eodla.camera.ROI_WIDTH])
+            # each optical result is cut to the 16x16 output grid (same conv), so layers stack
+            grid = Grid.configured()
+            roi = (CONFIG.Camera.ROI.start_x, CONFIG.Camera.ROI.start_y, eodla.camera.ROI_WIDTH, eodla.camera.ROI_HEIGHT)
+            eodla_output = torch.empty([temp_fm.shape[0], out_channels, temp_fm.shape[1], SIDE, SIDE])
             for in_ch in range(temp_kernel.shape[1]):
                 for out_ch in range(temp_kernel.shape[0]):
-                    eodla_output[:, out_ch, in_ch, :, :] = torch.from_numpy(
+                    eodla_output[:, out_ch, in_ch, :, :] = torch.from_numpy(region16(
                         dmd_conv(
                             eodla,
                             fm=temp_fm[:, in_ch],
                             kernel=temp_kernel[out_ch, in_ch],
                             sheet_path=sheet_path,
-                        )
+                        ), grid, roi)
                     ).float().to(weight.device)
             
             output = eodla_output.sum(axis=2)

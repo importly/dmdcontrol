@@ -4,6 +4,77 @@ Pair-only DLPC900 1080p Video Pattern Mode runtime. It drives labeled DMDs A and
 3840x1080 DisplayPort source spanning both 1920x1080 devices, and optionally coordinates that paired output with a
 DVXplorer camera for sync checks and captures.
 
+## Runs: `uv run main.py`
+
+`config.yaml` `Run.mode` picks the run. Each run gets `runs/<Run.output_root>/<timestamp>/` with `run.log`.
+
+- **`count`**: the count test pattern on A with a static dot (or checkerboard) on B; saves frames and a contact
+  sheet. Use the full-sensor ROI (0, 0, 1280, 720).
+- **`kernel`**: real optical convolutions for the EODLA translator model (`collect.py`), written to `data.h5`.
+
+### Kernel mode: 16x16 in, 9x9 kernel, 16x16 out
+
+A binary CNN stacks these layers, so each output lands on the input's own 16x16 grid: the zero-padded *same*
+convolution (padding 4). On the bench that is the centre 16x16 output pixels of the light pattern; nothing outside
+the input is lit, which is exactly zero padding.
+
+- **Operands** come from the translator repo's `data/operands.npz` (copy it to `Run.Kernel.operands`), pairs drawn
+  from `Run.Kernel.split` with `Run.Kernel.seed`. Every sample has its own input and kernel.
+- **On the DMDs** each operand pixel is a solid square of `Run.Kernel.mirrors_per_px` = 24 mirrors (nearest
+  neighbour): the 16x16 input is 384x384 mirrors on A, the 9x9 kernel 216x216 on B, both centred.
+- **One pass** shows `batch_size` samples as four captures each - (k+ fm+), (k+ fm-), (k- fm+), (k- fm-) - every
+  capture followed by a blank. 880 frames at 60 Hz for 110 samples, ~25 s. A pass that drops frames is redone.
+- **The output grid** is 16x16 output pixels centred at `Run.Kernel.grid_centre` on the sensor,
+  `Run.Kernel.grid_px` camera px each (~12.5 x 12.0). `Camera.ROI` holds the grid plus one output pixel of margin.
+  `target16` is made by `dmdcontrol/runtime/output_grid.py` `region16`: the grid resampled bilinearly to 12x12
+  points per output pixel, then downscaled to 16x16 bilinearly with antialiasing - the same steps the translator's
+  simulator uses for its targets.
+- **Calibration**: after batch 0 every run re-fits the grid against the digital convolution and logs
+  `Batch 0 grid fit: ...`; if the grid moved more than a quarter of an output pixel at its edges, it warns with the
+  `grid_centre`, `grid_px` and `Camera.ROI` to put in `config.yaml`. `uv run python calibrate.py <run dir>` does the
+  same for a finished run.
+
+`data.h5`, one row per sample (the translator's `gen16_<split>.h5` names):
+
+| column | shape | |
+|---|---|---|
+| `input16`, `kernel9` | 16x16, 9x9 | the operands, +-1 |
+| `conv16` | 16x16 | digital same convolution, kernel flipped (a true convolution - what the optics compute) |
+| `target16` | 16x16 | optical result: the four captures combined (`pp - pn - np + nn`, each to `gamma`), then `region16` |
+| `frames` | 4 x ROI | the four raw captures, ON-event counts, uint8 (clipped at 255, logged) or int16 in `signed` mode, lzf-compressed |
+| `label`, `ii`, `kk` | 3, -, - | the input's label and both operands' rows in `operands.npz` |
+
+Attributes record the operands file and its sha256, split, seed, ROI, grid, mirrors per pixel and gamma. Rows are
+written a pass at a time, so a crash leaves only complete rows. Every pass logs one line to `run.log` -
+`Batch i/n: median r(target16, conv16) ..., ... ON events per px per capture, ... s` - so drift in the optics or
+the laser shows up over a long collection. A run refuses to start if the disk cannot hold its raw captures even
+compressed, and warns if it cannot hold them uncompressed.
+
+### Collecting: procedure
+
+Throughput is ~110 samples per ~25 s pass, ~15,800 an hour, ~380,000 a day running continuously. Raw captures are
+4 x 226 x 226 bytes = 204 KB a sample before compression (~3.2 GB an hour); the rig had 757 GB free on
+2026-11-03. Keep an eye on the disk and on the per-batch log lines.
+
+1. **Code and operands on the rig:** commit and `git pull`, then copy the translator's `data/operands.npz` to
+   `~/dmdcontrol/datasets/translator/operands.npz`. Every `data.h5` records its sha256, so a run made with another
+   operands file is easy to spot.
+2. **Laser on** by hand (it is not connected over USB yet; the run warns and carries on).
+3. **Calibrate (a few minutes):** `split: test`, `seed: 0`, `dataset_size: 220`, `sheet_fraction: 1.0`. In
+   `run.log`, `Batch 0 grid fit` gives the grid; if it warns, put its `grid_centre`, `grid_px` and `Camera.ROI` in
+   `config.yaml` and run again until it doesn't. Look at `sheets/batch_0000_compare.png` (the grid outline sits on
+   the pattern, `target16` looks like `conv16`) and `_frames.png` (B shows a different kernel every sample). From
+   here the grid and ROI stay fixed.
+4. **Real test set:** `split: test`, `seed: 0`, e.g. `dataset_size: 5500` (50 passes, ~20 min),
+   `sheet_fraction: 0.1`. Capturing the same test set again at the end of the week measures drift.
+5. **Training data:** `split: train`, a new `seed` for every run (1, 2, 3, ...: the same seed draws the same
+   pairs), `sheet_fraction: 0.01`, `dataset_size` as large as the disk and the time until the next check allow -
+   e.g. 1,100,000 (~70 h, ~225 GB uncompressed). A crash keeps every pass written so far; start the next run with
+   the next seed.
+6. **Daily:** `df -h`; the latest `Batch` lines (r steady, events per px steady); one `_compare.png`. With sheets on, each batch also saves
+`sheets/batch_NNNN_frames.png` (every capture), `_conv.png` (the combination, grey = 0) and `_compare.png` (input,
+kernel, `conv16`, `target16` and the ROI with the grid outlined, with r between `target16` and `conv16`).
+
 ## Prerequisites
 
 - Linux + Xorg (tested on Fedora 43, kernel 7.0.8, X.Org 21.1.22)

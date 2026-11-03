@@ -14,16 +14,20 @@ Run:
     b_dot_y: 540
     b_dot_radius: 30
   Kernel:
-    dataset_size: 220                # feature maps; dataset_size // batch_size batches, one kernel per batch (full run: 71500)
-    batch_size: 110                  # one DMD pass per batch: 8 frames per feature map (880 at 110, ~15 s)
-    image_size: 16                   # feature map side before upscaling
-    kernel_size: 9
-    fm_px: 300                       # feature map side on DMD A
-    kernel_px: 168                   # kernel side on DMD B
-    gamma: 1.5                       # applied to each normalized sign product before they are combined
+    operands: datasets/translator/operands.npz  # the translator's operand pools (eodla_translator_model data/operands.npz)
+    split: test                      # pool the (input, kernel) pairs come from: train | val | test
+    seed: 0                          # same seed = same pairs: 0 for calibration / the test set, 1, 2, 3, ... per training run
+    dataset_size: 220                # samples, each with its own input and kernel (calibration 220; see README "Collecting")
+    batch_size: 110                  # samples per DMD pass: 8 frames each (880 at 110, ~25 s)
+    mirrors_per_px: 24               # each operand pixel is a square of mirrors (nearest): input 384, kernel 216 on the DMDs
+    # Where the 16x16 output grid lands on the sensor (calibrate.py; each run re-fits it after batch 0
+    # and warns with new values if it moved). From the 20261102-19xx runs at 18.75 mirrors per px:
+    # 0.519 x 0.501 camera px per mirror, so x 24 mirrors; check on the first run at 24.
+    grid_centre: [658.6, 377.3]      # sensor px (x, y) of the grid centre
+    grid_px: [12.46, 12.03]          # camera px per output pixel (x, y)
+    gamma: 1.5                      # applied to each sign product's event counts before they are combined
     sheet_fraction: 1.0              # share of batches that save contact sheets (full run: 0.1)
     max_attempts: 3                  # a pass that drops frames is redone this many times at most
-    kernel_seed: 0                   # same seed = same kernels every run; null = new random kernels each run
 
 Laser:
   control: True                      # on at power_mw for the run, off after; warns and carries on if not connected
@@ -32,13 +36,14 @@ Laser:
 
 Camera:
   ROI: # sensor silicon level; (0,0,1280,720) = full frame
-    # kernel mode: start_x 511, start_y 234, width 300, height 300 (DMD centre -> sensor (661, 384),
-    # 0.59 sensor px per DMD px from 20261102-170126; 300+168 DMD px conv = ~266 px plus margin)
+    # kernel mode: 226x226 centred on Run.Kernel.grid_centre = the 16x16 output region (~199 x 192 px)
+    # plus 1 output pixel of margin each side, so a small drift or calibration error never cuts it off.
+    # target16 comes from the region alone; calibrate.py prints the ROI to use if the grid moves.
     # count mode: 0, 0, 1280, 720
-    start_x: 511
-    start_y: 234
-    width: 300
-    height: 300
+    start_x: 546
+    start_y: 265
+    width: 226
+    height: 226
   Trigger:
     rising_edge: True
     falling_edge: False

@@ -127,23 +127,34 @@ def build_count_static_sequence() -> PairedDisplaySequence:
 
 
 def build_kernel_sequence(fm: np.ndarray, kernel: np.ndarray) -> PairedDisplaySequence:
-    """One kernel-collection pass over N feature maps; fm (N, h, w) and kernel (h, w) hold +-1.
+    """One kernel pass over N samples: fm (N, h, w) on A, kernel (N, kh, kw) on B, or one (kh, kw) for all; +-1.
 
-    Each pattern is drawn centred at its own size on the GPU. B holds kernel > 0 for the first
-    half and kernel < 0 for the second; in each half A shows every fm > 0, then every fm < 0, each
-    followed by a blank. So the content frames come in four blocks of N:
-    (k+ fm+), (k+ fm-), (k- fm+), (k- fm-).
+    Each operand pixel is a square of Run.Kernel.mirrors_per_px mirrors (nearest neighbour),
+    centred on its DMD. Sample i shows fm[i] on A with kernel[i] on B, as four captures, each
+    followed by a blank: every sample's (k+ fm+), then every (k+ fm-), (k- fm+), (k- fm-). So the
+    content frames come in those four blocks of N.
     """
-    fm_parts = {'+': [MaskPattern(mask) for mask in fm > 0], '-': [MaskPattern(mask) for mask in fm < 0]}
+    mirrors = CONFIG.Run.Kernel.mirrors_per_px
+    shared = kernel.ndim == 2
+    kernels = kernel[None] if shared else kernel
+    if not shared and len(kernels) != len(fm):
+        raise ValueError(f'{len(fm)} feature maps but {len(kernels)} kernels')
+    a = {sign: [MaskPattern(_mirror_blocks(m * sign > 0, mirrors)) for m in fm] for sign in (1, -1)}
+    b = {sign: [MaskPattern(_mirror_blocks(k * sign > 0, mirrors)) for k in kernels] for sign in (1, -1)}
     frames: list[FramePair] = []
     labels: list[str] = []
-    for kernel_sign, kernel_mask in (('+', kernel > 0), ('-', kernel < 0)):
-        b = MaskPattern(kernel_mask)
-        for fm_sign in '+-':
-            for index, a in enumerate(fm_parts[fm_sign]):
-                frames += [FramePair(a=a, b=b), FramePair(a=BLANK, b=b)]
-                labels += [f'k{kernel_sign} fm{fm_sign}:{index}', 'blank']
+    for kernel_sign in (1, -1):
+        for fm_sign in (1, -1):
+            for index in range(len(fm)):
+                b_pattern = b[kernel_sign][0 if shared else index]
+                frames += [FramePair(a=a[fm_sign][index], b=b_pattern), FramePair(a=BLANK, b=b_pattern)]
+                labels += [f'k{"+-"[kernel_sign < 0]} fm{"+-"[fm_sign < 0]}:{index}', 'blank']
     return _sequence(frames, labels, startup_pair=FramePair(a=BLANK, b=frames[0].b))
+
+
+def _mirror_blocks(mask: np.ndarray, mirrors: int) -> np.ndarray:
+    """Each mask pixel as a mirrors x mirrors square (nearest neighbour)."""
+    return np.repeat(np.repeat(mask, mirrors, axis=0), mirrors, axis=1)
 
 
 def _static_b() -> RGBFrame:

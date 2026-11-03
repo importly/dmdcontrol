@@ -33,104 +33,104 @@ class BackgroundActivityNoiseFilter:
     """
     Python rewrite of the BackgroundActivityNoiseFilter from dv_processing. This tests the neighborhoods of incoming events for other supporting events that happened within the background activity period. If an event is supported by a neighbor, it is considered valid; otherwise, it is considered noise and filtered out.
     """
-    
+
     def __init__(self, background_activity_duration: int = 2000, resolution_limits: Tuple[int, int] = (346, 260)):
         """
         Initiate a background activity noise filter, which tests the neighbourhoods of incoming events for other supporting events that happened within the background activity period.
-        
+
         Args:
             background_activity_duration (int): Background activity duration in microseconds (default: 2000)
-        
+
         Raises:
             ValueError: If background_activity_duration is less than 1
         """
         if background_activity_duration < 1:
             raise ValueError(f"background_activity_duration must be greater than 0, got {background_activity_duration}")
-        
+
         self.resolution_limits = resolution_limits
         self.time_surface = np.zeros((self.resolution_limits[1], self.resolution_limits[0]), dtype=np.int64)
         self.background_activity_duration = background_activity_duration
-    
+
     def _background_activity_lookup(self, x: int, y: int, timestamp: int) -> np.bool_:
         """
         More efficient version of the background activity filter. Checks neighboring pixels for events that occurred within the background activity duration. Checks for corner cases and excludes the event itself from the neighborhood check.
-        
+
         Args:
-            x (int): X coordinate  
-            y (int): Y coordinate  
+            x (int): X coordinate
+            y (int): Y coordinate
             timestamp (int): Event timestamp
-            
+
         Returns:
             np.bool_: True if event is supported by neighbors (valid), False otherwise (invalid)
         """
         # Exclude border regions
         y_start, y_end = max(0, y - 1), min(self.resolution_limits[1], y + 2)
         x_start, x_end = max(0, x - 1), min(self.resolution_limits[0], x + 2)
-        
+
         # Extract neighborhood timestamps and compute differences
         neighborhood = self.time_surface[y_start:y_end, x_start:x_end]
         timestamp_diff = timestamp - neighborhood
-        
+
         # Create mask excluding center pixel
         mask = np.ones_like(timestamp_diff, dtype=bool)
         mask[y - y_start, x - x_start] = False
-    
+
         return np.any(timestamp_diff[mask] < self.background_activity_duration)
-    
+
     def accept(self, events: np.ndarray) -> np.ndarray:
         """
         Accepts in a batch of events to be filterd. If difference between current timestamp and stored neighbor timestamp is smaller than given time limit, then it means the event is supported by a neighbor and thus valid. If it is bigger, then the event is not supported, and we need to check the next neighbor. If all are bigger, the event is invalid.
-        
+
         Args:
             events (np.ndarray): Iterable of events
-            
+
         Returns:
             np.ndarray: Filtered events
         """
         # Grab the event coordinates, timestamps, and polarities
         ts, xs, ys, ps = events[0], events[1], events[2], events[3]
-        
+
         # Filter events
         mask = np.zeros(len(events[0]), dtype=bool)
         for i in range(len(events[0])):
             # Update mask
             mask[i] = self._background_activity_lookup(xs[i], ys[i], ts[i])
-            
+
             # Update time surface
             self.time_surface[ys[i], xs[i]] = ts[i]
         filtered_events = events[mask]
-        
+
         return filtered_events
-    
+
     def reset(self):
         """Reset the time surface to zeros."""
         self.time_surface = np.zeros((self.resolution_limits[1], self.resolution_limits[0]), dtype=np.int64)
-    
+
 
 class CameraDAVIS:
     """
     Class to control DAVIS346.
     """
-    
+
     def __init__(self):
         """
         Initialize the Camera class.
-        
+
         Raises:
             ValueError: If the ROI exceeds the camera resolution.
         """
         # Set up logging
         self.logger = logging.getLogger('Camera')
-        
+
         # Open camera
         self.camera = dv.io.camera.DAVIS()
         self.logger.info('Using %s camera', self.camera.getCameraName())
-        
+
         # Configure camera settings
         # Events and frames
         self.camera.setEventsRunning(False)
         self.camera.setFramesRunning(False)
-        
+
         # ROI
         roi = CONFIG.Camera.ROI
         self.roi_start_x, self.roi_start_y, self.ROI_WIDTH, self.ROI_HEIGHT = roi.start_x, roi.start_y, roi.width, roi.height
@@ -148,12 +148,12 @@ class CameraDAVIS:
             )
         )
         self.logger.info(f'ROI set. \n {Font.BOLD}start_x:{Font.ENDC} %s, {Font.BOLD}width:{Font.ENDC} %s\n {Font.BOLD} start_y:{Font.ENDC} %s, {Font.BOLD}height:{Font.ENDC} %s{Font.ENDC}', self.roi_start_x, self.ROI_WIDTH, self.roi_start_y, self.ROI_HEIGHT)
-        
+
         # Trigger
         self.camera.setDetectorRisingEdges(CONFIG.Camera.Trigger.rising_edge)
         self.camera.setDetectorFallingEdges(CONFIG.Camera.Trigger.falling_edge)
         self.camera.setDetectorRunning(False)
-        
+
         # Filter
         if CONFIG.Camera.Filter.enable:
             self.filter = BackgroundActivityNoiseFilter(
@@ -164,18 +164,18 @@ class CameraDAVIS:
         else:
             self.filter = None
             self.logger.info('Background activity noise filter disabled')
-                
+
         # Accumulation
         self.window_us = CONFIG.Camera.Accumulation.window_us
         self.offset_us = CONFIG.Camera.Accumulation.start_time_offset_us
         self.logger.info(f'Accumulation settings:\n {Font.BOLD}Time window (\u03bcs):{Font.ENDC} %s\n {Font.BOLD} Start time offset (\u03bcs):{Font.ENDC} %s', self.window_us, self.offset_us)
-        
-        
+
+
         self.normalize_scale_max = CONFIG.Camera.normalize_scale_max
         self.signal_fraction = CONFIG.Camera.signal_fraction
-        
+
         self._apply_bias_sensitivity(CONFIG.Camera.bias_sensitivity)
-        
+
         # Enable events and external triggers
         self.camera.setDetectorRunning(True)
         self.camera.setEventsRunning(True)
@@ -238,32 +238,32 @@ class CameraDAVIS:
         Returns:
             tuple: A tuple containing the triggers and events.
         """
-            
+
         triggers = np.zeros((trigger_count,))
         trigger_index = 0
         events = np.zeros((1,), dtype=[('timestamp', '<i8'), ('x', '<i2'), ('y', '<i2'), ('polarity', 'i1')])
-        
+
         self.logger.info('Recording %s triggers...', trigger_count)
-            
+
         # Run loop until all data is collected
         while self.camera.isRunning() and trigger_index < trigger_count:
             # Read a batch of data from the camera
             event_batch = self.camera.getNextEventBatch()
             trigger_batch = self.camera.getNextTriggerBatch()
-            
+
             # Check if there is valid data and if so, concatenate it
             if event_batch is not None:
                 events = np.concatenate((events, event_batch.numpy()))
-                
+
             if trigger_batch is not None:
                 while len(trigger_batch) > 0:
                     trigger = trigger_batch.pop()
                     if int(trigger.type) == 1:
                         # dont comment this out its a load bearing line of code YOU WILL DROP FRAMES IF THIS IS COMMENTED OUT IDK WHY BUT YOU WILL DONT DO IT
-                        self.logger.info('Trigger type: %s', trigger.type) 
+                        self.logger.info('Trigger type: %s', trigger.type)
                         triggers[trigger_index] = trigger.timestamp
                         trigger_index += 1
-        
+
         # acompanying tailing code from master
         if trigger_index > 0:
             target_us = triggers[trigger_index - 1] + self.offset_us + self.window_us
@@ -280,7 +280,7 @@ class CameraDAVIS:
         events = events[1:]
         self.logger.info(f'Recording complete.\n {Font.BOLD}Triggers:{Font.ENDC} %s\n {Font.BOLD}Events:{Font.ENDC} %s', len(triggers), len(events))
         return (triggers, events)
-    
+
     def skip_startup_leader_triggers(self, triggers: np.ndarray, leader_trigger_count: int) -> np.ndarray:
         """Drop the leading non-semantic triggers the startup leader emitted."""
         requested = int(leader_trigger_count or 0)
@@ -339,39 +339,39 @@ class CameraDAVIS:
             frames (np.ndarray): numpy array of shape (len(triggers), ROI_HEIGHT, ROI_WIDTH) containing the accumulated frames.
         """
         self.logger.info('Accumulating %s events into %s frames...', len(events), len(triggers))
-            
+
         # Reset the filter if it exists
         if self.filter is not None:
             self.filter.reset()
-            
+
         # Filter events
         events = self.filter.accept(events) if self.filter is not None else events
-        
+
         # Slice up data between timestamps and accumulate
         frames = np.zeros((len(triggers), self.ROI_HEIGHT, self.ROI_WIDTH))
         for idx in range(len(triggers)):
             # Clip to window size and offset
             event_slice = events[
                 (events[:]['timestamp'] >= triggers[idx] + self.offset_us) &
-                (events[:]['timestamp'] < triggers[idx] + self.offset_us + self.window_us) 
+                (events[:]['timestamp'] < triggers[idx] + self.offset_us + self.window_us)
                 # (events[:]['timestamp'] < triggers[idx + 1]) if idx + 1 < len(triggers) else False
             ]
             self.logger.debug('Accumulating frame %s with %s events', idx, len(event_slice))
-            
+
             if len(event_slice) == 0:
                 self.logger.warning('No events found for frame %s. Frame will be empty.', idx)
                 self.logger.info('idx: %s, trigger ts - next trigger ts: %s', idx, triggers[idx+1] - triggers[idx] if idx + 1 < len(triggers) else 'N/A')
                 continue
-            
+
             # Accumulate the events into a frame
             for event in event_slice:
                 x, y, polarity = event['x'], event['y'], event['polarity']
                 frames[idx, y, x] += 1 if polarity else 0
-                
+
         self.logger.info(f'Accumulation complete.\n `frames` shape: %s', frames.shape)
-            
+
         return frames
-    
+
     def save(self, frames: np.ndarray, folder: Path, save_as_png: Optional[bool] = False):
         """
         Saves accumulated event frames to a folder.
@@ -390,13 +390,13 @@ class CameraDAVIS:
             else:
                 # Save the frames to a .npy file
                 np.save(f'{folder}/frame_{idx}.npy', frame)
-        
+
         self.logger.info('Saved %s frames to %s', len(frames), folder)
-        
+
     def contact_sheet(
-        self, 
-        frames: np.ndarray, 
-        save_path: Path = Path('./contact_sheet.jpg'), 
+        self,
+        frames: np.ndarray,
+        save_path: Path = Path('./contact_sheet.jpg'),
         grid_size: Tuple[int, int] = (20, 10),
         signed: bool = False,
     ):
@@ -425,7 +425,7 @@ class CameraDAVIS:
             x_offset = (idx % grid_size[0]) * self.ROI_WIDTH
             y_offset = (idx // grid_size[0]) * self.ROI_HEIGHT
             contact_sheet.paste(frame_img, (x_offset, y_offset))
-        
+
         # Save the contact sheet
         contact_sheet.save(save_path, format='PNG')
         self.logger.info('Saved contact sheet to %s', save_path)
