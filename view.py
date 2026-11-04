@@ -106,6 +106,8 @@ def main() -> None:
         matplotlib.rcParams[keymap] = [k for k in matplotlib.rcParams[keymap] if k not in ('left', 'right', 'home')]
     import matplotlib.pyplot as plt
 
+    if not args.save and matplotlib.get_backend().lower() == 'agg':
+        raise SystemExit('No screen here (over ssh?): add --save sample.png, or run view.py on a PC with the run copied')
     run = RunData(args.run)
     if run.count == 0:
         raise SystemExit(f'{run.path} has no samples yet')
