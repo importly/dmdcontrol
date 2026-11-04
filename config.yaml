@@ -17,7 +17,7 @@ Run:
     operands: datasets/translator/operands.npz  # the translator's operand pools (eodla_translator_model data/operands.npz)
     split: test                      # pool the (input, kernel) pairs come from: train | val | test
     seed: 0                          # same seed = same pairs: 0 for calibration / the test set, 1, 2, 3, ... per training run
-    dataset_size: 5500               # samples, each with its own input and kernel (test set 5500 = 50 passes; calibration 220; see README "Collecting")
+    dataset_size: 5500               # samples, each with its own input and kernel (calibration 220; see README "Collecting")
     batch_size: 110                  # samples per DMD pass: 8 frames each (880 at 110, ~25 s)
     mirrors_per_px: 24               # each operand pixel is a square of mirrors (nearest): input 384, kernel 216 on the DMDs
     # Where the 16x16 output grid lands on the sensor (calibrate.py; each run re-fits it after batch 0
@@ -26,7 +26,7 @@ Run:
     grid_centre: [658.6, 377.3]      # sensor px (x, y) of the grid centre
     grid_px: [12.46, 12.03]          # camera px per output pixel (x, y)
     gamma: 1.5                      # applied to each sign product's event counts before they are combined
-    sheet_fraction: 0.1              # share of batches that save contact sheets (calibration 1.0, test set 0.1, training 0.01)
+    sheet_fraction: 0.1              # share of batches that save contact sheets (full run: 0.1)
     max_attempts: 3                  # a pass that drops frames is redone this many times at most
 
 Laser:

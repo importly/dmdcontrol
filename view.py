@@ -1,21 +1,8 @@
-"""Step through a kernel run's data.h5 one sample at a time, every stage of a sample side by side.
+"""Step through a kernel run's data.h5 one sample at a time.
 
     uv run python view.py runs/<output_root>/<run> [--sample N] [--save out.png]
 
-Left: input16 and kernel9 (the operands on DMD A and B), under them conv16 (the digital
-convolution) next to target16 (the optical result made 16x16 - what the translator trains on).
-Middle, large: the four captures combined (pp - pn - np + nn, each ** gamma) over the whole ROI at
-full resolution, with the 16x16 output grid that target16 is cut from drawn on it.
-Right: the four raw captures (ON-event counts, one shared scale), k+ / k- by row, fm+ / fm- by column.
-
-Keys: right / left next / previous sample, up / down 10 on / back, home / end first / last.
-The toolbar zooms and pans, and the status bar shows the value under the cursor. Signed panels
-are mid-grey = 0, white positive, black negative. --save writes one sample to a PNG instead of
-opening a window (no display needed, so it works on the rig).
-
-The combined panel is made from the stored frames, which are clipped at 255 events (the run log
-warns when that happens); target16 was made before clipping. data.h5 stays open for the whole of
-a run, so view a finished run, or a copy taken after the run ends.
+Keys: left / right one sample, up / down ten, home / end first / last.
 """
 
 from __future__ import annotations
@@ -65,7 +52,6 @@ def _binary(ax, values: np.ndarray, title: str) -> None:
 
 
 def _grid(ax, run: RunData, cells: bool) -> None:
-    """The output grid in ROI px (pixel i spans i - 0.5 .. i + 0.5, as imshow draws it)."""
     left, right, top, bottom = run.grid.edges(run.roi)
     if cells:
         inner = range(1, SIDE)
@@ -115,7 +101,7 @@ def main() -> None:
 
     if args.save:
         matplotlib.use('Agg')
-    # the arrow and home keys step through samples instead of the toolbar's back / forward / home
+    # free the arrow and home keys for paging
     for keymap in ('keymap.back', 'keymap.forward', 'keymap.home'):
         matplotlib.rcParams[keymap] = [k for k in matplotlib.rcParams[keymap] if k not in ('left', 'right', 'home')]
     import matplotlib.pyplot as plt

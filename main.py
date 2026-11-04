@@ -77,7 +77,7 @@ def run_count(rig: PairRig, run_dir: Path) -> None:
 
 
 def main() -> int:
-    stop_on_signals()  # SIGTERM / SIGHUP / Ctrl-C unwind every `with` below instead of killing the process
+    stop_on_signals()
     run_dir = create_run_directory()
     setup_logging(run_dir)
     log.info("Run directory: %s", run_dir)
@@ -93,8 +93,7 @@ def main() -> int:
                 collect_kernels(rig, run_dir)
         return 0
     except Stopped as exc:
-        log.warning("Stopped by %s: camera, DMDs and laser released; a kernel run's data.h5 is closed with every "
-                    "finished pass", exc)
+        log.warning("Stopped by %s", exc)
         return 128 + exc.signum
     except Exception as exc:
         log.exception("%s run failed: %s", CONFIG.Run.mode, exc)

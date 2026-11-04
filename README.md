@@ -46,9 +46,7 @@ the input is lit, which is exactly zero padding.
 
 Attributes record the operands file and its sha256, split, seed, ROI, grid, mirrors per pixel and gamma. Rows are
 written a pass at a time, so a crash leaves only complete rows. Ctrl-C, `kill` or a dropped ssh session stops the run
-cleanly (`dmdcontrol/utils/stop.py`): a pass being written is finished first, then `data.h5` is closed and the
-DMDs, camera and laser are released. `data.h5` is flushed after every pass, so even `kill -9` or a power cut
-keeps every finished pass. Every pass logs one line to `run.log` -
+cleanly. Every pass logs one line to `run.log` -
 `Batch i/n: median r(target16, conv16) ..., ... ON events per px per capture, ... s` - so drift in the optics or
 the laser shows up over a long collection. A run refuses to start if the disk cannot hold its raw captures even
 compressed, and warns if it cannot hold them uncompressed.
@@ -77,9 +75,7 @@ Throughput is ~110 samples per ~25 s pass, ~15,800 an hour, ~380,000 a day runni
 6. **Daily:** `df -h`; the latest `Batch` lines (r steady, events per px steady); one `_compare.png`. With sheets on, each batch also saves
 `sheets/batch_NNNN_frames.png` (every capture), `_conv.png` (the combination, grey = 0) and `_compare.png` (input,
 kernel, `conv16`, `target16` and the ROI with the grid outlined, with r between `target16` and `conv16`).
-To look at single samples in full: `uv run python view.py <run dir>` steps through a finished run's `data.h5`
-(arrow keys) showing input, kernel, `conv16`, the combined captures over the whole ROI at full resolution with the
-output grid drawn on, `target16`, and the four raw captures; `--sample N --save out.png` writes one to a PNG.
+`uv run python view.py <run dir>` steps through a run's samples at full resolution (arrow keys).
 
 ## Prerequisites
 
