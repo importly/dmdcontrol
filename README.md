@@ -23,7 +23,8 @@ the input is lit, which is exactly zero padding.
 - **On the DMDs** each operand pixel is a solid square of `Run.Kernel.mirrors_per_px` = 24 mirrors (nearest
   neighbour): the 16x16 input is 384x384 mirrors on A, the 9x9 kernel 216x216 on B, both centred.
 - **One pass** shows `batch_size` samples as four captures each - (k+ fm+), (k+ fm-), (k- fm+), (k- fm-) - every
-  capture followed by a blank. 880 frames at 60 Hz for 110 samples, ~25 s. A pass that drops frames is redone.
+  capture followed by a blank, after one warm-up capture that is not stored (the first capture after the lead-in
+  comes out too bright). 882 frames at 60 Hz for 110 samples, ~25 s. A pass that drops frames is redone.
 - **The output grid** is 16x16 output pixels centred at `Run.Kernel.grid_centre` on the sensor,
   `Run.Kernel.grid_px` camera px each (~12.5 x 12.0). `Camera.ROI` holds the grid plus one output pixel of margin.
   `target16` is made by `dmdcontrol/runtime/output_grid.py` `region16`: the grid resampled bilinearly to 12x12
