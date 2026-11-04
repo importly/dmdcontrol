@@ -19,8 +19,8 @@ A binary CNN stacks these layers, so each output lands on the input's own 16x16 
 convolution (padding 4). On the bench that is the centre 16x16 output pixels of the light pattern; nothing outside
 the input is lit, which is exactly zero padding.
 
-- **Operands** (`operands.py`): inputs from CIFAR-10 and EMNIST in `datasets/` (made 16x16 and +-1 like the
-  translator's, no augmentation) or random block patterns, in the shares `Run.Kernel.sources`, from the train sets or,
+- **Operands** (`operands.py`): inputs from CIFAR-10 and EMNIST in `datasets/` (made 16x16, +1 above the
+  dataset mean, no augmentation) or random block patterns, in the shares `Run.Kernel.sources`, from the train sets or,
   with `train: false`, the test sets. EMNIST is half digits, half letters. Kernels are unique random 81-bit kernels
   from `datasets/kernels.npz`; each `seed` has its own block, so no two runs share a kernel.
 - **On the DMDs** each operand pixel is a solid square of `Run.Kernel.mirrors_per_px` = 24 mirrors (nearest

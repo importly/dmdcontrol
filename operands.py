@@ -1,6 +1,6 @@
 """Inputs and kernels for kernel runs.
 
-Inputs come from CIFAR-10 and EMNIST in datasets/ (made 16x16 and +-1 the way the translator does),
+Inputs come from CIFAR-10 and EMNIST in datasets/ (made 16x16, +1 above the dataset mean),
 or are random block patterns. Kernels come from datasets/kernels.npz: unique random 9x9 +-1 kernels
 stored as their 81 bits, one block per Run.Kernel.seed, so no two runs share a kernel. Make it once:
 
@@ -76,7 +76,7 @@ EMNIST_PIPELINE = T.Compose([_Transpose(), T.Resize((16, 16)), T.ToTensor(), T.N
 
 def _binarize(images: list[torch.Tensor]) -> np.ndarray:
     x = torch.stack(images)[:, 0].numpy()
-    return np.where(x > x.mean((1, 2), keepdims=True), 1.0, -1.0).astype(np.float32)
+    return np.where(x > 0, 1.0, -1.0).astype(np.float32)  # Normalize puts the dataset mean at 0
 
 
 def _pick(dataset, count: int, pipeline: T.Compose, rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
