@@ -74,6 +74,9 @@ Throughput is ~110 samples per ~25 s pass, ~15,800 an hour, ~380,000 a day runni
 6. **Daily:** `df -h`; the latest `Batch` lines (r steady, events per px steady); one `_compare.png`. With sheets on, each batch also saves
 `sheets/batch_NNNN_frames.png` (every capture), `_conv.png` (the combination, grey = 0) and `_compare.png` (input,
 kernel, `conv16`, `target16` and the ROI with the grid outlined, with r between `target16` and `conv16`).
+To look at single samples in full: `uv run python view.py <run dir>` steps through a finished run's `data.h5`
+(arrow keys) showing input, kernel, `conv16`, the combined captures over the whole ROI at full resolution with the
+output grid drawn on, `target16`, and the four raw captures; `--sample N --save out.png` writes one to a PNG.
 
 ## Prerequisites
 
