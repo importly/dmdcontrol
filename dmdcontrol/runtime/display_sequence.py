@@ -132,7 +132,7 @@ def build_kernel_sequence(fm: np.ndarray, kernel: np.ndarray) -> PairedDisplaySe
     Each operand pixel is a square of Run.Kernel.mirrors_per_px mirrors (nearest neighbour),
     centred on its DMD. Sample i shows fm[i] on A with kernel[i] on B, as four captures, each
     followed by a blank: every sample's (k+ fm+), then every (k+ fm-), (k- fm+), (k- fm-). So the
-    content frames come in those four blocks of N.
+    content frames come in those four blocks of N, after one warm-up capture that is not used.
     """
     mirrors = CONFIG.Run.Kernel.mirrors_per_px
     shared = kernel.ndim == 2
@@ -141,8 +141,9 @@ def build_kernel_sequence(fm: np.ndarray, kernel: np.ndarray) -> PairedDisplaySe
         raise ValueError(f'{len(fm)} feature maps but {len(kernels)} kernels')
     a = {sign: [MaskPattern(_mirror_blocks(m * sign > 0, mirrors)) for m in fm] for sign in (1, -1)}
     b = {sign: [MaskPattern(_mirror_blocks(k * sign > 0, mirrors)) for k in kernels] for sign in (1, -1)}
-    frames: list[FramePair] = []
-    labels: list[str] = []
+    # the first capture after the blank leader comes out too bright, so it is a throwaway
+    frames = [FramePair(a=a[1][0], b=b[1][0]), FramePair(a=BLANK, b=b[1][0])]
+    labels = ['warm-up', 'blank']
     for kernel_sign in (1, -1):
         for fm_sign in (1, -1):
             for index in range(len(fm)):

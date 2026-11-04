@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 from dmdcontrol.utils import CONFIG
 
@@ -42,7 +43,7 @@ def capture_terms(rig: PairRig, fm: np.ndarray, kernel: np.ndarray) -> np.ndarra
     else:
         raise RuntimeError(f'every one of {settings.max_attempts} passes dropped frames')
 
-    frames = rig.camera.accumulate(capture.semantic[0::2], capture.events)  # content frames only
+    frames = rig.camera.accumulate(capture.semantic[2::2], capture.events)  # content frames after the warm-up
     return frames.reshape(len(TERMS), len(fm), *frames.shape[1:])
 
 
@@ -57,12 +58,36 @@ def combine(terms: np.ndarray, gamma: float) -> np.ndarray:
 
 
 def save_sheets(camera: CameraProphsee, terms: np.ndarray, conv: np.ndarray, sheet_path: Path) -> None:
-    """<name>_frames.png: every capture, four blocks of N; <name>_conv.png: the combination (mid-grey = 0)."""
+    """<name>_frames.png: every capture, grouped by sample; <name>_conv.png: the combination (mid-grey = 0)."""
     sheet_path.parent.mkdir(parents=True, exist_ok=True)
-    frames = terms.reshape(-1, *terms.shape[2:])
-    camera.contact_sheet(frames, sheet_path.with_name(f'{sheet_path.name}_frames.png'), (20, ceil(len(frames) / 20)))
+    frames_sheet(terms, sheet_path.with_name(f'{sheet_path.name}_frames.png'))
     camera.contact_sheet(conv, sheet_path.with_name(f'{sheet_path.name}_conv.png'), (20, ceil(len(conv) / 20)),
                          signed=True)
+
+
+def frames_sheet(terms: np.ndarray, path: Path, per_row: int = 10) -> None:
+    """(4, N, H, W) captures -> one labelled 2x2 block per sample: k+ / k- by row, fm+ / fm- by column."""
+    n, height, width = terms.shape[1:]
+    gap, inner, label_h, top = 24, 4, 32, 56
+    group_w, group_h = 2 * width + inner, 2 * height + inner
+    big, small = ImageFont.load_default(size=26), ImageFont.load_default(size=17)
+    peak = float(np.percentile(terms, 99.9)) or 1.0
+    sheet = Image.new('L', (gap + per_row * (group_w + gap), top + ceil(n / per_row) * (label_h + group_h + gap)), 40)
+    draw = ImageDraw.Draw(sheet)
+    draw.text((gap, 14), f'One block per sample (#index in the pass): top row k+, bottom row k-; left fm+, right fm-. '
+              f'ON events, black 0 to white {peak:.0f}, one scale for the whole pass.', fill=255, font=big)
+    for i in range(n):
+        x0 = gap + (i % per_row) * (group_w + gap)
+        y0 = top + (i // per_row) * (label_h + group_h + gap)
+        draw.text((x0, y0), f'#{i}', fill=255, font=big)
+        for t, name in enumerate(TERMS):
+            x, y = x0 + (t % 2) * (width + inner), y0 + label_h + (t // 2) * (height + inner)
+            pixels = np.clip(np.asarray(terms[t, i], np.float64) * (255 / peak), 0, 255).astype(np.uint8)
+            sheet.paste(Image.fromarray(pixels), (x, y))
+            draw.rectangle(draw.textbbox((x + 4, y + 3), name, font=small), fill=0)
+            draw.text((x + 4, y + 3), name, fill=255, font=small)
+    sheet.save(path)
+    log.info('Saved frames sheet to %s', path)
 
 
 def dmd_conv(rig: PairRig, fm: np.ndarray, kernel: np.ndarray, sheet_path: Path | None = None) -> np.ndarray:
