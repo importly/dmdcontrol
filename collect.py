@@ -2,9 +2,8 @@
 
 16x16 in, 16x16 out: a binary CNN stacks these layers, so each output lands on the input's own
 16x16 grid - the zero-padded 'same' convolution. Each sample is a 16x16 input on DMD A and a
-9x9 kernel on DMD B, drawn from the translator's operand pools (Run.Kernel.operands, .split),
-each pixel a square of Run.Kernel.mirrors_per_px mirrors. One DMD pass captures
-Run.Kernel.batch_size samples, each as four captures (TERMS).
+9x9 kernel on DMD B (operands.py), each pixel a square of Run.Kernel.mirrors_per_px mirrors. One
+DMD pass captures Run.Kernel.batch_size samples, each as four captures (TERMS).
 
 data.h5, one row per sample (the translator's gen16_<split>.h5 names where it has the column):
   input16, kernel9   the operands, +-1
@@ -15,19 +14,20 @@ data.h5, one row per sample (the translator's gen16_<split>.h5 names where it ha
                      the same steps as the translator's simulator
   frames             the four raw captures over the whole ROI, event counts in TERMS order: uint8
                      (positive polarity, clipped at 255 with a warning) or int16 (signed)
-  label, ii, kk      the input's label [class, source, index] and both operands' rows in operands.npz
+  label, ii, kk      the input's label [class, source, index], its index in its dataset, and the
+                     kernel's row in kernels.npz
 Rows are appended one pass at a time, so a crash leaves only complete rows. The attributes record
-the operands file and its sha256, split, seed, ROI, grid, mirrors per pixel and gamma.
+the kernels file and its sha256, train or test, sources, seed, ROI, grid, mirrors per pixel and gamma.
 """
 
 from __future__ import annotations
 
-import hashlib
+import json
 import logging
 import shutil
 import time
-from dataclasses import dataclass
 from datetime import datetime
+from math import ceil
 from pathlib import Path
 
 import h5py
@@ -42,29 +42,9 @@ from dmdcontrol.runtime.dmd_conv import TERMS, capture_terms, combine, save_shee
 from dmdcontrol.runtime.output_grid import SIDE, Grid, region16
 from dmdcontrol.utils import CONFIG, WORKSPACE, progress_bar
 from dmdcontrol.utils.stop import deferred
+from operands import load_inputs, load_kernels
 
 log = logging.getLogger('collect')
-
-
-@dataclass(frozen=True)
-class Operands:
-    """The translator's operand pools; rows [lo, hi) are the chosen split."""
-
-    inputs: np.ndarray   # (n, 16, 16) +-1
-    kernels: np.ndarray  # (n, 9, 9) +-1
-    labels: np.ndarray   # (n, 3) [class, source, index]
-    lo: int
-    hi: int
-    sha256: str
-
-
-def load_operands(path: Path, split: str) -> Operands:
-    """operands.npz from the translator repo; its splits are contiguous: train, val, test."""
-    with np.load(path) as pools:
-        n_train, n_val, n = int(pools['n_train']), int(pools['n_val']), len(pools['inputs'])
-        lo, hi = {'train': (0, n_train), 'val': (n_train, n_train + n_val), 'test': (n_train + n_val, n)}[split]
-        return Operands(pools['inputs'], pools['kernels'], pools['labels'], lo, hi,
-                        hashlib.sha256(path.read_bytes()).hexdigest())
 
 
 def same_conv(fm: np.ndarray, kernel: np.ndarray) -> np.ndarray:
@@ -80,15 +60,8 @@ def same_conv(fm: np.ndarray, kernel: np.ndarray) -> np.ndarray:
 
 def collect_kernels(rig: PairRig, run_dir: Path) -> None:
     settings = CONFIG.Run.Kernel
-    operands = load_operands(WORKSPACE / settings.operands, settings.split)
-    if operands.inputs.shape[-1] != SIDE:
-        raise ValueError(f'operands are {operands.inputs.shape[-1]}x{operands.inputs.shape[-1]}, the output grid {SIDE}x{SIDE}')
-    batches = settings.dataset_size // settings.batch_size
-    count = batches * settings.batch_size
-    rng = np.random.default_rng(settings.seed)
-    ii = rng.integers(operands.lo, operands.hi, count)
-    kk = rng.integers(operands.lo, operands.hi, count)
-    with_sheets = rng.random(batches) < settings.sheet_fraction
+    count = settings.dataset_size
+    batches = ceil(count / settings.batch_size)
 
     height, width = rig.camera.ROI_HEIGHT, rig.camera.ROI_WIDTH
     roi = (CONFIG.Camera.ROI.start_x, CONFIG.Camera.ROI.start_y, width, height)
@@ -102,23 +75,31 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
     frame_dtype, frame_max = (np.int16, 32767) if signed else (np.uint8, 255)
     size_gb = count * len(TERMS) * height * width * np.dtype(frame_dtype).itemsize / 1e9
     free_gb = shutil.disk_usage(run_dir).free / 1e9
-    log.info('Collecting %d samples (%d passes of %d) from the %s split [%d, %d) of %s, seed %s; ROI %dx%d, output '
+    sets = 'train' if settings.train else 'test'
+    sources = ', '.join(f'{name} {share:g}' for name, share in settings.sources.items() if share)
+    log.info('Collecting %d samples (%d passes of up to %d) from the %s sets (%s), seed %d; ROI %dx%d, output '
              'grid centred at (%.1f, %.1f), %.2f x %.2f camera px per output px; raw captures %.1f GB before '
-             'compression, %.0f GB free', count, batches, settings.batch_size, settings.split, operands.lo,
-             operands.hi, settings.operands, settings.seed, width, height, grid.cx, grid.cy, grid.px, grid.py,
-             size_gb, free_gb)
+             'compression, %.0f GB free', count, batches, settings.batch_size, sets, sources, settings.seed,
+             width, height, grid.cx, grid.cy, grid.px, grid.py, size_gb, free_gb)
     if free_gb < size_gb / 3:  # lzf leaves event counts a few times smaller, not more
         raise RuntimeError(f'{free_gb:.0f} GB free for {size_gb:.0f} GB of raw captures before compression: '
                            'lower Run.Kernel.dataset_size or free some disk')
     if free_gb < size_gb:
         log.warning('%.0f GB free and %.0f GB of raw captures before compression: watch the disk', free_gb, size_gb)
 
-    columns = {'input16': (operands.inputs.shape[1:], np.float32),
-               'kernel9': (operands.kernels.shape[1:], np.float32),
+    rng = np.random.default_rng(settings.seed)
+    kernels, kk, kernels_sha256 = load_kernels(WORKSPACE / settings.kernels, settings.seed, count, rng)
+    inputs, labels = load_inputs(count, settings.sources, settings.train, rng)
+    with_sheets = rng.random(batches) < settings.sheet_fraction
+    log.info('Loaded %d inputs and %d kernels (block %d of %s)', len(inputs), len(kernels), settings.seed,
+             settings.kernels)
+
+    columns = {'input16': ((SIDE, SIDE), np.float32),
+               'kernel9': ((9, 9), np.float32),
                'conv16': ((SIDE, SIDE), np.float32),
                'target16': ((SIDE, SIDE), np.float32),
                'frames': ((len(TERMS), height, width), frame_dtype),
-               'label': (operands.labels.shape[1:], np.float32),
+               'label': ((3,), np.float32),
                'ii': ((), np.int32),
                'kk': ((), np.int32)}
     # closed on any exit; rows go in a pass at a time, so a crash leaves only complete ones
@@ -128,8 +109,8 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
                                      chunks=(1, *shape) if name == 'frames' else (settings.batch_size, *shape),
                                      compression='lzf' if name == 'frames' else None)
         data_file.attrs.update({
-            'operands': settings.operands, 'operands_sha256': operands.sha256, 'split': settings.split,
-            'pool': (operands.lo, operands.hi), 'seed': str(settings.seed),
+            'kernels': settings.kernels, 'kernels_sha256': kernels_sha256, 'train': settings.train,
+            'sources': json.dumps(settings.sources), 'seed': settings.seed,
             'mirrors_per_px': settings.mirrors_per_px, 'gamma': settings.gamma, 'roi': roi,
             'grid_centre': (grid.cx, grid.cy), 'grid_px': (grid.px, grid.py), 'terms': ', '.join(TERMS),
             'polarity_mode': CONFIG.Camera.Accumulation.polarity_mode,
@@ -146,7 +127,7 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
             for index in range(batches):
                 started = time.monotonic()
                 rows = slice(index * settings.batch_size, (index + 1) * settings.batch_size)
-                fm, kernel = operands.inputs[ii[rows]], operands.kernels[kk[rows]]
+                fm, kernel = inputs[rows], kernels[rows]
                 terms = capture_terms(rig, fm, kernel)
                 output = combine(terms, settings.gamma)
                 conv, target = same_conv(fm, kernel), region16(output, grid, roi)
@@ -158,7 +139,7 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
                     _append(data_file, {
                         'input16': fm, 'kernel9': kernel, 'conv16': conv, 'target16': target,
                         'frames': np.clip(counts, -frame_max - 1, frame_max).astype(frame_dtype).transpose(1, 0, 2, 3),
-                        'label': operands.labels[ii[rows]], 'ii': ii[rows], 'kk': kk[rows]})
+                        'label': labels[rows], 'ii': labels[rows, 2], 'kk': kk[rows]})
                     data_file.flush()  # a hard crash keeps every finished pass
                 if with_sheets[index]:
                     sheet = run_dir / 'sheets' / f'batch_{index:04d}'

@@ -18,8 +18,10 @@ A binary CNN stacks these layers, so each output lands on the input's own 16x16 
 convolution (padding 4). On the bench that is the centre 16x16 output pixels of the light pattern; nothing outside
 the input is lit, which is exactly zero padding.
 
-- **Operands** come from the translator repo's `data/operands.npz` (copy it to `Run.Kernel.operands`), pairs drawn
-  from `Run.Kernel.split` with `Run.Kernel.seed`. Every sample has its own input and kernel.
+- **Operands** (`operands.py`): inputs from CIFAR-10 and EMNIST in `datasets/` (made 16x16 and +-1 like the
+  translator's, no augmentation) or random block patterns, in the shares `Run.Kernel.sources`, from the train sets or,
+  with `train: false`, the test sets. EMNIST is half digits, half letters. Kernels are unique random 81-bit kernels
+  from `datasets/kernels.npz`; each `seed` has its own block, so no two runs share a kernel.
 - **On the DMDs** each operand pixel is a solid square of `Run.Kernel.mirrors_per_px` = 24 mirrors (nearest
   neighbour): the 16x16 input is 384x384 mirrors on A, the 9x9 kernel 216x216 on B, both centred.
 - **One pass** shows `batch_size` samples as four captures each - (k+ fm+), (k+ fm-), (k- fm+), (k- fm-) - every
@@ -43,9 +45,10 @@ the input is lit, which is exactly zero padding.
 | `conv16` | 16x16 | digital same convolution, kernel flipped (a true convolution - what the optics compute) |
 | `target16` | 16x16 | optical result: the four captures combined (`pp - pn - np + nn`, each to `gamma`), then `region16` |
 | `frames` | 4 x ROI | the four raw captures, ON-event counts, uint8 (clipped at 255, logged) or int16 in `signed` mode, lzf-compressed |
-| `label`, `ii`, `kk` | 3, -, - | the input's label and both operands' rows in `operands.npz` |
+| `label`, `ii`, `kk` | 3, -, - | the input's label [class, source, index], its index in its dataset, the kernel's row in `kernels.npz` |
 
-Attributes record the operands file and its sha256, split, seed, ROI, grid, mirrors per pixel and gamma. Rows are
+Attributes record the kernels file and a sha256 of its kernels, train or test, sources, seed, ROI, grid, mirrors per
+pixel and gamma. Rows are
 written a pass at a time, so a crash leaves only complete rows. Ctrl-C, `kill` or a dropped ssh session stops the run
 cleanly. Every pass logs one line to `run.log` -
 `Batch i/n: median r(target16, conv16) ..., ... ON events per px per capture, ... s` - so drift in the optics or
@@ -58,22 +61,18 @@ Throughput is ~110 samples per ~25 s pass, ~15,800 an hour, ~380,000 a day runni
 4 x 226 x 226 bytes = 204 KB a sample before compression (~3.2 GB an hour); the rig had 757 GB free on
 2026-11-03. Keep an eye on the disk and on the per-batch log lines.
 
-1. **Code and operands on the rig:** commit and `git pull`, then copy the translator's `data/operands.npz` to
-   `~/dmdcontrol/datasets/translator/operands.npz`. Every `data.h5` records its sha256, so a run made with another
-   operands file is easy to spot.
+1. **Code and operands on the rig:** `git pull`. CIFAR-10 and EMNIST are in `datasets/cifar10` and `datasets/emnist`;
+   `datasets/kernels.npz` is made once with `uv run python operands.py` (20 seeds of 500,000 kernels).
 2. **Laser on** by hand (it is not connected over USB yet; the run warns and carries on).
-3. **Calibrate (a few minutes):** `split: test`, `seed: 0`, `dataset_size: 220`, `sheet_fraction: 1.0`. In
+3. **Calibrate (a few minutes):** `seed: 0`, `dataset_size: 220`, `sheet_fraction: 1.0`. In
    `run.log`, `Batch 0 grid fit` gives the grid; if it warns, put its `grid_centre`, `grid_px` and `Camera.ROI` in
    `config.yaml` and run again until it doesn't. Look at `sheets/batch_0000_compare.png` (the grid outline sits on
    the pattern, `target16` looks like `conv16`) and `_frames.png` (B shows a different kernel every sample). From
    here the grid and ROI stay fixed.
-4. **Real test set:** `split: test`, `seed: 0`, e.g. `dataset_size: 5500` (50 passes, ~20 min),
-   `sheet_fraction: 0.1`. Capturing the same test set again at the end of the week measures drift.
-5. **Training data:** `split: train`, a new `seed` for every run (1, 2, 3, ...: the same seed draws the same
-   pairs), `sheet_fraction: 0.01`, `dataset_size` as large as the disk and the time until the next check allow -
-   e.g. 1,100,000 (~70 h, ~225 GB uncompressed). A crash keeps every pass written so far; start the next run with
-   the next seed.
-6. **Daily:** `df -h`; the latest `Batch` lines (r steady, events per px steady); one `_compare.png`. With sheets on, each batch also saves
+4. **Data:** one run per file, each with its own `seed` (the same seed draws the same inputs and kernels),
+   `sheet_fraction: 0.01`: seed 1 EMNIST train (50,000, ~3.2 h), seed 2 EMNIST test (10,000), seed 3 CIFAR train
+   (all 50,000), seed 4 CIFAR test (all 10,000). A crash keeps every pass written so far.
+5. **Daily:** `df -h`; the latest `Batch` lines (r steady, events per px steady); one `_compare.png`. With sheets on, each batch also saves
 `sheets/batch_NNNN_frames.png` (every capture), `_conv.png` (the combination, grey = 0) and `_compare.png` (input,
 kernel, `conv16`, `target16` and the ROI with the grid outlined, with r between `target16` and `conv16`).
 `uv run python view.py <run dir>` steps through a run's samples at full resolution (arrow keys).

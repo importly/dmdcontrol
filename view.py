@@ -32,7 +32,7 @@ class RunData:
         (cx, cy), (px, py) = np.asarray(attrs['grid_centre'], float), np.asarray(attrs['grid_px'], float)
         self.grid = Grid(cx, cy, px, py)
         self.gamma = float(np.asarray(attrs['gamma']))
-        self.split = str(attrs['split'])
+        self.split = str(attrs['split']) if 'split' in attrs else ('train' if attrs['train'] else 'test')
         self.count = self.file['frames'].shape[0]
 
     def sample(self, i: int) -> dict[str, np.ndarray]:

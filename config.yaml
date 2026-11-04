@@ -14,19 +14,19 @@ Run:
     b_dot_y: 540
     b_dot_radius: 30
   Kernel:
-    operands: datasets/translator/operands.npz  # the translator's operand pools (eodla_translator_model data/operands.npz)
-    split: train                     # pool the (input, kernel) pairs come from: train | val | test
-    seed: 1                          # same seed = same pairs: 0 for calibration / the test set, 1, 2, 3, ... per training run
-    dataset_size: 1100000            # samples, each with its own input and kernel (calibration 220; see README "Collecting")
-    batch_size: 110                  # samples per DMD pass: 8 frames each (880 at 110, ~25 s)
+    kernels: datasets/kernels.npz    # unique 81-bit kernels, one block per seed (uv run python operands.py)
+    train: false                     # the datasets' train sets, else their test sets
+    seed: 0                          # one per file, so no two files share a kernel; 0 for tests
+    sources: {emnist: 0.4, cifar: 0.4, random: 0.2}  # share of the inputs from each
+    dataset_size: 250                # CIFAR has 50000 train / 10000 test images; EMNIST is half digits, half letters
+    batch_size: 110                  # samples per DMD pass: 8 frames each, ~25 s
     mirrors_per_px: 24               # each operand pixel is a square of mirrors (nearest): input 384, kernel 216 on the DMDs
     # Where the 16x16 output grid lands on the sensor (calibrate.py; each run re-fits it after batch 0
-    # and warns with new values if it moved). From the 20261102-19xx runs at 18.75 mirrors per px:
-    # 0.519 x 0.501 camera px per mirror, so x 24 mirrors; check on the first run at 24.
+    # and warns with new values if it moved). Confirmed by calibration 2026-11-04.
     grid_centre: [658.6, 377.3]      # sensor px (x, y) of the grid centre
     grid_px: [12.46, 12.03]          # camera px per output pixel (x, y)
     gamma: 1.5                      # applied to each sign product's event counts before they are combined
-    sheet_fraction: 0.01             # share of batches that save contact sheets (full run: 0.1)
+    sheet_fraction: 1.0              # share of batches that save contact sheets (full run: 0.01)
     max_attempts: 3                  # a pass that drops frames is redone this many times at most
 
 Laser:
