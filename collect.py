@@ -41,6 +41,7 @@ from dmdcontrol.runtime import PairRig
 from dmdcontrol.runtime.dmd_conv import TERMS, capture_terms, combine, save_sheets
 from dmdcontrol.runtime.output_grid import SIDE, Grid, region16
 from dmdcontrol.utils import CONFIG, WORKSPACE, progress_bar
+from dmdcontrol.utils.stop import deferred
 
 log = logging.getLogger('collect')
 
@@ -153,13 +154,16 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
                 if (clipped := int((counts > frame_max).sum())):
                     log.warning('Batch %d: %d pixels over %d events clipped in the stored frames (target16 is not)',
                                 index, clipped, frame_max)
-                _append(data_file, {
-                    'input16': fm, 'kernel9': kernel, 'conv16': conv, 'target16': target,
-                    'frames': np.clip(counts, -frame_max - 1, frame_max).astype(frame_dtype).transpose(1, 0, 2, 3),
-                    'label': operands.labels[ii[rows]], 'ii': ii[rows], 'kk': kk[rows]})
-                # HDF5 keeps metadata in memory until it is flushed: without this a hard crash (power cut,
-                # kill -9) could leave data.h5 unreadable, not just short of its last pass
-                data_file.flush()
+                # a stop signal (SIGTERM, SIGHUP, Ctrl-C) waits until the pass is written, so every column
+                # keeps the same number of rows; the `with` above then closes the file
+                with deferred():
+                    _append(data_file, {
+                        'input16': fm, 'kernel9': kernel, 'conv16': conv, 'target16': target,
+                        'frames': np.clip(counts, -frame_max - 1, frame_max).astype(frame_dtype).transpose(1, 0, 2, 3),
+                        'label': operands.labels[ii[rows]], 'ii': ii[rows], 'kk': kk[rows]})
+                    # HDF5 keeps metadata in memory until it is flushed: without this a hard crash (power
+                    # cut, kill -9) could leave data.h5 unreadable, not just short of its last pass
+                    data_file.flush()
                 if with_sheets[index]:
                     sheet = run_dir / 'sheets' / f'batch_{index:04d}'
                     try:  # a picture must never end a long collection

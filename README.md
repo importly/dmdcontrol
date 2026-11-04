@@ -45,7 +45,10 @@ the input is lit, which is exactly zero padding.
 | `label`, `ii`, `kk` | 3, -, - | the input's label and both operands' rows in `operands.npz` |
 
 Attributes record the operands file and its sha256, split, seed, ROI, grid, mirrors per pixel and gamma. Rows are
-written a pass at a time, so a crash leaves only complete rows. Every pass logs one line to `run.log` -
+written a pass at a time, so a crash leaves only complete rows. Ctrl-C, `kill` or a dropped ssh session stops the run
+cleanly (`dmdcontrol/utils/stop.py`): a pass being written is finished first, then `data.h5` is closed and the
+DMDs, camera and laser are released. `data.h5` is flushed after every pass, so even `kill -9` or a power cut
+keeps every finished pass. Every pass logs one line to `run.log` -
 `Batch i/n: median r(target16, conv16) ..., ... ON events per px per capture, ... s` - so drift in the optics or
 the laser shows up over a long collection. A run refuses to start if the disk cannot hold its raw captures even
 compressed, and warns if it cannot hold them uncompressed.

@@ -13,6 +13,7 @@ from rich.logging import RichHandler
 from dmdcontrol.laser import Laser
 from dmdcontrol.runtime import PairRig, build_count_static_sequence
 from dmdcontrol.utils import CONFIG, CONSOLE, WORKSPACE
+from dmdcontrol.utils.stop import Stopped, install as stop_on_signals
 
 log = logging.getLogger("main")
 log.setLevel(CONFIG.log_level.upper())
@@ -76,6 +77,7 @@ def run_count(rig: PairRig, run_dir: Path) -> None:
 
 
 def main() -> int:
+    stop_on_signals()  # SIGTERM / SIGHUP / Ctrl-C unwind every `with` below instead of killing the process
     run_dir = create_run_directory()
     setup_logging(run_dir)
     log.info("Run directory: %s", run_dir)
@@ -90,6 +92,10 @@ def main() -> int:
                 from collect import collect_kernels  # torch is only needed here
                 collect_kernels(rig, run_dir)
         return 0
+    except Stopped as exc:
+        log.warning("Stopped by %s: camera, DMDs and laser released; a kernel run's data.h5 is closed with every "
+                    "finished pass", exc)
+        return 128 + exc.signum
     except Exception as exc:
         log.exception("%s run failed: %s", CONFIG.Run.mode, exc)
         return 1
