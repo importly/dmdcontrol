@@ -1,17 +1,30 @@
-"""config.yaml, loaded once into typed sections: CONFIG.Run, CONFIG.Laser, CONFIG.Camera, CONFIG.DMD.
+"""config.yaml, or the file given with --config, loaded once into typed sections: CONFIG.Run, CONFIG.Laser,
+CONFIG.Camera, CONFIG.DMD.
 
 Every key in the file must be a field here and every field without a default must be in the
 file, so a typo or a leftover key fails at import instead of silently falling back.
 """
 
+import argparse
 from dataclasses import MISSING, dataclass, fields, is_dataclass
+from pathlib import Path
 from typing import Any
 
 import yaml
 
 from .env import WORKSPACE
 
-CONFIG_PATH = WORKSPACE / "config.yaml"
+
+def _config_path() -> Path:
+    parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    parser.add_argument("--config", type=Path, default=WORKSPACE / "config.yaml")
+    path = parser.parse_known_args()[0].config.resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"config file {path} not found")
+    return path
+
+
+CONFIG_PATH = _config_path()
 
 
 @dataclass(frozen=True)
@@ -40,6 +53,7 @@ class KernelConfig:
     gamma: float
     sheet_fraction: float
     max_attempts: int
+    min_events_per_px: float
 
     def __post_init__(self):
         shares = self.sources

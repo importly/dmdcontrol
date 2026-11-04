@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import logging
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -13,6 +15,7 @@ from rich.logging import RichHandler
 from dmdcontrol.laser import Laser
 from dmdcontrol.runtime import PairRig, build_count_static_sequence
 from dmdcontrol.utils import CONFIG, CONSOLE, WORKSPACE
+from dmdcontrol.utils.config import CONFIG_PATH
 from dmdcontrol.utils.stop import Stopped, install as stop_on_signals
 
 log = logging.getLogger("main")
@@ -82,6 +85,8 @@ def main() -> int:
     setup_logging(run_dir)
     log.info("Run directory: %s", run_dir)
     log.info("Git: %s", git_hash())
+    log.info("Config: %s", CONFIG_PATH)
+    shutil.copy(CONFIG_PATH, run_dir / "config.yaml")
     log.info("Mode: %s", CONFIG.Run.mode)
 
     try:
@@ -101,4 +106,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run what Run.mode in the config says.")
+    parser.add_argument("--config", type=Path, help="config file to use instead of config.yaml")
+    parser.parse_args()
     sys.exit(main())

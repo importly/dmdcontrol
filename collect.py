@@ -122,6 +122,7 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
         })
 
         # redrawn once a second: the bar's thread shares the GIL with the render thread during a pass
+        events: list[float] = []  # mean ON events per px per capture of each pass
         with progress_bar(refresh_per_second=1) as bar:
             task = bar.add_task('Collecting batches', total=batches)
             for index in range(batches):
@@ -129,6 +130,20 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
                 rows = slice(index * settings.batch_size, (index + 1) * settings.batch_size)
                 fm, kernel = inputs[rows], kernels[rows]
                 terms = capture_terms(rig, fm, kernel)
+                for attempt in range(2, settings.max_attempts + 1):
+                    if terms.mean() >= settings.min_events_per_px:
+                        break
+                    log.warning('Batch %d: %.2f ON events per px per capture, under %g: no light (laser off?), '
+                                'redoing the pass (attempt %d of %d)', index, terms.mean(),
+                                settings.min_events_per_px, attempt, settings.max_attempts)
+                    terms = capture_terms(rig, fm, kernel)
+                if terms.mean() < settings.min_events_per_px:
+                    raise RuntimeError(f'no light in {settings.max_attempts} tries of batch {index} '
+                                       f'({terms.mean():.2f} ON events per px per capture): laser off?')
+                events.append(float(terms.mean()))
+                if abs(events[-1] / np.median(events) - 1) > 0.1:
+                    log.warning('Batch %d: %.2f ON events per px per capture, %+.0f%% from the run so far: the light '
+                                'changed', index, events[-1], 100 * (events[-1] / np.median(events) - 1))
                 output = combine(terms, settings.gamma)
                 conv, target = same_conv(fm, kernel), region16(output, grid, roi)
                 counts = np.rint(terms)
@@ -154,7 +169,7 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
                 # one line per pass, so drift in the optics or the laser shows up in run.log
                 r = np.median([np.corrcoef(t.ravel(), c.ravel())[0, 1] for t, c in zip(target, conv)])
                 log.info('Batch %d/%d: median r(target16, conv16) %.3f, %.2f ON events per px per capture, %.1f s',
-                         index + 1, batches, r, float(terms.mean()), time.monotonic() - started)
+                         index + 1, batches, r, events[-1], time.monotonic() - started)
                 bar.advance(task)
     log.info('Collection complete: %d samples in %s', count, run_dir / 'data.h5')
 

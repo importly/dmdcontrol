@@ -4,9 +4,10 @@ Pair-only DLPC900 1080p Video Pattern Mode runtime. It drives labeled DMDs A and
 3840x1080 DisplayPort source spanning both 1920x1080 devices, and optionally coordinates that paired output with a
 DVXplorer camera for sync checks and captures.
 
-## Runs: `uv run main.py`
+## Runs: `uv run main.py [--config file.yaml]`
 
-`config.yaml` `Run.mode` picks the run. Each run gets `runs/<Run.output_root>/<timestamp>/` with `run.log`.
+The config (`config.yaml` unless `--config` names another) picks the run with `Run.mode`. Each run gets
+`runs/<Run.output_root>/<timestamp>/` with `run.log` and a copy of the config it used.
 
 - **`count`**: the count test pattern on A with a static dot (or checkerboard) on B; saves frames and a contact
   sheet. Use the full-sensor ROI (0, 0, 1280, 720).
@@ -69,9 +70,12 @@ Throughput is ~110 samples per ~25 s pass, ~15,800 an hour, ~380,000 a day runni
    `config.yaml` and run again until it doesn't. Look at `sheets/batch_0000_compare.png` (the grid outline sits on
    the pattern, `target16` looks like `conv16`) and `_frames.png` (B shows a different kernel every sample). From
    here the grid and ROI stay fixed.
-4. **Data:** one run per file, each with its own `seed` (the same seed draws the same inputs and kernels),
-   `sheet_fraction: 0.01`: seed 1 EMNIST train (50,000, ~3.2 h), seed 2 EMNIST test (10,000), seed 3 CIFAR train
-   (all 50,000), seed 4 CIFAR test (all 10,000). A crash keeps every pass written so far.
+4. **Data:** one config per file in `configs/`, each with its own `seed` (the same seed draws the same inputs and
+   kernels): `emnist_train` (seed 1, 50,000, ~3.2 h), `emnist_test` (2, 10,000), `cifar_train` (3, all 50,000),
+   `cifar_test` (4, all 10,000). All four in a row, ~8 h, inside `screen`:
+   `for c in emnist_train emnist_test cifar_train cifar_test; do uv run main.py --config configs/$c.yaml || break; done`.
+   A pass with no light is redone, and the run stops if the light does not come back; a crash keeps every pass
+   written so far.
 5. **Daily:** `df -h`; the latest `Batch` lines (r steady, events per px steady); one `_compare.png`. With sheets on, each batch also saves
 `sheets/batch_NNNN_frames.png` (every capture), `_conv.png` (the combination, grey = 0) and `_compare.png` (input,
 kernel, `conv16`, `target16` and the ROI with the grid outlined, with r between `target16` and `conv16`).
