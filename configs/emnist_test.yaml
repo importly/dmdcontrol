@@ -27,8 +27,9 @@ Run:
     grid_px: [12.46, 12.03]          # camera px per output pixel (x, y)
     gamma: 1.5                      # applied to each sign product's event counts before they are combined
     sheet_fraction: 0.01             # share of batches that save contact sheets (full run: 0.01)
-    max_attempts: 3                  # a pass that drops frames is redone this many times at most
-    min_events_per_px: 1.0           # a pass with less light than this is redone, and the run stops if it stays (~3.6 normal)
+    max_attempts: 3                  # tries per pass when it drops frames or looks wrong (below, or the light changes 10%)
+    min_events_per_px: 1.0           # less light than this is redone, and stops the run if it stays (~3.6 normal)
+    min_pass_r: 0.5                  # a pass whose median r is under this is redone, and stops the run if it stays (~0.7)
 
 Laser:
   control: True                      # on at power_mw for the run, off after; warns and carries on if not connected

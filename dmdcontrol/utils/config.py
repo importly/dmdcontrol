@@ -54,6 +54,7 @@ class KernelConfig:
     sheet_fraction: float
     max_attempts: int
     min_events_per_px: float
+    min_pass_r: float
 
     def __post_init__(self):
         shares = self.sources

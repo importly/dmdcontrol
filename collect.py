@@ -46,6 +46,8 @@ from operands import load_inputs, load_kernels
 
 log = logging.getLogger('collect')
 
+LIGHT_CHANGE = 0.1  # a pass this far off the last passes' light level is redone
+
 
 def same_conv(fm: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     """Per-sample zero-padded same convolution of fm (N, h, w) with kernel (N, kh, kw) -> (N, h, w).
@@ -122,30 +124,30 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
         })
 
         # redrawn once a second: the bar's thread shares the GIL with the render thread during a pass
-        events: list[float] = []  # mean ON events per px per capture of each pass
+        events: list[float] = []  # mean ON events per px per capture of each kept pass
         with progress_bar(refresh_per_second=1) as bar:
             task = bar.add_task('Collecting batches', total=batches)
             for index in range(batches):
                 started = time.monotonic()
                 rows = slice(index * settings.batch_size, (index + 1) * settings.batch_size)
                 fm, kernel = inputs[rows], kernels[rows]
-                terms = capture_terms(rig, fm, kernel)
-                for attempt in range(2, settings.max_attempts + 1):
-                    if terms.mean() >= settings.min_events_per_px:
-                        break
-                    log.warning('Batch %d: %.2f ON events per px per capture, under %g: no light (laser off?), '
-                                'redoing the pass (attempt %d of %d)', index, terms.mean(),
-                                settings.min_events_per_px, attempt, settings.max_attempts)
+                conv = same_conv(fm, kernel)
+                for attempt in range(1, settings.max_attempts + 1):
                     terms = capture_terms(rig, fm, kernel)
-                if terms.mean() < settings.min_events_per_px:
-                    raise RuntimeError(f'no light in {settings.max_attempts} tries of batch {index} '
-                                       f'({terms.mean():.2f} ON events per px per capture): laser off?')
+                    output = combine(terms, settings.gamma)
+                    target = region16(output, grid, roi)
+                    r = float(np.median([np.corrcoef(t.ravel(), c.ravel())[0, 1] for t, c in zip(target, conv)]))
+                    problem = pass_problem(float(terms.mean()), r, events[-10:])
+                    if problem is None:
+                        break
+                    if attempt < settings.max_attempts:
+                        log.warning('Batch %d: %s; redoing the pass (attempt %d of %d)', index, problem, attempt + 1,
+                                    settings.max_attempts)
+                if problem is not None:
+                    if terms.mean() < settings.min_events_per_px or r < settings.min_pass_r:
+                        raise RuntimeError(f'batch {index}: {problem}, in all {settings.max_attempts} tries')
+                    log.warning('Batch %d: %s in all %d tries, so kept', index, problem, settings.max_attempts)
                 events.append(float(terms.mean()))
-                if abs(events[-1] / np.median(events) - 1) > 0.1:
-                    log.warning('Batch %d: %.2f ON events per px per capture, %+.0f%% from the run so far: the light '
-                                'changed', index, events[-1], 100 * (events[-1] / np.median(events) - 1))
-                output = combine(terms, settings.gamma)
-                conv, target = same_conv(fm, kernel), region16(output, grid, roi)
                 counts = np.rint(terms)
                 if (clipped := int((counts > frame_max).sum())):
                     log.warning('Batch %d: %d pixels over %d events clipped in the stored frames (target16 is not)',
@@ -167,11 +169,23 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
                 if index == 0:
                     check_grid(output, conv, grid, roi)
                 # one line per pass, so drift in the optics or the laser shows up in run.log
-                r = np.median([np.corrcoef(t.ravel(), c.ravel())[0, 1] for t, c in zip(target, conv)])
                 log.info('Batch %d/%d: median r(target16, conv16) %.3f, %.2f ON events per px per capture, %.1f s',
                          index + 1, batches, r, events[-1], time.monotonic() - started)
                 bar.advance(task)
     log.info('Collection complete: %d samples in %s', count, run_dir / 'data.h5')
+
+
+def pass_problem(light: float, r: float, recent: list[float]) -> str | None:
+    """Why a pass should be redone, or None: no light, a poor match to conv16, or the light level changed."""
+    settings = CONFIG.Run.Kernel
+    if light < settings.min_events_per_px:
+        return f'{light:.2f} ON events per px per capture, under {settings.min_events_per_px:g}: no light'
+    if r < settings.min_pass_r:
+        return f'median r(target16, conv16) {r:.3f}, under {settings.min_pass_r:g}'
+    change = light / np.median(recent) - 1 if recent else 0.0
+    if abs(change) > LIGHT_CHANGE:
+        return f'{light:.2f} ON events per px per capture, {100 * change:+.0f}% from the last passes'
+    return None
 
 
 def _append(data_file: h5py.File, values: dict[str, np.ndarray]) -> None:
