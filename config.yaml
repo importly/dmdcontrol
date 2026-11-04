@@ -2,7 +2,7 @@ log_level: INFO
 
 Run:
   mode: kernel                       # count: counting test pattern | kernel: kernel data collection (data.h5)
-  output_root: runs/camera2_master_30hz_blank
+  output_root: runs/train_data
   time_max_s: 600                    # render thread safety cap per pass
   Count:                             
     start: 5
