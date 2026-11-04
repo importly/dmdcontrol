@@ -157,6 +157,9 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
                     'input16': fm, 'kernel9': kernel, 'conv16': conv, 'target16': target,
                     'frames': np.clip(counts, -frame_max - 1, frame_max).astype(frame_dtype).transpose(1, 0, 2, 3),
                     'label': operands.labels[ii[rows]], 'ii': ii[rows], 'kk': kk[rows]})
+                # HDF5 keeps metadata in memory until it is flushed: without this a hard crash (power cut,
+                # kill -9) could leave data.h5 unreadable, not just short of its last pass
+                data_file.flush()
                 if with_sheets[index]:
                     sheet = run_dir / 'sheets' / f'batch_{index:04d}'
                     try:  # a picture must never end a long collection
