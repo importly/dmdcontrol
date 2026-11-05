@@ -42,7 +42,7 @@ from dmdcontrol.runtime.dmd_conv import TERMS, capture_terms, combine, save_shee
 from dmdcontrol.runtime.output_grid import SIDE, Grid, region16
 from dmdcontrol.utils import CONFIG, WORKSPACE, progress_bar
 from dmdcontrol.utils.stop import deferred
-from operands import load_inputs, load_kernels
+from operands import load_inputs, load_kernels, used_operands
 
 log = logging.getLogger('collect')
 
@@ -89,9 +89,18 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
     if free_gb < size_gb:
         log.warning('%.0f GB free and %.0f GB of raw captures before compression: watch the disk', free_gb, size_gb)
 
+    # earlier runs: their seed's kernels would repeat, and their images and the other split's inputs are left out
+    used = None if settings.seed == 0 else used_operands(WORKSPACE / 'runs')
+    if used is None:
+        log.info('Seed 0 is for tests: earlier runs are not checked')
+    elif settings.seed in used.seeds:
+        raise ValueError(f'seed {settings.seed} was used by an earlier run, so its kernels would repeat: pick one not in '
+                         f'{sorted(used.seeds)}')
+    else:
+        log.info('Earlier runs used seeds %s', sorted(used.seeds))
     rng = np.random.default_rng(settings.seed)
     kernels, kk, kernels_sha256 = load_kernels(WORKSPACE / settings.kernels, settings.seed, count, rng)
-    inputs, labels = load_inputs(count, settings.sources, settings.train, rng)
+    inputs, labels = load_inputs(count, settings.sources, settings.train, rng, used, settings.reuse_images)
     with_sheets = rng.random(batches) < settings.sheet_fraction
     log.info('Loaded %d inputs and %d kernels (block %d of %s)', len(inputs), len(kernels), settings.seed,
              settings.kernels)
@@ -127,6 +136,7 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
 
         def run_pass(index: int) -> bool:
             """Capture pass `index`, redone while it looks wrong, and store it; False if it never looked right."""
+            number = index + 1  # passes count from 1 in the log and the sheet names
             started = time.monotonic()
             rows = slice(index * settings.batch_size, (index + 1) * settings.batch_size)
             fm, kernel = inputs[rows], kernels[rows]
@@ -134,7 +144,7 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
             terms, r, problem = None, 0.0, None
             for attempt in range(1, settings.max_attempts + 1):
                 if attempt > 1:
-                    log.warning('Batch %d: %s; redoing the pass with the DMDs set up again (attempt %d of %d)', index,
+                    log.warning('Batch %d: %s; redoing the pass with the DMDs set up again (attempt %d of %d)', number,
                                 problem, attempt, settings.max_attempts)
                     rig.reset_dmds()
                 try:
@@ -150,15 +160,15 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
                     break
             if problem is not None:
                 if terms is None or terms.mean() < settings.min_events_per_px or r < settings.min_pass_r:
-                    log.warning('Batch %d: %s in all %d tries; set aside to retry at the end', index, problem,
+                    log.warning('Batch %d: %s in all %d tries; set aside to retry at the end', number, problem,
                                 settings.max_attempts)
                     return False
-                log.warning('Batch %d: %s in all %d tries, so kept', index, problem, settings.max_attempts)
+                log.warning('Batch %d: %s in all %d tries, so kept', number, problem, settings.max_attempts)
             events.append(float(terms.mean()))
             counts = np.rint(terms)
             if (clipped := int((counts > frame_max).sum())):
                 log.warning('Batch %d: %d pixels over %d events clipped in the stored frames (target16 is not)',
-                            index, clipped, frame_max)
+                            number, clipped, frame_max)
             with deferred():  # a stop signal waits until the pass is written
                 _append(data_file, {
                     'input16': fm, 'kernel9': kernel, 'conv16': conv, 'target16': target,
@@ -166,18 +176,18 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
                     'label': labels[rows], 'ii': labels[rows, 2], 'kk': kk[rows]})
                 data_file.flush()  # a hard crash keeps every finished pass
             if with_sheets[index]:
-                sheet = run_dir / 'sheets' / f'batch_{index:04d}'
+                sheet = run_dir / 'sheets' / f'batch_{number:04d}'
                 try:  # a picture must never end a long collection
                     save_sheets(rig.camera, terms, output, sheet)
                     comparison_sheet(sheet.with_name(f'{sheet.name}_compare.png'), fm, kernel, conv, target,
                                      output, grid, roi)
                 except Exception as exc:
-                    log.warning('Sheets for batch %d skipped: %s', index, exc)
+                    log.warning('Sheets for batch %d skipped: %s', number, exc)
             if index == 0:
                 check_grid(output, conv, grid, roi)
             # one line per pass, so drift in the optics or the laser shows up in run.log
             log.info('Batch %d/%d: median r(target16, conv16) %.3f, %.2f ON events per px per capture, %.1f s',
-                     index + 1, batches, r, events[-1], time.monotonic() - started)
+                     number, batches, r, events[-1], time.monotonic() - started)
             return True
 
         # redrawn once a second: the bar's thread shares the GIL with the render thread during a pass
@@ -189,12 +199,12 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
                     set_aside.append(index)
                 bar.advance(task)
         if set_aside:
-            log.warning('Retrying the %d passes set aside: %s', len(set_aside), set_aside)
+            log.warning('Retrying the %d passes set aside: %s', len(set_aside), [i + 1 for i in set_aside])
             set_aside = [index for index in set_aside if not run_pass(index)]
         stored = data_file['frames'].shape[0]
     if set_aside:
         log.warning('Collection complete: %d of %d samples in %s; passes %s never looked right and are left out',
-                    stored, count, run_dir / 'data.h5', set_aside)
+                    stored, count, run_dir / 'data.h5', [i + 1 for i in set_aside])
     else:
         log.info('Collection complete: %d samples in %s', stored, run_dir / 'data.h5')
 

@@ -45,6 +45,7 @@ class KernelConfig:
     train: bool               # the datasets' train sets, else their test sets
     seed: int                 # also picks the kernels.npz block
     sources: dict[str, float]  # share of the inputs from emnist, cifar, random
+    reuse_images: bool        # let a run use images earlier runs used (with new kernels)
     dataset_size: int
     batch_size: int
     mirrors_per_px: int
