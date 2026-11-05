@@ -16,6 +16,7 @@ import numpy as np
 
 from dmdcontrol.runtime.dmd_conv import TERMS, combine
 from dmdcontrol.runtime.output_grid import SIDE, Grid
+from metrics import r as pearson, ssim
 
 GRID_COLOUR = 'tab:orange'
 
@@ -68,7 +69,7 @@ def draw(fig, axes: dict, run: RunData, i: int) -> None:
     s = run.sample(i)
     frames = s['frames'].astype(np.float64)
     combined = combine(frames, run.gamma)
-    r = np.corrcoef(s['target16'].ravel(), s['conv16'].ravel())[0, 1]
+    r, similarity = pearson(s['target16'], s['conv16']), ssim(s['target16'], s['conv16'])
     for ax in axes.values():
         ax.clear()
         ax.set_xticks([])
@@ -77,7 +78,7 @@ def draw(fig, axes: dict, run: RunData, i: int) -> None:
     _binary(axes['input'], s['input16'], 'input16 (DMD A)')
     _binary(axes['kernel'], s['kernel9'], 'kernel9 (DMD B)')
     _signed(axes['conv'], s['conv16'], 'conv16 (digital)')
-    _signed(axes['target'], s['target16'], f'target16 (optical), r = {r:+.3f}')
+    _signed(axes['target'], s['target16'], f'target16 (optical), r {r:+.3f}, SSIM {similarity:.3f}')
     _signed(axes['roi'], combined, f'captures combined, full ROI {run.roi[2]}x{run.roi[3]} px, output grid')
     _grid(axes['roi'], run, cells=True)
 
