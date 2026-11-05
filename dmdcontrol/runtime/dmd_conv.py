@@ -43,7 +43,7 @@ def capture_terms(rig: PairRig, fm: np.ndarray, kernel: np.ndarray) -> np.ndarra
     else:
         raise RuntimeError(f'every one of {settings.max_attempts} passes dropped frames')
 
-    frames = rig.camera.accumulate(capture.semantic[2::2], capture.events)  # content frames after the warm-up
+    frames = rig.camera.accumulate(capture.semantic[4:-2:2], capture.events)  # captures between the markers
     return frames.reshape(len(TERMS), len(fm), *frames.shape[1:])
 
 

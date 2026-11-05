@@ -26,8 +26,9 @@ the input is lit, which is exactly zero padding.
 - **On the DMDs** each operand pixel is a solid square of `Run.Kernel.mirrors_per_px` = 24 mirrors (nearest
   neighbour): the 16x16 input is 384x384 mirrors on A, the 9x9 kernel 216x216 on B, both centred.
 - **One pass** shows `batch_size` samples as four captures each - (k+ fm+), (k+ fm-), (k- fm+), (k- fm-) - every
-  capture followed by a blank, after one warm-up capture that is not stored (the first capture after the lead-in
-  comes out too bright). 882 frames at 60 Hz for 110 samples, ~25 s. A pass that drops frames is redone.
+  capture followed by a blank. Unstored: a bright marker (all mirrors on) at both ends, so the camera's frame alignment
+  can't slip when a pass's first or last capture is dark, and a warm-up capture (the first capture after the lead-in
+  comes out too bright). 886 frames at 60 Hz for 110 samples, ~25 s. A pass that drops frames is redone.
 - **The output grid** is 16x16 output pixels centred at `Run.Kernel.grid_centre` on the sensor,
   `Run.Kernel.grid_px` camera px each (~12.5 x 12.0). `Camera.ROI` holds the grid plus one output pixel of margin.
   `target16` is made by `dmdcontrol/runtime/output_grid.py` `region16`: the grid resampled bilinearly to 12x12
@@ -73,9 +74,9 @@ Throughput is ~110 samples per ~25 s pass, ~15,800 an hour, ~380,000 a day runni
 4. **Data:** one config per file in `configs/`, each with its own `seed` (the same seed draws the same inputs and
    kernels): `emnist_train` (seed 1, 50,000, ~3.2 h), `emnist_test` (2, 10,000), `cifar_train` (3, all 50,000),
    `cifar_test` (4, all 10,000). All four in a row, ~8 h, inside `screen`:
-   `for c in emnist_train emnist_test cifar_train cifar_test; do uv run main.py --config configs/$c.yaml || break; done`.
-   A pass with no light is redone, and the run stops if the light does not come back; a crash keeps every pass
-   written so far.
+   `for c in emnist_train emnist_test cifar_train cifar_test; do uv run main.py --config configs/$c.yaml; [ $? -ge 128 ] && break; done`
+   (Ctrl-C stops it; a run that fails moves on to the next). A pass that looks wrong (no light, poor r, light 10% off)
+   is redone; if it stays wrong it is set aside and retried at the end of the run. A crash keeps every pass written.
 5. **Daily:** `df -h`; the latest `Batch` lines (r steady, events per px steady); one `_compare.png`. With sheets on, each batch also saves
 `sheets/batch_NNNN_frames.png` (every capture), `_conv.png` (the combination, grey = 0) and `_compare.png` (input,
 kernel, `conv16`, `target16` and the ROI with the grid outlined, with r between `target16` and `conv16`).

@@ -132,7 +132,8 @@ def build_kernel_sequence(fm: np.ndarray, kernel: np.ndarray) -> PairedDisplaySe
     Each operand pixel is a square of Run.Kernel.mirrors_per_px mirrors (nearest neighbour),
     centred on its DMD. Sample i shows fm[i] on A with kernel[i] on B, as four captures, each
     followed by a blank: every sample's (k+ fm+), then every (k+ fm-), (k- fm+), (k- fm-). So the
-    content frames come in those four blocks of N, after one warm-up capture that is not used.
+    content frames come in those four blocks of N, between a bright marker and a warm-up capture
+    before them and a bright marker after, none of them used.
     """
     mirrors = CONFIG.Run.Kernel.mirrors_per_px
     shared = kernel.ndim == 2
@@ -141,15 +142,20 @@ def build_kernel_sequence(fm: np.ndarray, kernel: np.ndarray) -> PairedDisplaySe
         raise ValueError(f'{len(fm)} feature maps but {len(kernels)} kernels')
     a = {sign: [MaskPattern(_mirror_blocks(m * sign > 0, mirrors)) for m in fm] for sign in (1, -1)}
     b = {sign: [MaskPattern(_mirror_blocks(k * sign > 0, mirrors)) for k in kernels] for sign in (1, -1)}
-    # the first capture after the blank leader comes out too bright, so it is a throwaway
-    frames = [FramePair(a=a[1][0], b=b[1][0]), FramePair(a=BLANK, b=b[1][0])]
-    labels = ['warm-up', 'blank']
+    # all mirrors on at both ends, so find_semantic_frames can't be off by a whole capture when a pass's
+    # first or last capture is dark; the warm-up takes the over-bright first capture after the leader
+    bright = FramePair(a=MaskPattern(_mirror_blocks(np.ones(fm.shape[1:], bool), mirrors)),
+                       b=MaskPattern(_mirror_blocks(np.ones(kernels.shape[1:], bool), mirrors)))
+    frames = [bright, FramePair(a=BLANK, b=bright.b), FramePair(a=a[1][0], b=b[1][0]), FramePair(a=BLANK, b=b[1][0])]
+    labels = ['marker', 'blank', 'warm-up', 'blank']
     for kernel_sign in (1, -1):
         for fm_sign in (1, -1):
             for index in range(len(fm)):
                 b_pattern = b[kernel_sign][0 if shared else index]
                 frames += [FramePair(a=a[fm_sign][index], b=b_pattern), FramePair(a=BLANK, b=b_pattern)]
                 labels += [f'k{"+-"[kernel_sign < 0]} fm{"+-"[fm_sign < 0]}:{index}', 'blank']
+    frames += [bright, FramePair(a=BLANK, b=bright.b)]
+    labels += ['marker', 'blank']
     return _sequence(frames, labels, startup_pair=FramePair(a=BLANK, b=frames[0].b))
 
 

@@ -123,56 +123,74 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
             'created': datetime.now().isoformat(timespec='seconds'),
         })
 
-        # redrawn once a second: the bar's thread shares the GIL with the render thread during a pass
         events: list[float] = []  # mean ON events per px per capture of each kept pass
+
+        def run_pass(index: int) -> bool:
+            """Capture pass `index`, redone while it looks wrong, and store it; False if it never looked right."""
+            started = time.monotonic()
+            rows = slice(index * settings.batch_size, (index + 1) * settings.batch_size)
+            fm, kernel = inputs[rows], kernels[rows]
+            conv = same_conv(fm, kernel)
+            for attempt in range(1, settings.max_attempts + 1):
+                terms = capture_terms(rig, fm, kernel)
+                output = combine(terms, settings.gamma)
+                target = region16(output, grid, roi)
+                r = float(np.median([np.corrcoef(t.ravel(), c.ravel())[0, 1] for t, c in zip(target, conv)]))
+                problem = pass_problem(float(terms.mean()), r, events[-10:])
+                if problem is None:
+                    break
+                if attempt < settings.max_attempts:
+                    log.warning('Batch %d: %s; redoing the pass (attempt %d of %d)', index, problem, attempt + 1,
+                                settings.max_attempts)
+            if problem is not None:
+                if terms.mean() < settings.min_events_per_px or r < settings.min_pass_r:
+                    log.warning('Batch %d: %s in all %d tries; set aside to retry at the end', index, problem,
+                                settings.max_attempts)
+                    return False
+                log.warning('Batch %d: %s in all %d tries, so kept', index, problem, settings.max_attempts)
+            events.append(float(terms.mean()))
+            counts = np.rint(terms)
+            if (clipped := int((counts > frame_max).sum())):
+                log.warning('Batch %d: %d pixels over %d events clipped in the stored frames (target16 is not)',
+                            index, clipped, frame_max)
+            with deferred():  # a stop signal waits until the pass is written
+                _append(data_file, {
+                    'input16': fm, 'kernel9': kernel, 'conv16': conv, 'target16': target,
+                    'frames': np.clip(counts, -frame_max - 1, frame_max).astype(frame_dtype).transpose(1, 0, 2, 3),
+                    'label': labels[rows], 'ii': labels[rows, 2], 'kk': kk[rows]})
+                data_file.flush()  # a hard crash keeps every finished pass
+            if with_sheets[index]:
+                sheet = run_dir / 'sheets' / f'batch_{index:04d}'
+                try:  # a picture must never end a long collection
+                    save_sheets(rig.camera, terms, output, sheet)
+                    comparison_sheet(sheet.with_name(f'{sheet.name}_compare.png'), fm, kernel, conv, target,
+                                     output, grid, roi)
+                except Exception as exc:
+                    log.warning('Sheets for batch %d skipped: %s', index, exc)
+            if index == 0:
+                check_grid(output, conv, grid, roi)
+            # one line per pass, so drift in the optics or the laser shows up in run.log
+            log.info('Batch %d/%d: median r(target16, conv16) %.3f, %.2f ON events per px per capture, %.1f s',
+                     index + 1, batches, r, events[-1], time.monotonic() - started)
+            return True
+
+        # redrawn once a second: the bar's thread shares the GIL with the render thread during a pass
         with progress_bar(refresh_per_second=1) as bar:
             task = bar.add_task('Collecting batches', total=batches)
+            set_aside = []
             for index in range(batches):
-                started = time.monotonic()
-                rows = slice(index * settings.batch_size, (index + 1) * settings.batch_size)
-                fm, kernel = inputs[rows], kernels[rows]
-                conv = same_conv(fm, kernel)
-                for attempt in range(1, settings.max_attempts + 1):
-                    terms = capture_terms(rig, fm, kernel)
-                    output = combine(terms, settings.gamma)
-                    target = region16(output, grid, roi)
-                    r = float(np.median([np.corrcoef(t.ravel(), c.ravel())[0, 1] for t, c in zip(target, conv)]))
-                    problem = pass_problem(float(terms.mean()), r, events[-10:])
-                    if problem is None:
-                        break
-                    if attempt < settings.max_attempts:
-                        log.warning('Batch %d: %s; redoing the pass (attempt %d of %d)', index, problem, attempt + 1,
-                                    settings.max_attempts)
-                if problem is not None:
-                    if terms.mean() < settings.min_events_per_px or r < settings.min_pass_r:
-                        raise RuntimeError(f'batch {index}: {problem}, in all {settings.max_attempts} tries')
-                    log.warning('Batch %d: %s in all %d tries, so kept', index, problem, settings.max_attempts)
-                events.append(float(terms.mean()))
-                counts = np.rint(terms)
-                if (clipped := int((counts > frame_max).sum())):
-                    log.warning('Batch %d: %d pixels over %d events clipped in the stored frames (target16 is not)',
-                                index, clipped, frame_max)
-                with deferred():  # a stop signal waits until the pass is written
-                    _append(data_file, {
-                        'input16': fm, 'kernel9': kernel, 'conv16': conv, 'target16': target,
-                        'frames': np.clip(counts, -frame_max - 1, frame_max).astype(frame_dtype).transpose(1, 0, 2, 3),
-                        'label': labels[rows], 'ii': labels[rows, 2], 'kk': kk[rows]})
-                    data_file.flush()  # a hard crash keeps every finished pass
-                if with_sheets[index]:
-                    sheet = run_dir / 'sheets' / f'batch_{index:04d}'
-                    try:  # a picture must never end a long collection
-                        save_sheets(rig.camera, terms, output, sheet)
-                        comparison_sheet(sheet.with_name(f'{sheet.name}_compare.png'), fm, kernel, conv, target,
-                                         output, grid, roi)
-                    except Exception as exc:
-                        log.warning('Sheets for batch %d skipped: %s', index, exc)
-                if index == 0:
-                    check_grid(output, conv, grid, roi)
-                # one line per pass, so drift in the optics or the laser shows up in run.log
-                log.info('Batch %d/%d: median r(target16, conv16) %.3f, %.2f ON events per px per capture, %.1f s',
-                         index + 1, batches, r, events[-1], time.monotonic() - started)
+                if not run_pass(index):
+                    set_aside.append(index)
                 bar.advance(task)
-    log.info('Collection complete: %d samples in %s', count, run_dir / 'data.h5')
+        if set_aside:
+            log.warning('Retrying the %d passes set aside: %s', len(set_aside), set_aside)
+            set_aside = [index for index in set_aside if not run_pass(index)]
+        stored = data_file['frames'].shape[0]
+    if set_aside:
+        log.warning('Collection complete: %d of %d samples in %s; passes %s never looked right and are left out',
+                    stored, count, run_dir / 'data.h5', set_aside)
+    else:
+        log.info('Collection complete: %d samples in %s', stored, run_dir / 'data.h5')
 
 
 def pass_problem(light: float, r: float, recent: list[float]) -> str | None:
