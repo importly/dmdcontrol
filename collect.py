@@ -131,19 +131,25 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
             rows = slice(index * settings.batch_size, (index + 1) * settings.batch_size)
             fm, kernel = inputs[rows], kernels[rows]
             conv = same_conv(fm, kernel)
+            terms, r, problem = None, 0.0, None
             for attempt in range(1, settings.max_attempts + 1):
-                terms = capture_terms(rig, fm, kernel)
+                if attempt > 1:
+                    log.warning('Batch %d: %s; redoing the pass with the DMDs set up again (attempt %d of %d)', index,
+                                problem, attempt, settings.max_attempts)
+                    rig.reset_dmds()
+                try:
+                    terms = capture_terms(rig, fm, kernel)
+                except Exception as exc:  # a pass that errors is retried like one that looks wrong
+                    terms, problem = None, f'the pass failed: {exc}'
+                    continue
                 output = combine(terms, settings.gamma)
                 target = region16(output, grid, roi)
                 r = float(np.median([np.corrcoef(t.ravel(), c.ravel())[0, 1] for t, c in zip(target, conv)]))
                 problem = pass_problem(float(terms.mean()), r, events[-10:])
                 if problem is None:
                     break
-                if attempt < settings.max_attempts:
-                    log.warning('Batch %d: %s; redoing the pass (attempt %d of %d)', index, problem, attempt + 1,
-                                settings.max_attempts)
             if problem is not None:
-                if terms.mean() < settings.min_events_per_px or r < settings.min_pass_r:
+                if terms is None or terms.mean() < settings.min_events_per_px or r < settings.min_pass_r:
                     log.warning('Batch %d: %s in all %d tries; set aside to retry at the end', index, problem,
                                 settings.max_attempts)
                     return False

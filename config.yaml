@@ -18,8 +18,8 @@ Run:
     train: false                     # the datasets' train sets, else their test sets
     seed: 0                          # one per file, so no two files share a kernel; 0 for tests
     sources: {emnist: 0.4, cifar: 0.4, random: 0.2}  # share of the inputs from each
-    dataset_size: 250                # CIFAR has 50000 train / 10000 test images; EMNIST is half digits, half letters
-    batch_size: 110                  # samples per DMD pass: 8 frames each, ~25 s
+    dataset_size: 550                # CIFAR has 50000 train / 10000 test images; EMNIST is half digits, half letters
+    batch_size: 220                  # samples per DMD pass: 8 frames each, ~45 s
     mirrors_per_px: 24               # each operand pixel is a square of mirrors (nearest): input 384, kernel 216 on the DMDs
     # Where the 16x16 output grid lands on the sensor (calibrate.py; each run re-fits it after batch 0
     # and warns with new values if it moved). Confirmed by calibration 2026-11-04.

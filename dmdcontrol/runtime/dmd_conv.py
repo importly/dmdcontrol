@@ -36,6 +36,8 @@ def capture_terms(rig: PairRig, fm: np.ndarray, kernel: np.ndarray) -> np.ndarra
     """
     settings = CONFIG.Run.Kernel
     for attempt in range(1, settings.max_attempts + 1):
+        if attempt > 1:
+            rig.reset_dmds()
         capture = rig.play(build_kernel_sequence(fm, kernel))
         if not capture.dropped:
             break

@@ -1,7 +1,9 @@
 """The paired DMDs, their displays and the camera, brought up once per run.
 
 PairRig.play() shows one sequence and records it: count mode plays once, kernel mode once per
-batch (through dmd_conv).
+batch (through dmd_conv). After a pass that completes, the controllers stay in Video Pattern Mode
+with their sequencers stopped, so the next pass only reloads and starts them; a failed pass, a
+lost input, or reset_dmds() brings them up from Video Mode again.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from functools import partial
 import numpy as np
 
 from dmdcontrol.camera import CameraProphsee
-from dmdcontrol.dmd import DLPC900, load_from_config
+from dmdcontrol.dmd import DLPC900, load_from_config, wait_for_stable_external_lock
 from dmdcontrol.patterns import PairedPatternEngine
 from dmdcontrol.utils import CONFIG, WORKSPACE
 
@@ -50,6 +52,7 @@ class PairRig:
     def __enter__(self) -> PairRig:
         dmd_a, dmd_b = load_from_config()
         self.dlpcs = {'A': DLPC900(dmd_a), 'B': DLPC900(dmd_b)}
+        self.dmds_ready = False  # in Video Pattern Mode from the last pass, sequencers stopped
         self.camera = CameraProphsee()
         try:
             wake_dmds(self.dlpcs)
@@ -61,15 +64,22 @@ class PairRig:
         return self
 
     def __exit__(self, *_) -> None:
-        # play() already stopped the sequencers and restored video mode; stopping again is NACKed
+        self.reset_dmds()
         _cleanup_step('camera close', self.camera.close)
         for name, dlpc in self.dlpcs.items():
             _cleanup_step(f'DMD {name} close', dlpc.close)
+
+    def reset_dmds(self) -> None:
+        """Restore Video Mode (the sequencers are already stopped), so the next play() brings the controllers up in full."""
+        if self.dmds_ready:
+            self._stop_sequencers(stop_pattern=False)
+            self.dmds_ready = False
 
     def play(self, sequence: PairedDisplaySequence, cycles: int = 1) -> Capture:
         """Show the startup leader, then cycles x sequence.frames, and record it all."""
         semantic_frames = cycles * len(sequence.frames)
         engine = coordinator = None
+        completed = False
         try:
             engine = PairedPatternEngine()
             coordinator = _start_pair_render_coordinator(
@@ -83,7 +93,14 @@ class PairRig:
                 raise RuntimeError('render coordinator did not become ready')
 
             dlpc_a, dlpc_b = self.dlpcs['A'], self.dlpcs['B']
-            prepare_pair_controllers(dlpc_a, dlpc_b)
+            # the same check the full bring-up ends with: arming without a stable input aborts the sequencer
+            stable_for = max(0.2, 8.0 / CONFIG.DMD.target_hz)
+            if self.dmds_ready and not all(wait_for_stable_external_lock(dlpc, timeout_s=1.0, stable_for_s=stable_for,
+                                                                         required_mode=2) for dlpc in self.dlpcs.values()):
+                log.warning('DMDs left Video Pattern Mode or lost a stable input since the last pass: full bring-up')
+                self.reset_dmds()
+            if not self.dmds_ready:
+                prepare_pair_controllers(dlpc_a, dlpc_b)
             load_pattern_sequence(dlpc_a, sequence.entries_a)
             load_pattern_sequence(dlpc_b, sequence.entries_b)
             start_loaded_pattern_sequences(dlpc_a, dlpc_b)
@@ -114,17 +131,24 @@ class PairRig:
                                                         semantic_frames, search=4)
             dropped = coordinator.semantic_dropped_frames
             log.info('Displayed %d semantic frames, %d dropped', coordinator.semantic_frames_displayed, dropped)
+            completed = True
             return Capture(triggers, events, semantic, dropped)
         finally:
             if coordinator is not None:
                 _cleanup_step('render coordinator stop', coordinator.stop)
-            self._stop_sequencers()
+            if completed:
+                for name, dlpc in self.dlpcs.items():
+                    _cleanup_step(f'DMD {name} stop pattern display', partial(dlpc.start_pattern_display, 0))
+            else:
+                self._stop_sequencers()
+            self.dmds_ready = completed
             if engine is not None:
                 _cleanup_step('engine cleanup', engine.cleanup)
 
-    def _stop_sequencers(self) -> None:
+    def _stop_sequencers(self, stop_pattern: bool = True) -> None:
         for name, dlpc in self.dlpcs.items():
-            _cleanup_step(f'DMD {name} stop pattern display', partial(dlpc.start_pattern_display, 0))
+            if stop_pattern:
+                _cleanup_step(f'DMD {name} stop pattern display', partial(dlpc.start_pattern_display, 0))
             _cleanup_step(f'DMD {name} restore video mode', partial(dlpc.set_display_mode, 0))
             _cleanup_step(f'DMD {name} block-lock workaround', dlpc.apply_block_lock_workaround)
 
