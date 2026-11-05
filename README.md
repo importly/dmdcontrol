@@ -22,7 +22,10 @@ the input is lit, which is exactly zero padding.
 - **Operands** (`operands.py`): inputs from CIFAR-10 and EMNIST in `datasets/` (made 16x16, +1 above the
   dataset mean, no augmentation) or random block patterns, in the shares `Run.Kernel.sources`, from the train sets or,
   with `train: false`, the test sets. EMNIST is half digits, half letters. Kernels are unique random 81-bit kernels
-  from `datasets/kernels.npz`; each `seed` has its own block, so no two runs share a kernel.
+  from `datasets/kernels.npz`; each `seed` has its own block, so no two runs share a kernel. Before a run, every
+  `data.h5` under `runs/` is checked: a seed already used is refused, images earlier runs used are left out (unless
+  `reuse_images`), and inputs matching one from the other split are skipped, so train and test never share an image,
+  an input pattern or a kernel. Seed 0 is for tests and is not checked.
 - **On the DMDs** each operand pixel is a solid square of `Run.Kernel.mirrors_per_px` = 24 mirrors (nearest
   neighbour): the 16x16 input is 384x384 mirrors on A, the 9x9 kernel 216x216 on B, both centred.
 - **One pass** shows `batch_size` samples as four captures each - (k+ fm+), (k+ fm-), (k- fm+), (k- fm-) - every
@@ -92,7 +95,7 @@ Throughput is ~110 samples per ~25 s pass, ~15,800 an hour, ~380,000 a day runni
    here the grid and ROI stay fixed.
 4. **Data:** one config per file in `configs/`, each with its own `seed` (the same seed draws the same inputs and
    kernels): `emnist_train` (seed 1, 50,000, ~3.2 h), `emnist_test` (2, 10,000), `cifar_train` (3, all 50,000),
-   `cifar_test` (4, all 10,000). All four in a row, ~8 h, inside `screen`:
+   `cifar_test` (4, all 10,000), then `emnist_train_2` (5, 190,000 more). All four in a row, ~8 h, inside `screen`:
    `for c in emnist_train emnist_test cifar_train cifar_test; do uv run main.py --config configs/$c.yaml; [ $? -ge 128 ] && break; done`
    (Ctrl-C stops it; a run that fails moves on to the next). A pass that looks wrong (no light, poor r, light 10% off)
    is redone; if it stays wrong it is set aside and retried at the end of the run. A crash keeps every pass written.
