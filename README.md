@@ -39,18 +39,37 @@ the input is lit, which is exactly zero padding.
   `grid_centre`, `grid_px` and `Camera.ROI` to put in `config.yaml`. `uv run python calibrate.py <run dir>` does the
   same for a finished run.
 
-`data.h5`, one row per sample (the translator's `gen16_<split>.h5` names):
+`data.h5`, one row per sample:
 
-| column | shape | |
-|---|---|---|
-| `input16`, `kernel9` | 16x16, 9x9 | the operands, +-1 |
-| `conv16` | 16x16 | digital same convolution, kernel flipped (a true convolution - what the optics compute) |
-| `target16` | 16x16 | optical result: the four captures combined (`pp - pn - np + nn`, each to `gamma`), then `region16` |
-| `frames` | 4 x ROI | the four raw captures, ON-event counts, uint8 (clipped at 255, logged) or int16 in `signed` mode, lzf-compressed |
-| `label`, `ii`, `kk` | 3, -, - | the input's label [class, source, index], its index in its dataset, the kernel's row in `kernels.npz` |
+| column | shape | type | what it is |
+|---|---|---|---|
+| `input16` | 16x16 | float32 | the input image (+-1), shown on DMD A |
+| `kernel9` | 9x9 | float32 | the kernel (+-1), shown on DMD B |
+| `conv16` | 16x16 | float32 | the convolution computed digitally (the ideal answer) |
+| `target16` | 16x16 | float32 | the convolution measured on the bench |
+| `frames` | 4x226x226 | uint8 | the four raw camera captures (event counts), compressed |
+| `label` | 3 | float32 | the input's class, source and index (below) |
+| `ii` | - | int32 | the input's index in its dataset |
+| `kk` | - | int32 | the kernel's index in `kernels.npz` |
 
-Attributes record the kernels file and a sha256 of its kernels, train or test, sources, seed, ROI, grid, mirrors per
-pixel and gamma. Rows are
+`label` is [class, source, index]: class is 0-9 for EMNIST digits, 10-35 for EMNIST letters, 0-9 for CIFAR; source
+is 0 EMNIST, 1 CIFAR, 2 random.
+
+| attribute | what it is |
+|---|---|
+| `train` | True: the datasets' train sets; False: their test sets |
+| `seed` | the random seed (also picks the kernels' block) |
+| `sources` | the share of inputs from each dataset |
+| `kernels`, `kernels_sha256` | the kernel file and its hash |
+| `gamma` | exponent used when combining the captures |
+| `roi` | the camera region captured |
+| `grid_centre`, `grid_px` | where the 16x16 output sits in the camera image |
+| `mirrors_per_px` | DMD mirrors per input or kernel pixel |
+| `polarity_mode`, `window_us` | how the camera events were counted |
+| `terms` | the order of the four captures in `frames` |
+| `created` | when the run started |
+
+Rows are
 written a pass at a time, so a crash leaves only complete rows. Ctrl-C, `kill` or a dropped ssh session stops the run
 cleanly. Every pass logs one line to `run.log` -
 `Batch i/n: median r(target16, conv16) ..., ... ON events per px per capture, ... s` - so drift in the optics or
