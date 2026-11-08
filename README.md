@@ -99,6 +99,8 @@ Throughput is ~110 samples per ~25 s pass, ~15,800 an hour, ~380,000 a day runni
    `for c in emnist_train emnist_test cifar_train cifar_test; do uv run main.py --config configs/$c.yaml; [ $? -ge 128 ] && break; done`
    (Ctrl-C stops it; a run that fails moves on to the next). A pass that looks wrong (no light, poor r, light 10% off)
    is redone; if it stays wrong it is set aside and retried at the end of the run. A crash keeps every pass written.
+   If the camera drops off USB, the next try opens it again (on 2026-11-06 this was missing and the last 111 passes
+   of `emnist_train_2` failed).
 5. **Daily:** `df -h`; the latest `Batch` lines (r steady, events per px steady); one `_compare.png`. With sheets on, each batch also saves
 `sheets/batch_NNNN_frames.png` (every capture), `_conv.png` (the combination, grey = 0) and `_compare.png` (input,
 kernel, `conv16`, `target16` and the ROI with the grid outlined, with r between `target16` and `conv16`).

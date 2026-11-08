@@ -3,7 +3,8 @@
 PairRig.play() shows one sequence and records it: count mode plays once, kernel mode once per
 batch (through dmd_conv). After a pass that completes, the controllers stay in Video Pattern Mode
 with their sequencers stopped, so the next pass only reloads and starts them; a failed pass, a
-lost input, or reset_dmds() brings them up from Video Mode again.
+lost input, or reset_dmds() brings them up from Video Mode again. A camera process that stopped
+(the camera dropped off USB) is started again at the next play().
 """
 
 from __future__ import annotations
@@ -78,6 +79,10 @@ class PairRig:
     def play(self, sequence: PairedDisplaySequence, cycles: int = 1) -> Capture:
         """Show the startup leader, then cycles x sequence.frames, and record it all."""
         semantic_frames = cycles * len(sequence.frames)
+        if not self.camera.alive:
+            log.warning('The camera process has stopped (the camera may have dropped off USB); starting it again')
+            _cleanup_step('camera close', self.camera.close)
+            self.camera = CameraProphsee()
         engine = coordinator = None
         completed = False
         try:

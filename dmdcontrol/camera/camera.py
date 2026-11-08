@@ -448,6 +448,7 @@ class CameraProphsee(CameraDAVIS):
         self._process = context.Process(target=_camera_process, args=(child_conn,), daemon=True)
         self._process.start()
         child_conn.close()  # so a dead camera process shows up here as EOF
+        self._stopped = False
         self.WIDTH, self.HEIGHT = self._receive()
 
         roi, accumulation = CONFIG.Camera.ROI, CONFIG.Camera.Accumulation
@@ -479,6 +480,11 @@ class CameraProphsee(CameraDAVIS):
         self.logger.info('Recording complete. Triggers: %s, Events: %s', len(triggers), len(events))
         return triggers, events
 
+    @property
+    def alive(self) -> bool:
+        """False once the camera process has ended, e.g. after the camera dropped off USB."""
+        return self._process.is_alive() and not self._stopped
+
     def close(self):
         """Stop the camera process; the device is released when it exits."""
         if self._process.is_alive():
@@ -495,6 +501,7 @@ class CameraProphsee(CameraDAVIS):
             if kind == 'log':
                 logging.getLogger(payload.name).handle(payload)
             elif kind == 'error':
+                self._stopped = True  # the process ends after an error, though is_alive() can lag
                 raise RuntimeError(payload)
             else:
                 return payload
