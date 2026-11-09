@@ -19,7 +19,7 @@ Run:
     seed: 7                          # one per file, so no two files share a kernel; 0 for tests
     sources: {cifar: 1.0}            # share of the inputs from each
     reuse_images: true               # true: may use images earlier runs used (new kernels); train and test never mix
-    dataset_size: 49280              # 224 passes; 49,567 CIFAR train images do not match a test input
+    dataset_size: 49280              # 224 passes; 49,538 CIFAR train images match no test input
     batch_size: 220                  # samples per DMD pass: 8 frames each, ~45 s
     mirrors_per_px: 24               # each operand pixel is a square of mirrors (nearest): input 384, kernel 216 on the DMDs
     # Where the 16x16 output grid lands on the sensor (calibrate.py; each run re-fits it after batch 0

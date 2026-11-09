@@ -28,8 +28,8 @@ the input is lit, which is exactly zero padding.
   half digits, half letters. Kernels are unique random 81-bit kernels from `datasets/kernels.npz`; each `seed` has
   its own block, so no two runs share a kernel. Before a run, every `data.h5` under `runs/` is checked: a seed
   already used is refused, images earlier runs used are left out (unless `reuse_images`), and inputs matching one
-  from the other split are skipped, so train and test never share an image, an input pattern or a kernel. Seed 0 is
-  for tests and is not checked.
+  from the other split (or its sign flip) are skipped, so train and test never share an image, an input pattern or
+  a kernel. Seed 0 is for tests and is not checked.
 - **On the DMDs** each operand pixel is a solid square of `Run.Kernel.mirrors_per_px` = 24 mirrors (nearest
   neighbour): the 16x16 input is 384x384 mirrors on A, the 9x9 kernel 216x216 on B, both centred.
 - **One pass** shows `batch_size` samples as four captures each - (k+ fm+), (k+ fm-), (k- fm+), (k- fm-) - every

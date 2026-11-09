@@ -88,8 +88,13 @@ def _binarize(images: list[torch.Tensor]) -> np.ndarray:
 
 
 def pattern_keys(x: np.ndarray) -> list[bytes]:
-    """+-1 images (n, h, w) -> one key each, equal exactly when the images are."""
-    return [row.tobytes() for row in np.packbits(x.reshape(len(x), -1) > 0, axis=1)]
+    """+-1 images (n, h, w) -> one key each, equal when the images are or one is the other's sign flip.
+
+    The translator flips every input to its mostly-on side, so it sees an input and its sign flip alike.
+    """
+    flat = x.reshape(len(x), -1)
+    on, off = np.packbits(flat > 0, axis=1), np.packbits(flat <= 0, axis=1)
+    return [min(a.tobytes(), b.tobytes()) for a, b in zip(on, off)]
 
 
 @dataclass
