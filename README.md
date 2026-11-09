@@ -20,8 +20,9 @@ convolution (padding 4). On the bench that is the centre 16x16 output pixels of 
 the input is lit, which is exactly zero padding.
 
 - **Operands** (`operands.py`): inputs from CIFAR-10 and EMNIST in `datasets/` (made 16x16, +1 above the
-  dataset mean, no augmentation) or random block patterns, in the shares `Run.Kernel.sources`, from the train sets or,
-  with `train: false`, the test sets. EMNIST is half digits, half letters. Kernels are unique random 81-bit kernels
+  dataset mean, no augmentation), random block patterns, or `optical`: earlier runs' `target16` made +-1 as a binary
+  CNN layer makes its next input (each min-max scaled, +1 above the mean of them all), in the shares
+  `Run.Kernel.sources`, from the train sets (optical: train runs) or, with `train: false`, the test sets. EMNIST is half digits, half letters. Kernels are unique random 81-bit kernels
   from `datasets/kernels.npz`; each `seed` has its own block, so no two runs share a kernel. Before a run, every
   `data.h5` under `runs/` is checked: a seed already used is refused, images earlier runs used are left out (unless
   `reuse_images`), and inputs matching one from the other split are skipped, so train and test never share an image,
@@ -56,13 +57,15 @@ the input is lit, which is exactly zero padding.
 | `kk` | - | int32 | the kernel's index in `kernels.npz` |
 
 `label` is [class, source, index]: class is 0-9 for EMNIST digits, 10-35 for EMNIST letters, 0-9 for CIFAR; source
-is 0 EMNIST, 1 CIFAR, 2 random.
+is 0 EMNIST, 1 CIFAR, 2 random, 3 optical. An optical input keeps the class of the input that made it; its index is
+its row in the files of the attribute `optical_files` (earlier runs of the same split, oldest first).
 
 | attribute | what it is |
 |---|---|
 | `train` | True: the datasets' train sets; False: their test sets |
 | `seed` | the random seed (also picks the kernels' block) |
 | `sources` | the share of inputs from each dataset |
+| `optical_files` | optical inputs only: the runs they came from and their row counts, in index order |
 | `kernels`, `kernels_sha256` | the kernel file and its hash |
 | `gamma` | exponent used when combining the captures |
 | `roi` | the camera region captured |

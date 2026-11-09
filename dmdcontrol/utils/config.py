@@ -44,7 +44,7 @@ class KernelConfig:
     kernels: str              # kernels.npz, relative to the repo (operands.py)
     train: bool               # the datasets' train sets, else their test sets
     seed: int                 # also picks the kernels.npz block
-    sources: dict[str, float]  # share of the inputs from emnist, cifar, random
+    sources: dict[str, float]  # share of the inputs from emnist, cifar, random, optical
     reuse_images: bool        # let a run use images earlier runs used (with new kernels)
     dataset_size: int
     batch_size: int
@@ -59,9 +59,9 @@ class KernelConfig:
 
     def __post_init__(self):
         shares = self.sources
-        if (not shares or set(shares) - {'emnist', 'cifar', 'random'} or min(shares.values()) < 0
+        if (not shares or set(shares) - {'emnist', 'cifar', 'random', 'optical'} or min(shares.values()) < 0
                 or abs(sum(shares.values()) - 1) > 1e-6):
-            raise ValueError(f'config.yaml Run.Kernel.sources must give emnist, cifar and random shares adding up to 1, '
+            raise ValueError(f'config.yaml Run.Kernel.sources must give emnist, cifar, random and optical shares adding up to 1, '
                              f'got {shares}')
         if self.mirrors_per_px < 1:
             raise ValueError(f'config.yaml Run.Kernel.mirrors_per_px must be at least 1, got {self.mirrors_per_px}')

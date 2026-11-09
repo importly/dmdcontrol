@@ -14,8 +14,9 @@ data.h5, one row per sample (the translator's gen16_<split>.h5 names where it ha
                      the same steps as the translator's simulator
   frames             the four raw captures over the whole ROI, event counts in TERMS order: uint8
                      (positive polarity, clipped at 255 with a warning) or int16 (signed)
-  label, ii, kk      the input's label [class, source, index], its index in its dataset, and the
-                     kernel's row in kernels.npz
+  label, ii, kk      the input's label [class, source, index], its index in its dataset (optical:
+                     its row in the files of attribute optical_files, in order), and the kernel's
+                     row in kernels.npz
 Rows are appended one pass at a time, so a crash leaves only complete rows. The attributes record
 the kernels file and its sha256, train or test, sources, seed, ROI, grid, mirrors per pixel and gamma.
 """
@@ -42,7 +43,7 @@ from dmdcontrol.runtime.dmd_conv import TERMS, capture_terms, combine, save_shee
 from dmdcontrol.runtime.output_grid import SIDE, Grid, region16
 from dmdcontrol.utils import CONFIG, WORKSPACE, progress_bar
 from dmdcontrol.utils.stop import deferred
-from operands import load_inputs, load_kernels, used_operands
+from operands import RUNS, collected, load_inputs, load_kernels, used_operands
 
 log = logging.getLogger('collect')
 
@@ -90,7 +91,7 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
         log.warning('%.0f GB free and %.0f GB of raw captures before compression: watch the disk', free_gb, size_gb)
 
     # earlier runs: their seed's kernels would repeat, and their images and the other split's inputs are left out
-    used = None if settings.seed == 0 else used_operands(WORKSPACE / 'runs')
+    used = None if settings.seed == 0 else used_operands(RUNS)
     if used is None:
         log.info('Seed 0 is for tests: earlier runs are not checked')
     elif settings.seed in used.seeds:
@@ -101,6 +102,8 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
     rng = np.random.default_rng(settings.seed)
     kernels, kk, kernels_sha256 = load_kernels(WORKSPACE / settings.kernels, settings.seed, count, rng)
     inputs, labels = load_inputs(count, settings.sources, settings.train, rng, used, settings.reuse_images)
+    optical_files = [[path.relative_to(WORKSPACE).as_posix(), rows] for path, rows in collected(RUNS, settings.train)
+                     ] if settings.sources.get('optical') else []
     with_sheets = rng.random(batches) < settings.sheet_fraction
     log.info('Loaded %d inputs and %d kernels (block %d of %s)', len(inputs), len(kernels), settings.seed,
              settings.kernels)
@@ -131,6 +134,8 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
                         'to 192x192, then bilinear with antialias to 16x16 (output_grid.region16)',
             'created': datetime.now().isoformat(timespec='seconds'),
         })
+        if settings.sources.get('optical'):
+            data_file.attrs['optical_files'] = json.dumps(optical_files)
 
         events: list[float] = []  # mean ON events per px per capture of each kept pass
 
