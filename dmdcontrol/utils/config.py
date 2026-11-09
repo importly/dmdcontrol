@@ -61,8 +61,8 @@ class KernelConfig:
         shares = self.sources
         if (not shares or set(shares) - {'emnist', 'cifar', 'random', 'optical'} or min(shares.values()) < 0
                 or abs(sum(shares.values()) - 1) > 1e-6):
-            raise ValueError(f'config.yaml Run.Kernel.sources must give emnist, cifar, random and optical shares adding up to 1, '
-                             f'got {shares}')
+            raise ValueError(f'config.yaml Run.Kernel.sources must give emnist, cifar, random and optical shares adding '
+                             f'up to 1, got {shares}')
         if self.mirrors_per_px < 1:
             raise ValueError(f'config.yaml Run.Kernel.mirrors_per_px must be at least 1, got {self.mirrors_per_px}')
         if len(self.grid_centre) != 2 or len(self.grid_px) != 2 or min(self.grid_px) <= 0:
