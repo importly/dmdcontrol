@@ -1,9 +1,10 @@
 """Inputs and kernels for kernel runs.
 
-Inputs come from CIFAR-10 and EMNIST in datasets/ (made 16x16, +1 above the dataset mean),
-are random block patterns, or are earlier runs' optical outputs made +-1 as a binary CNN layer
-does (optical). Kernels come from datasets/kernels.npz: unique random 9x9 +-1 kernels
-stored as their 81 bits, one block per Run.Kernel.seed, so no two runs share a kernel. Make it once:
+Inputs come from CIFAR-10 and EMNIST in datasets/ (made 16x16, +1 above the dataset mean), are
+random block patterns, or are the optical outputs of one earlier run (Run.Kernel.optical_from) made
++-1 as a binary CNN layer makes its next input (optical). Kernels come from datasets/kernels.npz:
+unique random 9x9 +-1 kernels stored as their 81 bits, one block per Run.Kernel.seed, so no two runs
+share a kernel. Make it once:
 
     uv run python operands.py [--blocks 20] [--block-size 500000]
 """
@@ -93,11 +94,13 @@ def pattern_keys(x: np.ndarray) -> list[bytes]:
 
 @dataclass
 class Used:
-    """What earlier runs used: their seeds, dataset images (by row) and input patterns, by train or test."""
+    """What earlier runs used: their seeds, dataset images (by row), input patterns by train or test, and the runs
+    whose outputs became optical inputs."""
 
     seeds: set[int] = field(default_factory=set)
     images: dict[tuple[bool, str], set[int]] = field(default_factory=lambda: defaultdict(set))
     patterns: dict[bool, set[bytes]] = field(default_factory=lambda: {True: set(), False: set()})
+    optical_from: set[str] = field(default_factory=set)
 
 
 def used_operands(root: Path) -> Used:
@@ -108,62 +111,59 @@ def used_operands(root: Path) -> Used:
             if 'sources' not in f.attrs or int(f.attrs['seed']) == 0:
                 continue
             seed, train, label, x = int(f.attrs['seed']), bool(f.attrs['train']), f['label'][:], f['input16'][:]
+            if 'optical_from' in f.attrs:
+                used.optical_from.add(str(f.attrs['optical_from']))
         used.seeds.add(seed)
         cls, src, row = label[:, 0], label[:, 1], label[:, 2].astype(np.int64)
         emnist = src == SOURCES['emnist']
-        for name, m in (('cifar', src == SOURCES['cifar']), ('digits', emnist & (cls < 10)),
-                        ('letters', emnist & (cls >= 10)), ('optical', src == SOURCES['optical'])):
+        for name, m in (('cifar', src == SOURCES['cifar']), ('digits', emnist & (cls < 10)), ('letters', emnist & (cls >= 10))):
             used.images[(train, name)].update(row[m].tolist())
         used.patterns[train].update(pattern_keys(x))
     return used
 
 
-def collected(root: Path, train: bool) -> list[tuple[Path, int]]:
-    """The train (or test) data.h5 files under root and their row counts, oldest first; seed 0 (tests) left out.
+def optical_source(run: str) -> tuple[Path, int]:
+    """The data.h5 of run (a run dir, or an output_root holding one run) and the layer its inputs are: images are 1."""
+    found = sorted((WORKSPACE / run).rglob('data.h5'))
+    if len(found) != 1:
+        raise ValueError(f'Run.Kernel.optical_from {run}: {len(found)} data.h5 files under it, need exactly one')
+    with h5py.File(found[0], 'r') as f:
+        return found[0], int(f.attrs.get('layer', 1))
 
-    Oldest first keeps an optical input's index (its row in these files, in order) the same as later runs add files.
+
+def optical_inputs(path: Path) -> tuple[np.ndarray, np.ndarray, bool]:
+    """A run's target16 as a binary CNN layer's next input: each min-max scaled, +1 above the mean of them all.
+
+    -> (inputs, the classes of the inputs that made them, whether the run is train), in the run's row order.
     """
-    found = []
-    for path in root.rglob('data.h5'):
-        with h5py.File(path, 'r') as f:
-            if 'sources' in f.attrs and int(f.attrs['seed']) != 0 and bool(f.attrs['train']) == train:
-                found.append((str(f.attrs['created']), path, len(f['label'])))
-    return [(path, rows) for _, path, rows in sorted(found)]
-
-
-def optical_inputs(files: list[tuple[Path, int]]) -> tuple[np.ndarray, np.ndarray]:
-    """The files' target16 as a binary CNN layer's next input: each min-max scaled, +1 above the mean of them all.
-
-    -> (inputs, the classes of the inputs that made them), in file order.
-    """
-    maps, classes = [], []
-    for path, rows in files:
-        with h5py.File(path, 'r') as f:
-            maps.append(f['target16'][:rows])
-            classes.append(f['label'][:rows, 0])
-    t = np.concatenate(maps).astype(np.float64)
+    with h5py.File(path, 'r') as f:
+        t, classes, train = f['target16'][:].astype(np.float64), f['label'][:, 0], bool(f.attrs['train'])
     lo, hi = t.min((1, 2), keepdims=True), t.max((1, 2), keepdims=True)
     t = (t - lo) / (hi - lo + 1e-12)
-    return np.where(t > t.mean(), 1.0, -1.0).astype(np.float32), np.concatenate(classes).astype(np.int64)
+    return np.where(t > t.mean(), 1.0, -1.0).astype(np.float32), classes.astype(np.int64), train
 
 
-def _distinct(x: np.ndarray, name: str, count: int, rng: np.random.Generator, exclude: set[int],
-              banned: set[bytes]) -> np.ndarray:
-    """Rows of count different patterns in x, from rows not in exclude, none in banned."""
-    keys, chosen, taken = pattern_keys(x), set(), []
-    rows = np.setdiff1d(np.arange(len(x)), np.fromiter(exclude, np.int64, len(exclude)))
-    for i in rng.permutation(rows):
-        if keys[i] in banned or keys[i] in chosen:
-            continue
-        chosen.add(keys[i])
-        taken.append(i)
-        if len(taken) == count:
-            break
-    if len(taken) < count:
-        raise ValueError(f'{count} {name} inputs asked for but only {len(taken)} different ones are left ({len(exclude)} '
-                         f'used by earlier runs): ask for fewer, or set Run.Kernel.reuse_images')
-    log.info('%d %s inputs from %d, leaving out %d used by earlier runs', count, name, len(x), len(exclude))
-    return np.array(taken)
+def _optical(run: str, count: int, train: bool, rng: np.random.Generator, used: Used | None, reuse_images: bool,
+             banned: set[bytes]) -> tuple[np.ndarray, np.ndarray]:
+    """count (0: all) of run's outputs as inputs, each a different pattern, none in banned -> (inputs, labels)."""
+    path, _ = optical_source(run)
+    images, classes, source_train = optical_inputs(path)
+    if source_train != train:
+        raise ValueError(f'{path} is a {"train" if source_train else "test"} run: set Run.Kernel.train to match')
+    if used is not None and not reuse_images and path.relative_to(WORKSPACE).as_posix() in used.optical_from:
+        raise ValueError(f'an earlier run already made inputs from {path}: set Run.Kernel.reuse_images to do it again')
+    keys, seen, keep = pattern_keys(images), set(), []
+    for i, key in enumerate(keys):
+        if key not in banned and key not in seen:
+            seen.add(key)
+            keep.append(i)
+    rows = np.array(keep)
+    if count > len(rows):
+        raise ValueError(f'{count} optical inputs asked for but {path} gives only {len(rows)} different ones')
+    rows = rng.permutation(rows)[:count or len(rows)]
+    log.info('%d optical inputs from the %d outputs of %s (%d repeated or matching an input of the other split)',
+             len(rows), len(images), path, len(images) - len(keep))
+    return images[rows], np.stack([classes[rows], np.full(len(rows), SOURCES['optical']), rows], 1).astype(np.float32)
 
 
 def _pick(dataset, name: str, count: int, pipeline: T.Compose, rng: np.random.Generator, exclude: set[int],
@@ -223,14 +223,17 @@ def _split(count: int, shares: dict[str, float]) -> dict[str, int]:
 
 
 def load_inputs(count: int, shares: dict[str, float], train: bool, rng: np.random.Generator,
-                used: Used | None = None, reuse_images: bool = False) -> tuple[np.ndarray, np.ndarray]:
+                used: Used | None = None, reuse_images: bool = False,
+                optical_from: str = '') -> tuple[np.ndarray, np.ndarray]:
     """count different inputs from the train (or test) sets -> (inputs, labels [class, source, index]).
 
     EMNIST is half digits (classes 0-9), half letters (10-35). With used, images earlier runs used are left out
     (unless reuse_images) and so is any input matching one of the other split's, so train and test never share one.
     """
-    n = _split(count, shares)
     banned = used.patterns[not train] if used is not None else set()
+    if shares.get('optical'):  # the only source (config.py)
+        return _optical(optical_from, count, train, rng, used, reuse_images, banned)
+    n = _split(count, shares)
     parts: list[tuple[np.ndarray, np.ndarray]] = []
 
     def add(images: np.ndarray, classes: np.ndarray, source: str, rows: np.ndarray) -> None:
@@ -252,11 +255,6 @@ def load_inputs(count: int, shares: dict[str, float], train: bool, rng: np.rando
         add(images, classes + 9, 'emnist', rows)  # letters are 1-26 in torchvision
     if n.get('random'):
         add(_random(n['random'], rng, banned), np.zeros(n['random']), 'random', np.arange(n['random']))
-    if n.get('optical'):
-        images, classes = optical_inputs(collected(RUNS, train))
-        exclude = used.images[(train, 'optical')] if used is not None and not reuse_images else set()
-        rows = _distinct(images, 'optical', n['optical'], rng, exclude, banned)
-        add(images[rows], classes[rows], 'optical', rows)
 
     order = rng.permutation(count)
     return np.concatenate([p[0] for p in parts])[order], np.concatenate([p[1] for p in parts])[order]

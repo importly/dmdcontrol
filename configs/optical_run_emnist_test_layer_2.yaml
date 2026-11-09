@@ -1,0 +1,101 @@
+log_level: INFO
+
+Run:
+  mode: kernel                       # count: counting test pattern | kernel: kernel data collection (data.h5)
+  output_root: runs/train_data/optical_run_emnist_test_layer_2
+  time_max_s: 600                    # render thread safety cap per pass
+  Count:                             
+    start: 5
+    end: 15                          # A shows count, blank, count, blank, ...
+    number_size_px: 300
+    cycles: 20                       # count sequence is displayed this many times, then the run ends
+    test_b: dot                      # B-side static pattern: dot | checkerboard
+    b_dot_x: 960
+    b_dot_y: 540
+    b_dot_radius: 30
+  Kernel:
+    kernels: datasets/kernels.npz    # unique 81-bit kernels, one block per seed (uv run python operands.py)
+    train: false                     # the datasets' train sets, else their test sets
+    seed: 11                         # one per file, so no two files share a kernel; 0 for tests
+    sources: {optical: 1.0}          # share of the inputs from each: emnist, cifar, random, optical
+    optical_from: runs/train_data/emnist_test  # optical: the run whose outputs become the inputs
+    reuse_images: false              # true: may use images earlier runs used (new kernels); train and test never mix
+    dataset_size: 0                  # 0: every output of optical_from (10,000 rows, ~32 min)
+    batch_size: 220                  # samples per DMD pass: 8 frames each, ~45 s
+    mirrors_per_px: 24               # each operand pixel is a square of mirrors (nearest): input 384, kernel 216 on the DMDs
+    # Where the 16x16 output grid lands on the sensor (calibrate.py; each run re-fits it after batch 0
+    # and warns with new values if it moved). Confirmed by calibration 2026-11-04.
+    grid_centre: [658.6, 377.3]      # sensor px (x, y) of the grid centre
+    grid_px: [12.46, 12.03]          # camera px per output pixel (x, y)
+    gamma: 1.5                      # applied to each sign product's event counts before they are combined
+    sheet_fraction: 0.01             # share of batches that save contact sheets (full run: 0.01)
+    max_attempts: 3                  # tries per pass when it drops frames or looks wrong (below, or the light changes 10%)
+    min_events_per_px: 1.0           # less light than this is redone, and set aside to retry at the end if it stays (~3.6 normal)
+    min_pass_r: 0.5                  # a pass whose median r is under this is redone, and set aside if it stays (~0.7)
+
+Laser:
+  control: True                      # on at power_mw for the run, off after; warns and carries on if not connected
+  port: /dev/ttyUSB0
+  power_mw: 50
+
+Camera:
+  ROI: # sensor silicon level; (0,0,1280,720) = full frame
+    # kernel mode: 226x226 centred on Run.Kernel.grid_centre = the 16x16 output region (~199 x 192 px)
+    # plus 1 output pixel of margin each side, so a small drift or calibration error never cuts it off.
+    # target16 comes from the region alone; calibrate.py prints the ROI to use if the grid moves.
+    # count mode: 0, 0, 1280, 720
+    start_x: 546
+    start_y: 265
+    width: 226
+    height: 226
+  Trigger:
+    rising_edge: True
+    falling_edge: False
+  Filter:
+    enable: False
+    background_activity_duration: 2000
+  Accumulation:
+    window_us: 16000       # accumulation window == DMD exposure_us (master tied these)
+    start_time_offset_us: 0
+    polarity_mode: positive  # positive (ON events only) | signed (ON +1, OFF -1); signed shows the previous digit's late OFF events as a ghost
+  width: 1280
+  height: 720
+  signal_fraction: 0.4
+  normalize_scale_max: 255    # fixed reference for log scaling (master uses 255)
+  bias_sensitivity: low
+  Biases:             # Prophesee Gen4.1, absolute values; camera default and allowed range in comments
+    bias_diff: 80     # 80, 52..100; reference for on/off, leave it
+    bias_diff_on: 115 # 115, bias_diff+15..140; higher = fewer ON events
+    bias_diff_off: 52 # 52, 25..bias_diff-15; lower = fewer OFF events
+    bias_fo: 74       # 74, 45..110; higher = wider bandwidth (90 gave +11% signal, +20% noise, same timing)
+    bias_hpf: 0       # 0, 0..120; higher = ignores slow light changes
+    bias_refr: 68     # 68, 30..100; higher = shorter dead time after each event (85: no timing change)
+
+DMD:
+  A:
+    usb_bus: 1
+    usb_port: 2
+    xrandr_output: DP-4    
+  B:
+    usb_bus: 1
+    usb_port: 9
+    xrandr_output: DP-0
+  width: 1920
+  height: 1080
+  offset: [0, 0]
+  target_hz: 60
+  safe_margin_us: 250.0
+  min_exposure_us: 150
+  frame_utilization: 1.0
+  dual_pixel: False
+  exposure_us: 16000
+  display_pipeline_vsyncs: 4        # triggers after the leader before the first semantic frame
+  paired_startup_leader_vsyncs: 16  # non-semantic blank vsyncs after sequencer start; their triggers are skipped
+  # constants
+  dark_time_us: 0
+  bitplanes: 24
+  VID: 0x0451
+  PID: 0xC900
+  trigger_out:                      # A's TRIG_OUT_2 rising edge -> camera trigger input
+    pulse_width_us: 20
+    rising_delay_us: 0

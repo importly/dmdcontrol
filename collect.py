@@ -15,10 +15,10 @@ data.h5, one row per sample (the translator's gen16_<split>.h5 names where it ha
   frames             the four raw captures over the whole ROI, event counts in TERMS order: uint8
                      (positive polarity, clipped at 255 with a warning) or int16 (signed)
   label, ii, kk      the input's label [class, source, index], its index in its dataset (optical:
-                     its row in the files of attribute optical_files, in order), and the kernel's
-                     row in kernels.npz
+                     its row in the run of attribute optical_from), and the kernel's row in kernels.npz
 Rows are appended one pass at a time, so a crash leaves only complete rows. The attributes record
-the kernels file and its sha256, train or test, sources, seed, ROI, grid, mirrors per pixel and gamma.
+the kernels file and its sha256, train or test, sources, seed, ROI, grid, mirrors per pixel, gamma,
+and the layer the inputs are (images 1; optical: one more than the run in optical_from).
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ from dmdcontrol.runtime.dmd_conv import TERMS, capture_terms, combine, save_shee
 from dmdcontrol.runtime.output_grid import SIDE, Grid, region16
 from dmdcontrol.utils import CONFIG, WORKSPACE, progress_bar
 from dmdcontrol.utils.stop import deferred
-from operands import RUNS, collected, load_inputs, load_kernels, used_operands
+from operands import RUNS, load_inputs, load_kernels, optical_source, used_operands
 
 log = logging.getLogger('collect')
 
@@ -63,9 +63,6 @@ def same_conv(fm: np.ndarray, kernel: np.ndarray) -> np.ndarray:
 
 def collect_kernels(rig: PairRig, run_dir: Path) -> None:
     settings = CONFIG.Run.Kernel
-    count = settings.dataset_size
-    batches = ceil(count / settings.batch_size)
-
     height, width = rig.camera.ROI_HEIGHT, rig.camera.ROI_WIDTH
     roi = (CONFIG.Camera.ROI.start_x, CONFIG.Camera.ROI.start_y, width, height)
     grid = Grid.configured()
@@ -73,22 +70,6 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
         sx, sy, w, h = grid.roi()
         raise ValueError(f'the {SIDE}x{SIDE} output grid (Run.Kernel.grid_centre / grid_px) is not inside Camera.ROI '
                          f'{roi}: use start_x {sx}, start_y {sy}, width {w}, height {h}')
-    # ON-only counts are small and never negative: one byte each halves a week's disk; signed needs int16
-    signed = CONFIG.Camera.Accumulation.polarity_mode == 'signed'
-    frame_dtype, frame_max = (np.int16, 32767) if signed else (np.uint8, 255)
-    size_gb = count * len(TERMS) * height * width * np.dtype(frame_dtype).itemsize / 1e9
-    free_gb = shutil.disk_usage(run_dir).free / 1e9
-    sets = 'train' if settings.train else 'test'
-    sources = ', '.join(f'{name} {share:g}' for name, share in settings.sources.items() if share)
-    log.info('Collecting %d samples (%d passes of up to %d) from the %s sets (%s), seed %d; ROI %dx%d, output '
-             'grid centred at (%.1f, %.1f), %.2f x %.2f camera px per output px; raw captures %.1f GB before '
-             'compression, %.0f GB free', count, batches, settings.batch_size, sets, sources, settings.seed,
-             width, height, grid.cx, grid.cy, grid.px, grid.py, size_gb, free_gb)
-    if free_gb < size_gb / 3:  # lzf leaves event counts a few times smaller, not more
-        raise RuntimeError(f'{free_gb:.0f} GB free for {size_gb:.0f} GB of raw captures before compression: '
-                           'lower Run.Kernel.dataset_size or free some disk')
-    if free_gb < size_gb:
-        log.warning('%.0f GB free and %.0f GB of raw captures before compression: watch the disk', free_gb, size_gb)
 
     # earlier runs: their seed's kernels would repeat, and their images and the other split's inputs are left out
     used = None if settings.seed == 0 else used_operands(RUNS)
@@ -100,13 +81,41 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
     else:
         log.info('Earlier runs used seeds %s', sorted(used.seeds))
     rng = np.random.default_rng(settings.seed)
-    kernels, kk, kernels_sha256 = load_kernels(WORKSPACE / settings.kernels, settings.seed, count, rng)
-    inputs, labels = load_inputs(count, settings.sources, settings.train, rng, used, settings.reuse_images)
-    optical_files = [[path.relative_to(WORKSPACE).as_posix(), rows] for path, rows in collected(RUNS, settings.train)
-                     ] if settings.sources.get('optical') else []
+    kernels_path, optical = WORKSPACE / settings.kernels, bool(settings.sources.get('optical'))
+    source, layer = optical_source(settings.optical_from) if optical else (None, 0)
+
+    def inputs_for(n: int) -> tuple[np.ndarray, np.ndarray]:
+        return load_inputs(n, settings.sources, settings.train, rng, used, settings.reuse_images, settings.optical_from)
+
+    if optical:  # inputs first: dataset_size 0 takes every output of the run
+        inputs, labels = inputs_for(settings.dataset_size)
+        kernels, kk, kernels_sha256 = load_kernels(kernels_path, settings.seed, len(inputs), rng)
+    else:
+        kernels, kk, kernels_sha256 = load_kernels(kernels_path, settings.seed, settings.dataset_size, rng)
+        inputs, labels = inputs_for(settings.dataset_size)
+    count = len(inputs)
+    batches = ceil(count / settings.batch_size)
     with_sheets = rng.random(batches) < settings.sheet_fraction
     log.info('Loaded %d inputs and %d kernels (block %d of %s)', len(inputs), len(kernels), settings.seed,
              settings.kernels)
+
+    # ON-only counts are small and never negative: one byte each halves a week's disk; signed needs int16
+    signed = CONFIG.Camera.Accumulation.polarity_mode == 'signed'
+    frame_dtype, frame_max = (np.int16, 32767) if signed else (np.uint8, 255)
+    size_gb = count * len(TERMS) * height * width * np.dtype(frame_dtype).itemsize / 1e9
+    free_gb = shutil.disk_usage(run_dir).free / 1e9
+    sets = 'train' if settings.train else 'test'
+    sources = f'layer {layer + 1} from {source}' if optical else ', '.join(
+        f'{name} {share:g}' for name, share in settings.sources.items() if share)
+    log.info('Collecting %d samples (%d passes of up to %d) from the %s sets (%s), seed %d; ROI %dx%d, output '
+             'grid centred at (%.1f, %.1f), %.2f x %.2f camera px per output px; raw captures %.1f GB before '
+             'compression, %.0f GB free', count, batches, settings.batch_size, sets, sources, settings.seed,
+             width, height, grid.cx, grid.cy, grid.px, grid.py, size_gb, free_gb)
+    if free_gb < size_gb / 3:  # lzf leaves event counts a few times smaller, not more
+        raise RuntimeError(f'{free_gb:.0f} GB free for {size_gb:.0f} GB of raw captures before compression: '
+                           'lower Run.Kernel.dataset_size or free some disk')
+    if free_gb < size_gb:
+        log.warning('%.0f GB free and %.0f GB of raw captures before compression: watch the disk', free_gb, size_gb)
 
     columns = {'input16': ((SIDE, SIDE), np.float32),
                'kernel9': ((9, 9), np.float32),
@@ -132,10 +141,10 @@ def collect_kernels(rig: PairRig, run_dir: Path) -> None:
             'conv16': 'same, zero padded, kernel flipped (true convolution)',
             'target16': 'frames combined (pp - pn - np + nn, each ** gamma); the output grid resampled bilinearly '
                         'to 192x192, then bilinear with antialias to 16x16 (output_grid.region16)',
-            'created': datetime.now().isoformat(timespec='seconds'),
+            'created': datetime.now().isoformat(timespec='seconds'), 'layer': layer + 1,
         })
-        if settings.sources.get('optical'):
-            data_file.attrs['optical_files'] = json.dumps(optical_files)
+        if optical:
+            data_file.attrs['optical_from'] = source.relative_to(WORKSPACE).as_posix()
 
         events: list[float] = []  # mean ON events per px per capture of each kept pass
 

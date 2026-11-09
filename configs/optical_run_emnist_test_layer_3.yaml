@@ -2,7 +2,7 @@ log_level: INFO
 
 Run:
   mode: kernel                       # count: counting test pattern | kernel: kernel data collection (data.h5)
-  output_root: runs/train_data/optical_train
+  output_root: runs/train_data/optical_run_emnist_test_layer_3
   time_max_s: 600                    # render thread safety cap per pass
   Count:                             
     start: 5
@@ -15,11 +15,12 @@ Run:
     b_dot_radius: 30
   Kernel:
     kernels: datasets/kernels.npz    # unique 81-bit kernels, one block per seed (uv run python operands.py)
-    train: true                      # the datasets' train sets, else their test sets
-    seed: 10                         # one per file, so no two files share a kernel; 0 for tests
+    train: false                     # the datasets' train sets, else their test sets
+    seed: 15                         # one per file, so no two files share a kernel; 0 for tests
     sources: {optical: 1.0}          # share of the inputs from each: emnist, cifar, random, optical
+    optical_from: runs/train_data/optical_run_emnist_test_layer_2  # optical: the run whose outputs become the inputs
     reuse_images: false              # true: may use images earlier runs used (new kernels); train and test never mix
-    dataset_size: 200000             # 265,660 train-run outputs to draw from; ~11 h
+    dataset_size: 0                  # 0: every output of optical_from (10,000 rows, ~32 min)
     batch_size: 220                  # samples per DMD pass: 8 frames each, ~45 s
     mirrors_per_px: 24               # each operand pixel is a square of mirrors (nearest): input 384, kernel 216 on the DMDs
     # Where the 16x16 output grid lands on the sensor (calibrate.py; each run re-fits it after batch 0

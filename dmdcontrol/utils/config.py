@@ -56,6 +56,7 @@ class KernelConfig:
     max_attempts: int
     min_events_per_px: float
     min_pass_r: float
+    optical_from: str = ''    # optical source: the run (dir or output_root) whose outputs become the inputs
 
     def __post_init__(self):
         shares = self.sources
@@ -63,6 +64,12 @@ class KernelConfig:
                 or abs(sum(shares.values()) - 1) > 1e-6):
             raise ValueError(f'config.yaml Run.Kernel.sources must give emnist, cifar, random and optical shares adding '
                              f'up to 1, got {shares}')
+        optical = bool(shares.get('optical'))
+        if optical and (shares['optical'] != 1 or not self.optical_from):
+            raise ValueError('config.yaml Run.Kernel: optical inputs must be the only source and need optical_from')
+        if self.dataset_size < (0 if optical else 1):
+            raise ValueError(f'config.yaml Run.Kernel.dataset_size must be positive (0, every output of optical_from, '
+                             f'only for optical inputs), got {self.dataset_size}')
         if self.mirrors_per_px < 1:
             raise ValueError(f'config.yaml Run.Kernel.mirrors_per_px must be at least 1, got {self.mirrors_per_px}')
         if len(self.grid_centre) != 2 or len(self.grid_px) != 2 or min(self.grid_px) <= 0:
