@@ -1,7 +1,7 @@
 """Run saved binary CNNs (the translator repo's scripts/bcnn_try.py --save) on the bench, next to ideal conv.
 
     uv run python bcnn_bench.py datasets/bcnn/test.npz datasets/bcnn/bcnn_try_conv.pt datasets/bcnn/bcnn_try_A.pt
-        [--images 2048] [--config configs/x.yaml] [--dry]
+        [--images 2048] [--config configs/x.yaml] [--dry] [--resume runs/tests/bcnn_bench/<earlier>]
 
 Each 9x9 layer is one optical convolution per (image, output channel, input channel), min-max normalised per
 sample as the translator predicts and summed over input channels, with the model's bias, skip connections,
@@ -83,6 +83,7 @@ def main() -> None:
     parser.add_argument('--images', type=int, default=2048, help='first N test images (whole batches of 256)')
     parser.add_argument('--config', type=Path, help='config file to use instead of config.yaml')
     parser.add_argument('--dry', action='store_true', help='ideal conv only, no bench')
+    parser.add_argument('--resume', type=Path, help='an earlier run dir: its layer<i>.npz bench outputs are reused')
     args = parser.parse_args()
 
     d = np.load(args.test)
@@ -134,9 +135,17 @@ def main() -> None:
                 sizes = [len(p[0]) for p in parts]
                 log.info('Layer %d: %d optical convolutions, %d passes', i + 1, len(z), ceil(len(z) / batch))
                 fm, kern = z.numpy().astype(np.float32), kf.numpy().astype(np.float32)
-                terms = np.concatenate([capture(rig, fm[s:s + batch], kern[s:s + batch])
-                                        for s in range(0, len(fm), batch)], axis=1)
-                target = torch.from_numpy(region16(combine(terms, gamma), grid, roi).astype(np.float32))
+                done = args.resume / f'layer{i + 1}.npz' if args.resume else None
+                if done is not None and done.exists():
+                    with np.load(done) as f:
+                        if not (np.array_equal(f['input16'], fm) and np.array_equal(f['kernel9'], kern)):
+                            raise SystemExit(f'{done} holds other operands: not the same test images and models')
+                        target = torch.from_numpy(f['target16'])
+                    log.info('Layer %d: bench outputs from %s', i + 1, done)
+                else:  # 16x16 per pass: a whole layer's raw captures do not fit in memory
+                    target = torch.from_numpy(np.concatenate([
+                        region16(combine(capture(rig, fm[s:s + batch], kern[s:s + batch]), gamma), grid, roi)
+                        for s in range(0, len(fm), batch)]).astype(np.float32))
                 conv = ideal(z, kf)
                 np.savez_compressed(run_dir / f'layer{i + 1}.npz', input16=fm.astype(np.int8),
                                     kernel9=kern.astype(np.int8), target16=target.numpy(), conv16=conv.numpy(),
