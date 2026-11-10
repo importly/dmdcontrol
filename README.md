@@ -88,13 +88,13 @@ compressed, and warns if it cannot hold them uncompressed.
 
 ### Collecting: procedure
 
-Throughput is ~110 samples per ~25 s pass, ~15,800 an hour, ~380,000 a day running continuously. Raw captures are
-4 x 226 x 226 bytes = 204 KB a sample before compression (~3.2 GB an hour); the rig had 757 GB free on
-2026-11-03. Keep an eye on the disk and on the per-batch log lines.
+Throughput is 220 samples per ~42 s pass, ~18,800 an hour, ~450,000 a day running continuously. Raw captures are
+4 x 226 x 226 bytes = 204 KB a sample before compression (~115 KB stored); the rig had 724 GB free on
+2026-11-09. Keep an eye on the disk and on the per-batch log lines.
 
 1. **Code and operands on the rig:** `git pull`. CIFAR-10 and EMNIST are in `datasets/cifar10` and `datasets/emnist`;
    `datasets/kernels.npz` is made once with `uv run python operands.py` (20 seeds of 500,000 kernels).
-2. **Laser on** by hand (it is not connected over USB yet; the run warns and carries on).
+2. **Laser** is on USB (`Laser.control`): on at `power_mw` for each run, off after.
 3. **Calibrate (a few minutes):** `seed: 0`, `dataset_size: 220`, `sheet_fraction: 1.0`. In
    `run.log`, `Batch 0 grid fit` gives the grid; if it warns, put its `grid_centre`, `grid_px` and `Camera.ROI` in
    `config.yaml` and run again until it doesn't. Look at `sheets/batch_0000_compare.png` (the grid outline sits on
@@ -102,19 +102,27 @@ Throughput is ~110 samples per ~25 s pass, ~15,800 an hour, ~380,000 a day runni
    here the grid and ROI stay fixed.
 4. **Data:** one config per file in `configs/`, each with its own `seed` (the same seed draws the same inputs and
    kernels): `emnist_train` (seed 1, 50,000, ~3.2 h), `emnist_test` (2, 10,000), `cifar_train` (3, all 50,000),
-   `cifar_test` (4, all 10,000), then `emnist_train_2` (5, 190,000 more). All four in a row, ~8 h, inside `screen`:
+   `cifar_test` (4, all 10,000), then `emnist_train_2` (5, 165,660 kept of 190,000). The first four in a row, ~8 h,
+   in `screen`:
    `for c in emnist_train emnist_test cifar_train cifar_test; do uv run main.py --config configs/$c.yaml; [ $? -ge 128 ] && break; done`
    (Ctrl-C stops it; a run that fails moves on to the next). A pass that looks wrong (no light, poor r, light 10% off)
    is redone; if it stays wrong it is set aside and retried at the end of the run. A crash keeps every pass written.
    If the camera drops off USB, the next try opens it again (on 2026-11-06 this was missing and the last 111 passes
-   of `emnist_train_2` failed).
+   of `emnist_train_2` failed). From 2026-11-09: `cifar_train_6`..`9` (seeds 6-9: the same CIFAR images with new
+   kernels, 49,280 each) and the optical layers, `optical_run_<part>_layer_2` then `_layer_3` (seeds 10-17), each
+   made from every output of the run before it.
 5. **Daily:** `df -h`; the latest `Batch` lines (r steady, events per px steady); one `_compare.png`. With sheets on, each batch also saves
 `sheets/batch_NNNN_frames.png` (every capture), `_conv.png` (the combination, grey = 0) and `_compare.png` (input,
 kernel, `conv16`, `target16` and the ROI with the grid outlined, with r between `target16` and `conv16`).
 `uv run python view.py <run dir>` steps through a run's samples at full resolution (arrow keys).
 `uv run python replay.py <run dir> --rows 440` captures an earlier run's first rows again and compares the light (ON
 events per px) and `target16` (r, SSIM) sample by sample: a check that the bench has not changed, e.g. before
-inference. 2026-11-05 against `emnist_test`: light 1.006x, r 0.996, SSIM 0.995.
+inference. 2026-11-05 against `emnist_test`: light 1.006x, r 0.996, SSIM 0.995; 2026-11-09: 1.002x, 0.995, 0.992.
+`uv run python bcnn_bench.py datasets/bcnn/test.npz <model.pt> ... --images 512` runs binary CNNs saved by the
+translator repo's `scripts/bcnn_try.py --save` on the bench, layer by layer next to ideal conv, and saves each
+layer's bench outputs (`--dry`: ideal conv only; `--resume <run dir>`: reuse its finished layers). `datasets/bcnn/`
+is gitignored and copied from the PC. 2026-11-09, 512 images: trained through the translator 76.4%, trained on
+ideal conv 65.6%.
 
 ## Prerequisites
 
