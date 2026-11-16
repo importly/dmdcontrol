@@ -143,9 +143,13 @@ def main() -> None:
                         target = torch.from_numpy(f['target16'])
                     log.info('Layer %d: bench outputs from %s', i + 1, done)
                 else:  # 16x16 per pass: a whole layer's raw captures do not fit in memory
-                    target = torch.from_numpy(np.concatenate([
-                        region16(combine(capture(rig, fm[s:s + batch], kern[s:s + batch]), gamma), grid, roi)
-                        for s in range(0, len(fm), batch)]).astype(np.float32))
+                    outputs16 = []
+                    for pass_start in range(0, len(fm), batch):
+                        pass_rows = slice(pass_start, pass_start + batch)
+                        captures = capture(rig, fm[pass_rows], kern[pass_rows])  # (4, pass size, ROI h, ROI w) events
+                        conv_frames = combine(captures, gamma)  # (k+ fm+) - (k+ fm-) - (k- fm+) + (k- fm-)
+                        outputs16.append(region16(conv_frames, grid, roi))  # (pass size, 16, 16)
+                    target = torch.from_numpy(np.concatenate(outputs16).astype(np.float32))
                 conv = ideal(z, kf)
                 np.savez_compressed(run_dir / f'layer{i + 1}.npz', input16=fm.astype(np.int8),
                                     kernel9=kern.astype(np.int8), target16=target.numpy(), conv16=conv.numpy(),
