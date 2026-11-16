@@ -1,23 +1,25 @@
-from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union
+from typing import Literal, Tuple
 import numpy as np
 import torch
 from torch import Tensor, zeros
 from torch.nn.modules.utils import _pair
-from torch.nn import functional as F, grad as G, Parameter, BatchNorm2d, Dropout, modules
+from torch.nn import functional as F, Parameter, BatchNorm2d, Dropout, modules
 from torch.types import _int, _size
 from torch.autograd import Function
-from dmdcontrol.runtime import dmd_conv
-from dmdcontrol.runtime.output_grid import SIDE, Grid, region16
-from dmdcontrol.utils import CONFIG
 
-if TYPE_CHECKING:
-    from dmdcontrol.runtime import PairRig
+from dmdcontrol.laser import Laser
+from dmdcontrol.runtime import PairRig
+from dmdcontrol.runtime.dmd_conv import combine
+from dmdcontrol.runtime.output_grid import Grid, region16
+from dmdcontrol.utils.stop import install as stop_on_signals
+from metrics import r as pearson, ssim
+from replay import capture
+
 
 # %% Functions for the binary convolution
 class BinActive(Function):
     @staticmethod
-    def forward(ctx, input):
+    def forward(ctx : FunctionCtx, input: Tensor) -> Tensor:
         '''
         Implements a binary activation layer for performing convolutions with bitcount operations.
 
@@ -50,127 +52,34 @@ class BinActive(Function):
         return input
 
     @staticmethod
-    def backward(ctx, grad_output):
-        input, = ctx.saved_tensors
-        grad_input = grad_output.clone()
+    def backward(ctx : FunctionCtx, *grad_outputs: Tensor) -> Tensor:
+        grad_output = grad_outputs[0]
+        input, = ctx.saved_tensors # pyright: ignore[reportAttributeAccessIssue]
+        grad_input: Tensor = grad_output.clone()
         grad_input[input.ge(1)] = 0
         grad_input[input.le(-1)] = 0
         return grad_input
     
 # %%
-class Conv2dEODLA(Function):
-    @staticmethod
-    def forward(ctx, input: Tensor, weight: Tensor, bias: Optional[Tensor]=None, stride: Union[_int, _size]=1, padding: Union[_int, _size]=0, dilation: Union[_int, _size]=1, groups: _int=1, eodla: 'PairRig | None'=None, out_channels = 1, sheet_path: Path | None=None) -> Tensor:
-        '''
-        ******** Change this function so that out_channels is accounted for******** (currently it's 128, want to make it variable)        ****DONE****
-        A 2D convolution, with the convolution done on EODLA or software.
-
-        ### Parameters
-        - input: input tensor of shape `(minibatch, in_channels, iH , iW)`
-        - weight: filters of shape `(out_channels, in_channels/groups, kH , kW)`
-        - bias: optional bias tensor of shape `(out_channels)`.
-                - Default: ``None``
-        - stride: the stride of the convolving kernel. Can be a single number or a tuple `(sH, sW)`. 
-            - Default: 1
-        - padding: `NOTE: not implemented yet!` implicit paddings on both sides of the input. Can be a string {'valid', 'same'}, single number or a tuple `(padH, padW)`. 
-                - Default: 0
-                - ``padding='valid'`` is the same as no padding. 
-                - ``padding='same'`` pads the input so the output has the shape as the input.However, this mode doesn't support any stride values other than 1.
-        - dilation: the spacing between kernel elements. Can be a single number or a tuple `(dH, dW)`.
-                - Default: 1
-        - groups: split input into groups, `in_channels` should be divisible by the number of groups. 
-                - Default: 1
-        - eodla: The PairRig to run the convolution on, or None to run it on the GPU.
-        - sheet_path: If given, EODLA contact sheets are saved under this name (see dmdcontrol.runtime.dmd_conv).
-
-        ### Returns
-        - output (Tensor): binary convolution result
-        '''
-
-        if eodla:
-            # send data to EODLA and receive result from EODLA
-            if weight.is_cuda:
-                temp_kernel = weight.data.detach().clone().cpu()
-                temp_fm = input.detach().clone().cpu()
-            else:
-                temp_kernel = weight.data.detach().clone()
-                temp_fm = input.detach().clone()
-
-            # +-1 operands as they are: the display sequence draws each pixel as a square of mirrors
-            temp_kernel = temp_kernel.numpy()
-            temp_fm = temp_fm.numpy()
-
-            # each optical result is cut to the 16x16 output grid (same conv), so layers stack
-            grid = Grid.configured()
-            roi = (CONFIG.Camera.ROI.start_x, CONFIG.Camera.ROI.start_y, eodla.camera.ROI_WIDTH, eodla.camera.ROI_HEIGHT)
-            eodla_output = torch.empty([temp_fm.shape[0], out_channels, temp_fm.shape[1], SIDE, SIDE])
-            for in_ch in range(temp_kernel.shape[1]):
-                for out_ch in range(temp_kernel.shape[0]):
-                    eodla_output[:, out_ch, in_ch, :, :] = torch.from_numpy(region16(
-                        dmd_conv(
-                            eodla,
-                            fm=temp_fm[:, in_ch],
-                            kernel=temp_kernel[out_ch, in_ch],
-                            sheet_path=sheet_path,
-                        ), grid, roi)
-                    ).float().to(weight.device)
-            
-            output = eodla_output.sum(axis=2)
-
-            # scale the data to match the gpu
-            # output = output * 2
-
-            if bias is not None:
-                output += bias[None, :, None, None]
-
-            ctx.save_for_backward(input, weight, bias)
-            ctx.stride = stride
-            ctx.padding = padding 
-            ctx.dilation = dilation
-            ctx.groups = groups
-            ctx.eodla = eodla
-            return output.to(weight.device)
-
-        else:
-            output = F.conv2d(input=input, weight=weight, bias=bias,
-                                 stride=stride, dilation=dilation, groups=groups)
-            
-            ctx.save_for_backward(input, weight, bias)
-            ctx.stride = stride
-            ctx.padding = padding 
-            ctx.dilation = dilation
-            ctx.groups = groups
-            ctx.eodla = eodla
-            return output
-            
-    @staticmethod
-    def backward(ctx, grad_output):
-        '''
-        Here we perform the backward pass for a 2D convolution manually. This is done to ensure that the data used corresponds to the device used (EODLA, PC).
-        '''
-        input, weight, bias = ctx.saved_tensors
-        stride = ctx.stride
-        padding = ctx.padding 
-        dilation = ctx.dilation
-        groups = ctx.groups
-        eodla = ctx.eodla
-        grad_input = grad_weight = grad_bias = None
-
-        if ctx.needs_input_grad[0]:
-            if eodla: grad_input = G.conv2d_input(input.shape, weight, grad_output, stride, padding, 1, groups)
-            else: grad_input = G.conv2d_input(input.shape, weight, grad_output, stride, 0, dilation, groups)
-        if ctx.needs_input_grad[1]:
-            if eodla: grad_weight = G.conv2d_weight(input, weight.shape, grad_output, stride, padding, 1, groups) 
-            else: grad_weight = G.conv2d_weight(input, weight.shape, grad_output, stride, 0, dilation, groups) 
-        if bias is not None and ctx.needs_input_grad[2]:
-            grad_bias = grad_output.sum((0,2,3)).squeeze(0)
-
-        return grad_input, grad_weight, grad_bias, None, None, None, None, None, None
-
-
-# %%
 class BinaryConv2dEODLA(modules.conv._ConvNd):
-    def __init__(self, in_channels, out_channels, kernel_size = 1, stride = 1, padding = 0, groups = 1, bias = True, dropout_ratio = 0, dilation = 1, port=4040, padding_mode: str = 'zeros', device=None, dtype=None, eodla=None) -> None:
+    def __init__(
+        self, 
+        in_channels : int, 
+        out_channels : int, 
+        kernel_size : int = 1, 
+        stride : Tuple[float, ...] | float = 1, 
+        padding : int = 0, 
+        groups : int = 1, 
+        bias : bool = True, 
+        dropout_ratio : float = 0, 
+        dilation : int = 1, 
+        padding_mode : Literal['zeros', 'reflect', 'replicate', 'circular'] = 'zeros', 
+        device : torch.device | None = None, 
+        dtype : torch.dtype = torch.float32, 
+        eodla : bool = False, 
+        translator : nn.Module | None = None,
+        optics_sim : nn.Module | None = None,
+        ) -> None:
         '''
         A binary convolutional layer, with the convolution done on EODLA.  Due to the unique properties of this layer, the forward propagation of data is specified.  Additionally, how to update the gradient for this layer is specified.
 
@@ -183,36 +92,55 @@ class BinaryConv2dEODLA(modules.conv._ConvNd):
         - groups: The number of blocked connections from input channels to output channels.
         - bias: A binary flag to determine if the layer will learn an additive bias.
         - dropout_ratio: The probability that a given output from the layer will be ignored, thereby performing dropout-based regularization.
-        - port: The port to use for the socket connection.
         - padding_mode: The type of padding to use for the convolutional layer.
         - device: The device to use for the convolutional layer.
         - dtype: The data type to use for the convolutional layer.
         - eodla: Either the DMD device object or None if it is going to be run on the GPU.
+        - translator: A translator model to use for the convolutional layer, or None if it is going to be run on the GPU.
+        - optics_sim: An optics simulation model to use for the convolutional layer, or None if it is going to be run on the GPU.
         '''
+        if device is None:
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = device
+            
         # set up variables for ConvNd
         factory_kwargs = {'device': device, 'dtype': dtype}
         kernel_size_ = _pair(kernel_size)
-        stride_ = _pair(stride)
+        stride_ = _pair(1)
         padding_ = padding if isinstance(padding, str) else _pair(padding)
         dilation_ = _pair(dilation)
         super(BinaryConv2dEODLA, self).__init__(in_channels, out_channels, kernel_size_, stride_, padding_, dilation_, False, _pair(0), groups, bias, padding_mode, **factory_kwargs)
 
+        if isinstance(stride, tuple):
+            self.stride_factor = [1 / s for s in stride]
+        else:
+            self.stride_factor = [1 / stride, 1 / stride]
+
         # Specify the convolution operations, the weight initialization, and the bias.
-        self.weight.data.normal_(0, 0.05) # 0.05
+        self.weight.data.normal_(0, 0.05)
         if bias:
-            self.bias.data.zero_()
-        self.fp_weights = Parameter(zeros(self.weight.size()))
+            self.bias.data.zero_() # pyright: ignore
+        self.fp_weights : Parameter = Parameter(zeros(self.weight.size()))
         self.fp_weights.data.copy_(self.weight.data)
+        self.mean_val : Tensor = zeros(self.out_channels)
+        
+        self.eodla = eodla
 
-        # Set up the DMD device, if it is being used.
-        if eodla is None:
-            self.eodla = False
-        else: 
-            self.eodla = True
+        # Translator, make sure params are fixed
+        if translator is not None:
+            self.translator = translator
+            for param in self.translator.parameters():
+                param.requires_grad = False
+        else:
+            self.translator = None
+        
+        # optics sim
+        if optics_sim is not None:
+            self.optics_sim = optics_sim
+        else:
+            self.optics_sim = None
 
-        self.dmd_device = eodla
-
-        # Set the class variables based on the inputs.
+        # Dropout, batch normalization, and binarization
         self.dropout = dropout_ratio
         self.a_active = BinActive.apply
         self.bn = BatchNorm2d(in_channels, track_running_stats=False, affine=False, device=device)
@@ -228,24 +156,22 @@ class BinaryConv2dEODLA(modules.conv._ConvNd):
         ### Returns
         - x: The transformed tensor after batch normalization, dropout, and convolution are applied.
         '''
-
+        # Save size for later
+        input_size = x.size()
+        
+        # Apply stride to the input tensor, if the stride is not equal to 1.
+        # This is implemented via scaling the input tensor where the scaling factor is equal to 1/stride.
+        if self.stride_factor != [1, 1]:
+            og_size = x.size()[2:]
+            x = F.interpolate(x, scale_factor=self.stride_factor, mode='bilinear', align_corners=False)
+        
         # Apply batch normalization and binarization to the input tensor. Dropout is also applied if specified.
         x = self.bn(x)
-        x = self.a_active(x)
+        active_out = self.a_active(x)
+        if not isinstance(active_out, Tensor):
+            raise TypeError("BinActive.apply must return a Tensor")
+        x = active_out
         if(self.dropout != 0): x = self.drop(x)
-
-        # Compute the weight means and remove them.  This is helpful first step for convolutional
-        # networks, especially when pooling is used.
-        # More specifically, pooling results in a significant loss of information, especially for
-        # binary networks.  Max pooling a binary input, for example, returns a tensor where most of
-        # its elements are +1.  For min pooling, most of the responses will be -1.  In either case,
-        # we can’t really infer much about the structure of the features, which propagates nonsense
-        # through the network.  By normalizing to zero mean, we reduce the quantization error,
-        # indicating that more entries have the chance of being -1 and +1, not just one or the
-        # other.  This hence yields more meaningful pooling responses as we reduce and transform
-        # the features.
-        # Commented out: whwen the channel size is small, the mean is close in value to the weight data, driving the weights to zero.
-        # if self.fp_weights.size()[0] != 1: self.fp_weights.data = self.fp_weights.data - self.fp_weights.data.mean(1, keepdim = True)
 
         # Clamp the weights to be either +1 or -1.
         self.fp_weights.data.clamp_(-1, 1)
@@ -259,22 +185,38 @@ class BinaryConv2dEODLA(modules.conv._ConvNd):
         # signs are consistent.  Once this is done, we have found a binarized representation of the
         # weights that is an optimal respresentation of some real-valued weight matrix.  We can then
         # convolve with the input tensor.
-        self.weight.data.copy_(self.fp_weights.data.sign() * self.mean_val.view(-1, 1, 1, 1))
-
-        if not self.eodla:
-            # pad data
-            if self.padding_mode != 'zeros': 
-                x = F.pad(x, [pad for pad in self._reversed_padding_repeated_twice], mode=self.padding_mode)
-            else:
-                x = F.pad(x, [pad for pad in self._reversed_padding_repeated_twice], mode='constant', value=0)
-
-        # Perform the convolution operation, either on EODLA or on the local machine.
-        # print(x.shape, self.weight.shape, self.bias.shape)
-        conv2d = Conv2dEODLA.apply(x, self.weight, self.bias, self.stride, [4, 4], self.dilation, self.groups, self.dmd_device, self.out_channels)
+        # Since convolution is associative, we'll multiply the α at the end.
+        self.weight.data.copy_(self.fp_weights.data.sign())
         
-        return conv2d
+        # Perform the convolution operation, either on EODLA or on the local machine.
+        if self.eodla:
+            y = self.eodla_conv(x)
+            
+        elif self.translator:
+            y = self.trans_conv(x)
+        
+        elif self.optics_sim:
+            y = self.optic_conv(x)
 
-    def update_gradient(self):
+        else:
+            y = F.conv2d(
+                input=x, 
+                weight=self.weight, 
+                bias=self.bias, 
+                stride=self.stride, 
+                padding='same', 
+                dilation=self.dilation, 
+                groups=self.groups,
+            )
+            
+        # Now we apply the α
+        y = y * self.mean_val.view(1, -1, 1, 1)
+        
+        if self.stride_factor != [1, 1]:
+            y = F.interpolate(y, size=og_size, mode='bilinear', align_corners=False)
+        return y
+
+    def update_gradient(self) -> None:
         '''
         Performs a backwards pass, and hence a gradient update, for a given convolutional layer in
         the binary convolutional network.
@@ -288,24 +230,188 @@ class BinaryConv2dEODLA(modules.conv._ConvNd):
         # to the weights, and α, the optimal scaling factor.  Here, we compute a proxy for α.
         proxy = self.fp_weights.abs().sign()
         proxy[self.fp_weights.data.abs() > 1] = 0
-        binary_grad = self.weight.grad * self.mean_val.view(-1, 1, 1, 1) * proxy
+        binary_grad = self.weight.grad * self.mean_val.view(-1, 1, 1, 1) * proxy # pyright: ignore
         
         # The latter relies on two terms: the element-normalized sign of the filter matrix, W, and
         # the sum of the gradients modulated by the sign of the filter matrix, W.  In the first step
         # we compute the sign of the real-valued weights times the gradient of the cost function
         # with respect to the binary weights.  Next, we sum and normalize by the number of elements.
         # Then, we multiply again by the sign of the real-valued weights.
-        mean_grad = self.weight.data.sign() * self.weight.grad
+        mean_grad = self.weight.data.sign() * self.weight.grad # pyright: ignore
         mean_grad = mean_grad.view(self.out_channels, -1).mean(1).view(-1, 1, 1, 1)
         mean_grad = mean_grad * self.weight.data.sign()
 
         # We can sum the two gradient components and weight them.  Note that this is the correct
         # form of the gradient-based update, as it is respect to the sum over all of the elements.
         self.fp_weights.grad = binary_grad + mean_grad
-        # multiplying the gradient by a scalar here helps the binary weights change faster. this is useful especially when layers of the model are training way faster than the bconv layers.
-        self.fp_weights.grad *= 100
+
+    def eodla_conv(
+        self,
+        x: Tensor, 
+        ) -> Tensor:
+        '''
+        A 2D convolution, with the convolution simulated through the optical simulation module.
         
-        # This is commented out because it was breaking for one output channel
-        # if self.fp_weights.size()[1] != 1: self.fp_weights.grad = self.fp_weights.grad * self.fp_weights.data[0].nelement() \
-        #                        * (1 - 1/self.fp_weights.data.size(1))
-        # else: self.fp_weights.grad = self.fp_weights.grad #* self.fp_weights.data[0].nelement()  
+        ### Parameters
+        - x: input tensor of shape `(minibatch, in_channels, iH , iW)`
+        
+        ### Returns
+        - output (Tensor): binary convolution result
+        '''
+        B, C, H, W = x.size()
+        O, channels_per_group, K, K2 = self.weight.size()
+        if K != K2:
+            raise ValueError('Only square kernels are supported')
+        if C != self.in_channels:
+            raise ValueError('Input channel count does not match the layer')
+        if C % self.groups != 0 or O % self.groups != 0:
+            raise ValueError('in_channels and out_channels must be divisible by groups')
+        if channels_per_group != C // self.groups:
+            raise ValueError('weight shape does not match the configured groups')
+
+        outputs_per_group = O // self.groups
+        # Keep the group and local-channel axes separate so each output only
+        # receives inputs from its own group.
+        conv2d = torch.empty(
+            [B, self.groups, outputs_per_group, channels_per_group, H, W],
+            device=x.device,
+            dtype=x.dtype,
+        )
+
+        for group in range(self.groups):
+            input_start = group * channels_per_group
+            output_start = group * outputs_per_group
+            for output_offset in range(outputs_per_group):
+                output_channel = output_start + output_offset
+                for input_offset in range(channels_per_group):
+                    input_channel = input_start + input_offset
+                    
+                    # switch this with eodla code
+                    conv2d_per_channel = self.optics_sim(
+                        x[:, input_channel:input_channel + 1, :, :],
+                        self.weight[output_channel:output_channel + 1, input_offset:input_offset + 1, :, :],
+                    ) # pyright: ignore
+                    
+                    
+                    
+                    if conv2d_per_channel.ndim == 3:
+                        conv2d_per_channel = conv2d_per_channel.unsqueeze(1)
+                    conv2d[:, group, output_offset, input_offset, :, :] = conv2d_per_channel.squeeze(1)
+
+        conv2d = conv2d.sum(dim=3).reshape(B, O, H, W)
+        conv2d = conv2d + self.bias.view(1, -1, 1, 1) if self.bias is not None else conv2d
+        
+        return conv2d
+    
+    def trans_conv(
+        self,
+        x: Tensor, 
+        ) -> Tensor:
+        '''
+        A 2D convolution, with the convolution translated to the optical respresentation with the translator model.
+        
+        ### Parameters
+        - x: input tensor of shape `(minibatch, in_channels, iH , iW)`
+        
+        ### Returns
+        - output (Tensor): binary convolution result
+        '''
+        B, C, H, W = x.size()
+        O, channels_per_group, K, K2 = self.weight.size()
+        assert K == K2
+        if C % self.groups != 0 or O % self.groups != 0:
+            raise ValueError('in_channels and out_channels must be divisible by groups')
+        if channels_per_group != C // self.groups:
+            raise ValueError('weight shape does not match the configured groups')
+
+        outputs_per_group = O // self.groups
+        
+        pad = K // 2  # for 9x9 kernel, this is 4
+        
+        # Calculate 'same' padding
+        padded = F.pad(x, (pad, pad, pad, pad), mode='constant', value=0.0)
+    
+        # Conv patches: [B, C*K*K, H*W] => [B, H*W, C, K*K]
+        x_unf = F.unfold(padded, kernel_size=K, stride=1, padding=0)
+        x_unf = x_unf.view(B, C, K * K, H*W).permute(0, 3, 1, 2)
+    
+        # Contract only input channels that belong to the same group.
+        # Keeping the group axis makes the channel connectivity explicit.
+        x_grouped = x_unf.view(B, H * W, self.groups, channels_per_group, K * K)
+        w_grouped = self.weight.view(
+            self.groups, outputs_per_group, channels_per_group, K * K
+        )
+        pair = torch.einsum('blgcp,gocp->bgolc', x_grouped, w_grouped)
+
+        # Translate every connected pair in one batched call, then sum the
+        # input-channel axis within each group.
+        translator_input = pair.permute(0, 1, 2, 4, 3).reshape(
+            B * self.groups * outputs_per_group * channels_per_group, 1, H, W
+        )
+        translated = self.translator(translator_input) # pyright: ignore
+        translated = translated.reshape(
+            B, self.groups, outputs_per_group, channels_per_group, H, W
+        )
+        conv2d = translated.sum(dim=3).reshape(B, O, H, W)
+
+        conv2d = conv2d + self.bias.view(1, -1, 1, 1) if self.bias is not None else conv2d
+        
+        return conv2d
+                
+    def optic_conv(
+        self,
+        x: Tensor, 
+        ) -> Tensor:
+        '''
+        A 2D convolution, with the convolution simulated through the optical simulation module.
+        
+        ### Parameters
+        - x: input tensor of shape `(minibatch, in_channels, iH , iW)`
+        
+        ### Returns
+        - output (Tensor): binary convolution result
+        '''
+        B, C, H, W = x.size()
+        O, channels_per_group, K, K2 = self.weight.size()
+        if K != K2:
+            raise ValueError('Only square kernels are supported')
+        if C != self.in_channels:
+            raise ValueError('Input channel count does not match the layer')
+        if C % self.groups != 0 or O % self.groups != 0:
+            raise ValueError('in_channels and out_channels must be divisible by groups')
+        if channels_per_group != C // self.groups:
+            raise ValueError('weight shape does not match the configured groups')
+
+        outputs_per_group = O // self.groups
+        # Keep the group and local-channel axes separate so each output only
+        # receives inputs from its own group.
+        conv2d = torch.empty(
+            [B, self.groups, outputs_per_group, channels_per_group, H, W],
+            device=x.device,
+            dtype=x.dtype,
+        )
+        for group in range(self.groups):
+            input_start = group * channels_per_group
+            output_start = group * outputs_per_group
+            for output_offset in range(outputs_per_group):
+                output_channel = output_start + output_offset
+                for input_offset in range(channels_per_group):
+                    input_channel = input_start + input_offset
+                    conv2d_per_channel, _ = self.optics_sim(
+                        x[:, input_channel:input_channel + 1, :, :],
+                        self.weight[output_channel:output_channel + 1, input_offset:input_offset + 1, :, :],
+                    ) # pyright: ignore
+                    if conv2d_per_channel.ndim == 3:
+                        conv2d_per_channel = conv2d_per_channel.unsqueeze(1)
+                    conv2d_per_channel = F.interpolate(
+                        conv2d_per_channel,
+                        size=(H, W),
+                        mode='bilinear',
+                        align_corners=False,
+                    )
+                    conv2d[:, group, output_offset, input_offset, :, :] = conv2d_per_channel.squeeze(1)
+
+        conv2d = conv2d.sum(dim=3).reshape(B, O, H, W)
+        conv2d = conv2d + self.bias.view(1, -1, 1, 1) if self.bias is not None else conv2d
+        
+        return conv2d

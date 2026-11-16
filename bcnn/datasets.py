@@ -1,6 +1,8 @@
 import os
 import os.path
+from pathlib import Path
 from typing import Any, Callable, Optional, Tuple, List
+import itertools
 from PIL import Image
 import pickle
 import numpy as np
@@ -10,6 +12,8 @@ from torch.utils.data import Dataset
 from torchvision.datasets import EMNIST
 from torchvision.datasets.vision import VisionDataset
 from torchvision.datasets.utils import check_integrity, download_and_extract_archive, download_url, verify_str_arg
+
+WORKSPACE = Path(__file__).parent.parent.resolve()
 
 # Add these helper classes before your DigitsVsLetters class
 class TransposeTransform:
@@ -557,3 +561,96 @@ class KernelGen():
         kernel = torch.nn.functional.interpolate(kernel.view(1, 1, 6, 6), size=(self.kernel_size, self.kernel_size), mode='nearest')
         kernel = (kernel - 0.5) * 2  # scale to [-1, 1]
         return kernel
+    
+    
+class ParanoiaDigitsVsLetters(VisionDataset):
+    '''
+    Dataset for training Digits vs Letters classifier.
+    '''
+    
+    def __init__(
+        self,
+        train:bool = True, 
+        download:bool = False, 
+        image_size:int = 16, 
+        repeat_channels:bool = False,
+        transform: Optional[Callable] = None,
+        ):
+        '''
+        Initialize the dataset.
+        ## Inputs
+        - train `Literal['trans-train', 'model-train', 'test']`: which dataset to use
+        - download `bool`: whether to download the dataset if not present
+        - image_size `int`: size of the images
+        - in_channels `int`: number of input channels
+        '''
+        
+        self.image_size = image_size
+        
+        if train:
+            self.transform = T.Compose([
+                    TransposeTransform(),
+                    T.RandomRotation(10),
+                    T.Resize((image_size, image_size)),
+                    T.ToTensor(),
+                    T.Normalize((0.1307,), (0.3081,)),
+                    T.Grayscale(num_output_channels=3 if repeat_channels else 1),
+                    RepeatChannels() if repeat_channels else T.Lambda(lambda x: x)  # grayscale is a liar 
+                ])
+        else:
+            self.transform = T.Compose([
+                TransposeTransform(), 
+                T.Resize((image_size, image_size)),
+                T.ToTensor(),
+                T.Normalize((0.1307,), (0.3081,)),
+                T.Grayscale(num_output_channels=3 if repeat_channels else 1),
+                RepeatChannels() if repeat_channels else T.Lambda(lambda x: x)  # grayscale is a liar 
+            ])
+        
+        self.emnist_digits = EMNIST(
+            root=WORKSPACE / 'datasets' / 'emnist',
+            split='digits',
+            train=train,
+            download=download,
+            transform=transform,
+        )
+        self.emnist_letters = EMNIST(
+            root=WORKSPACE / 'datasets' / 'emnist',
+            split='letters',
+            train=train,
+            download=download,
+            transform=transform,
+            target_transform=lambda x: x + 10
+        )
+        
+        self.granular_classes = {
+            chr(code): idx for idx, code in enumerate(itertools.chain(range(ord('0'), ord('9') + 1), range(ord('A'), ord('Z') + 1)))
+        }
+        self.binary_classes = {
+            'digit': 0,
+            'letter': 1
+        }
+        
+        self.letters_size = len(self.emnist_letters)
+        self.digits_size = len(self.emnist_digits)
+        self.dataset_size = 2*min(self.letters_size, self.digits_size)
+            
+        
+    def __len__(self):
+        return self.dataset_size
+    
+    def __getitem__(self, idx):
+        # get balanced idx
+        if idx < self.dataset_size // 2:
+            idx_offset = 0
+            data, label = self.emnist_digits[idx]
+        else:
+            idx_offset = self.digits_size - self.dataset_size // 2
+            data, label = self.emnist_letters[idx - self.dataset_size // 2]
+        
+        binary_label = 0 if label < 10 else 1
+        label = torch.tensor([binary_label, label, idx+idx_offset], dtype=torch.long)
+        
+        data = self.transform(data)
+        
+        return data, label

@@ -99,3 +99,13 @@ DMD:
   trigger_out:                      # A's TRIG_OUT_2 rising edge -> camera trigger input
     pulse_width_us: 20
     rising_delay_us: 0
+
+BCNN:
+  folder: 'letters-vs-numbers-one-bin-layer-1k-32c-eodla-trans-bf16-scratch'
+  checkpoint: '/home/main/dmdcontrol/models/emnist/letters-vs-numbers-one-bin-layer-1k-32c-eodla-trans-bf16-scratch/best_model.pt'
+  channels: 32
+  batch_size: 128
+  test_perc: 0.1
+  train_perc: 0.1
+  val_perc: 0.1
+  download: 'store_true'
