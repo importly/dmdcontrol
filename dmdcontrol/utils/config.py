@@ -196,6 +196,7 @@ class Config:
     Laser: LaserConfig
     Camera: CameraConfig
     DMD: DmdConfig
+    BCNN: dict | None = None  # read by bcnn-emnist-eodla.py itself
 
 
 def _build(cls: Any, data: dict, where: str) -> Any:
