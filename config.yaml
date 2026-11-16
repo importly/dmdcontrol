@@ -106,6 +106,4 @@ BCNN:
   channels: 32
   batch_size: 128
   test_perc: 0.1
-  train_perc: 0.1
-  val_perc: 0.1
   download: 'store_true'
