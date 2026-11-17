@@ -7,8 +7,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import  DataLoader
-from translator.models import ResUNet
-from translator.simulator import EODLASimTorch
+# from translator.models import ResUNet
+# from translator.simulator import EODLASimTorch
 
 
 @runtime_checkable
@@ -116,9 +116,9 @@ def train(
         #     for submodule in module.children():
         #         if isinstance(submodule, ResUNet) or isinstance(submodule, EODLASimTorch):
         #             submodule.eval()
-        for module in model.modules():
-            if isinstance(module, ResUNet) or isinstance(module, EODLASimTorch):
-                module.eval()
+        # for module in model.modules():
+            # if isinstance(module, EODLASimTorch):
+            #     module.eval()
         avg_loss = 0.0
         avg_acc = 0.0
         length = 0

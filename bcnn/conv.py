@@ -1,16 +1,21 @@
+import atexit
+from contextlib import ExitStack
 from typing import Literal, Tuple
 import numpy as np
 import torch
-from torch import Tensor, zeros
+from torch import Tensor, nn, zeros
+from torch._dynamo.variables.higher_order_ops import OutputSpec
 from torch.nn.modules.utils import _pair
 from torch.nn import functional as F, Parameter, BatchNorm2d, Dropout, modules
 from torch.types import _int, _size
 from torch.autograd import Function
+from torch.autograd.function import FunctionCtx
 
 from dmdcontrol.laser import Laser
 from dmdcontrol.runtime import PairRig
 from dmdcontrol.runtime.dmd_conv import combine
 from dmdcontrol.runtime.output_grid import Grid, region16
+from dmdcontrol.utils import CONFIG
 from dmdcontrol.utils.stop import install as stop_on_signals
 from metrics import r as pearson, ssim
 from replay import capture
@@ -126,6 +131,21 @@ class BinaryConv2dEODLA(modules.conv._ConvNd):
         
         self.eodla = eodla
 
+        if eodla:
+            stop_on_signals()
+            self.hardware = ExitStack()
+            atexit.register(self.hardware.close)
+            self.laser = self.hardware.enter_context(Laser())
+            self.rig = self.hardware.enter_context(PairRig())
+            self.grid = Grid.configured()
+            roi = CONFIG.Camera.ROI
+            self.roi = (roi.start_x, roi.start_y, roi.width, roi.height)
+            self.gamma = CONFIG.Run.Kernel.gamma
+            if (CONFIG.BCNN):
+                self.batch_size = int(CONFIG.BCNN['batch_size'])  # images per DMD pass
+            else:
+                self.batch_size = 128
+                
         # Translator, make sure params are fixed
         if translator is not None:
             self.translator = translator
@@ -139,6 +159,8 @@ class BinaryConv2dEODLA(modules.conv._ConvNd):
             self.optics_sim = optics_sim
         else:
             self.optics_sim = None
+
+        
 
         # Dropout, batch normalization, and binarization
         self.dropout = dropout_ratio
@@ -286,12 +308,21 @@ class BinaryConv2dEODLA(modules.conv._ConvNd):
                 for input_offset in range(channels_per_group):
                     input_channel = input_start + input_offset
                     
-                    # switch this with eodla code
-                    conv2d_per_channel = self.optics_sim(
-                        x[:, input_channel:input_channel + 1, :, :],
-                        self.weight[output_channel:output_channel + 1, input_offset:input_offset + 1, :, :],
-                    ) # pyright: ignore
-                    
+                    # # switch this with eodla code
+                    # conv2d_per_channel = self.optics_sim(
+                    #     x[:, input_channel:input_channel + 1, :, :],
+                    #     self.weight[output_channel:output_channel + 1, input_offset:input_offset + 1, :, :],
+                    # ) # pyright: ignore
+                    # 
+
+                    inputs = x[:, input_channel].detach().cpu().numpy()  # (Batch, H, W) +- whole batch of images
+                    kernel = self.weight[output_channel, input_offset].detach().cpu().numpy()  # (K, K) +-1 j one kernel
+                    outputs16 = []
+
+                    captures = capture(self.rig, inputs, kernel) # reworked capture to take in full batch and loop through all inputs and kernels in given tensor
+                    conv_frames = combine(captures, self.gamma) # i+k+ summation
+                    outputs16 = region16(conv_frames, self.grid, self.roi)  # (B, 16, 16)
+                    conv2d_per_channel = torch.from_numpy(outputs16)
                     
                     
                     if conv2d_per_channel.ndim == 3:

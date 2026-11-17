@@ -13,7 +13,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
 
 from pathlib import Path
 import argparse
-import requests
+# import requests
 import yaml
 from tqdm import tqdm
 import numpy as np
@@ -35,14 +35,14 @@ generator = torch.Generator().manual_seed(42)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"{Font.GREEN}Using {device}{Font.ENDC}")
 
-# Error alert hook
-orig_excepthook = sys.excepthook
+# # Error alert hook
+# orig_excepthook = sys.excepthook
 
-def global_error_handler(exc_type, exc_value, exc_traceback):
-    requests.post('https://ntfy.sh/eodla', data=f'bcnn-emnist-eodla: Uncaught exception: {exc_type.__name__}: {exc_value}'.encode(encoding='utf-8'))
-    orig_excepthook(exc_type, exc_value, exc_traceback)
+# def global_error_handler(exc_type, exc_value, exc_traceback):
+#     requests.post('https://ntfy.sh/eodla', data=f'bcnn-emnist-eodla: Uncaught exception: {exc_type.__name__}: {exc_value}'.encode(encoding='utf-8'))
+#     orig_excepthook(exc_type, exc_value, exc_traceback)
 
-sys.excepthook = global_error_handler
+# sys.excepthook = global_error_handler
 
 # Config file
 config = yaml.safe_load(open(Path(args.config), 'r'))['BCNN']
@@ -133,4 +133,4 @@ examples(
     device=device,
 )
     
-requests.post('https://ntfy.sh/eodla', data='BCNN + EODLA testing done!'.encode(encoding='utf-8'))
+# requests.post('https://ntfy.sh/eodla', data='BCNN + EODLA testing done!'.encode(encoding='utf-8'))

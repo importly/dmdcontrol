@@ -17,6 +17,7 @@ dependencies = [
     "rich",
     "torch",
     "torchvision",
+    "tqdm>=4.70.1",
     "vortran_laser",
 ]
 
