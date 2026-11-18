@@ -10,6 +10,7 @@ from torch.nn import functional as F, Parameter, BatchNorm2d, Dropout, modules
 from torch.types import _int, _size
 from torch.autograd import Function
 from torch.autograd.function import FunctionCtx
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 
 from dmdcontrol.laser import Laser
 from dmdcontrol.runtime import PairRig
@@ -300,35 +301,40 @@ class BinaryConv2dEODLA(modules.conv._ConvNd):
             dtype=x.dtype,
         )
 
-        for group in range(self.groups):
-            input_start = group * channels_per_group
-            output_start = group * outputs_per_group
-            for output_offset in range(outputs_per_group):
-                output_channel = output_start + output_offset
-                for input_offset in range(channels_per_group):
-                    input_channel = input_start + input_offset
+        with Progress(TextColumn('{task.description}'), BarColumn(), MofNCompleteColumn(), TimeElapsedColumn(),
+                      TextColumn('eta'), TimeRemainingColumn(), refresh_per_second=1, speed_estimate_period=24 * 3600,
+                      transient=True) as bar:
+            task = bar.add_task('DMD passes', total=self.groups * outputs_per_group * channels_per_group)
+            for group in range(self.groups):
+                input_start = group * channels_per_group
+                output_start = group * outputs_per_group
+                for output_offset in range(outputs_per_group):
+                    output_channel = output_start + output_offset
+                    for input_offset in range(channels_per_group):
+                        input_channel = input_start + input_offset
                     
-                    # # switch this with eodla code
-                    # conv2d_per_channel = self.optics_sim(
-                    #     x[:, input_channel:input_channel + 1, :, :],
-                    #     self.weight[output_channel:output_channel + 1, input_offset:input_offset + 1, :, :],
-                    # ) # pyright: ignore
-                    # 
+                        # # switch this with eodla code
+                        # conv2d_per_channel = self.optics_sim(
+                        #     x[:, input_channel:input_channel + 1, :, :],
+                        #     self.weight[output_channel:output_channel + 1, input_offset:input_offset + 1, :, :],
+                        # ) # pyright: ignore
+                        # 
 
-                    inputs = x[:, input_channel].detach().cpu().numpy()  # (Batch, H, W) +- whole batch of images
-                    kernel = self.weight[output_channel, input_offset].flip(-1,-2).detach().cpu().numpy()  # (K, K) +-1 j one kernel
-                    ## why the flip -1,-2? 
-                    outputs16 = []
+                        inputs = x[:, input_channel].detach().cpu().numpy()  # (Batch, H, W) +- whole batch of images
+                        kernel = self.weight[output_channel, input_offset].flip(-1,-2).detach().cpu().numpy()  # (K, K) +-1 j one kernel
+                        ## why the flip -1,-2? 
+                        outputs16 = []
 
-                    captures = capture(self.rig, inputs, kernel) # reworked capture to take in full batch and loop through all inputs and kernels in given tensor
-                    conv_frames = combine(captures, self.gamma) # i+k+ summation
-                    outputs16 = region16(conv_frames, self.grid, self.roi)  # (B, 16, 16)
-                    conv2d_per_channel = torch.from_numpy(outputs16)
+                        captures = capture(self.rig, inputs, kernel) # reworked capture to take in full batch and loop through all inputs and kernels in given tensor
+                        conv_frames = combine(captures, self.gamma) # i+k+ summation
+                        outputs16 = region16(conv_frames, self.grid, self.roi)  # (B, 16, 16)
+                        conv2d_per_channel = torch.from_numpy(outputs16)
                     
                     
-                    if conv2d_per_channel.ndim == 3:
-                        conv2d_per_channel = conv2d_per_channel.unsqueeze(1)
-                    conv2d[:, group, output_offset, input_offset, :, :] = conv2d_per_channel.squeeze(1)
+                        if conv2d_per_channel.ndim == 3:
+                            conv2d_per_channel = conv2d_per_channel.unsqueeze(1)
+                        conv2d[:, group, output_offset, input_offset, :, :] = conv2d_per_channel.squeeze(1)
+                        bar.advance(task)
 
         conv2d = conv2d.sum(dim=3).reshape(B, O, H, W)
         conv2d = conv2d + self.bias.view(1, -1, 1, 1) if self.bias is not None else conv2d
