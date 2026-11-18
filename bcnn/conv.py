@@ -301,7 +301,7 @@ class BinaryConv2dEODLA(modules.conv._ConvNd):
             dtype=x.dtype,
         )
 
-        with Progress(TextColumn('{task.description}'), BarColumn(), MofNCompleteColumn(), TimeElapsedColumn(),
+        with Progress(TextColumn('{task.description}'), BarColumn(bar_width=None), MofNCompleteColumn(), TimeElapsedColumn(),
                       TextColumn('eta'), TimeRemainingColumn(), refresh_per_second=1, speed_estimate_period=24 * 3600,
                       transient=True) as bar:
             task = bar.add_task('DMD passes', total=self.groups * outputs_per_group * channels_per_group)

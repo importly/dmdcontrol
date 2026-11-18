@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 from tqdm import tqdm
-from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
@@ -46,10 +45,8 @@ def test(
     test_loss = 0.0
     correct = 0.0
     length = 0
-    with torch.no_grad(), Progress(TextColumn('{task.description}'), BarColumn(), MofNCompleteColumn(),
-                                   TimeElapsedColumn(), TextColumn('eta'), TimeRemainingColumn(),
-                                   refresh_per_second=1, speed_estimate_period=24 * 3600) as bar:
-        for inputs, targets in bar.track(data_loader, description='Testing', update_period=1):
+    with torch.no_grad():
+        for inputs, targets in tqdm(data_loader, desc='Testing', leave=False, ncols=150):
             inputs, targets = inputs.to(device), targets[:,0].to(device)
             # one hot encode targets
             targets = F.one_hot(targets, num_classes=2).float()
