@@ -101,9 +101,9 @@ DMD:
     rising_delay_us: 0
 
 BCNN:
-  folder: 'letters-vs-numbers-one-bin-layer-1k-32c-eodla-trans-bf16-scratch'
+  folder: 'letters-vs-numbers-one-bin-layer-1k-32c-eodla-trans-bf16-scratch-flip-32'
   checkpoint: '/home/main/dmdcontrol/models/emnist/letters-vs-numbers-one-bin-layer-1k-32c-eodla-trans-bf16-scratch/best_model.pt'
   channels: 32
   batch_size: 128
-  test_perc: 0.1
+  test_perc: 0.0009  # 32 images
   download: 'store_true'

@@ -316,7 +316,8 @@ class BinaryConv2dEODLA(modules.conv._ConvNd):
                     # 
 
                     inputs = x[:, input_channel].detach().cpu().numpy()  # (Batch, H, W) +- whole batch of images
-                    kernel = self.weight[output_channel, input_offset].detach().cpu().numpy()  # (K, K) +-1 j one kernel
+                    kernel = self.weight[output_channel, input_offset].flip(-1,-2).detach().cpu().numpy()  # (K, K) +-1 j one kernel
+                    ## why the flip -1,-2? 
                     outputs16 = []
 
                     captures = capture(self.rig, inputs, kernel) # reworked capture to take in full batch and loop through all inputs and kernels in given tensor
