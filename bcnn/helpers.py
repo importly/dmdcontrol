@@ -207,6 +207,7 @@ def examples(
         for inputs, targets in data_loader:
             inputs, targets = inputs.to(device), targets.to(device)
             out, layers_out = model(inputs)
+            break
 
     # Save batch of examples
     torch.save({

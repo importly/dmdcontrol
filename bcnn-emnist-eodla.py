@@ -13,7 +13,7 @@ os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
 
 from pathlib import Path
 import argparse
-# import requests
+import requests
 import yaml
 from tqdm import tqdm
 import numpy as np
@@ -36,14 +36,14 @@ if __name__ == '__main__':  # the camera's process and DataLoader workers re-imp
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"{Font.GREEN}Using {device}{Font.ENDC}")
 
-    # # Error alert hook
-    # orig_excepthook = sys.excepthook
+    # Error alert hook
+    orig_excepthook = sys.excepthook
 
-    # def global_error_handler(exc_type, exc_value, exc_traceback):
-    #     requests.post('https://ntfy.sh/eodla', data=f'bcnn-emnist-eodla: Uncaught exception: {exc_type.__name__}: {exc_value}'.encode(encoding='utf-8'))
-    #     orig_excepthook(exc_type, exc_value, exc_traceback)
+    def global_error_handler(exc_type, exc_value, exc_traceback):
+        requests.post('https://ntfy.sh/eodla', data=f'bcnn-emnist-eodla: Uncaught exception: {exc_type.__name__}: {exc_value}'.encode(encoding='utf-8'))
+        orig_excepthook(exc_type, exc_value, exc_traceback)
 
-    # sys.excepthook = global_error_handler
+    sys.excepthook = global_error_handler
 
     # Config file
     config = yaml.safe_load(open(Path(args.config), 'r'))['BCNN']
@@ -67,8 +67,8 @@ if __name__ == '__main__':  # the camera's process and DataLoader workers re-imp
         test_set,
         batch_size=int(config['batch_size']),
         shuffle=False,
-        num_workers=4,
-        pin_memory=True,
+        num_workers=0,
+        pin_memory=False,
     )
 
     # Hyperparameters
@@ -90,27 +90,27 @@ if __name__ == '__main__':  # the camera's process and DataLoader workers re-imp
     model.load_state_dict(torch.load(checkpoint, map_location=device), strict=False)
 
     # Test
-    test_loss, test_acc = test(
-        model=model,
-        data_loader=test_loader,
-        cost_fn=cost_fn,
-        device=device,
-    )
-    history['test_loss'] = test_loss
-    history['test_acc'] = test_acc
-    tqdm.write(f'{Font.GREEN}Test loss: {test_loss:.6f}, Test accuracy: {test_acc:.6f}{Font.ENDC}, Test percentage: {100*test_perc:.0f}%')
+    # test_loss, test_acc = test(
+    #     model=model,
+    #     data_loader=test_loader,
+    #     cost_fn=cost_fn,
+    #     device=device,
+    # )
+    # history['test_loss'] = test_loss
+    # history['test_acc'] = test_acc
+    # tqdm.write(f'{Font.GREEN}Test loss: {test_loss:.6f}, Test accuracy: {test_acc:.6f}{Font.ENDC}, Test percentage: {100*test_perc:.0f}%')
 
     # Final report
 
-    with open(root_folder / 'report.txt', 'w') as f:
-        f.write(f'Test loss: {history['test_loss']:.6f}\n')
-        f.write(f'Test accuracy: {history['test_acc']:.6f}\n')
-        f.write(f'Test percentage: {100*test_perc:.0f}%\n')
-        f.write(f'-'*40 + '\n')
-        f.write(f'Checkpoint path: {root_folder / "best_model.pt"}\n')
-        f.write(f'-'*40 + '\n')
-        f.write(f'Model:\n')
-        f.write(f'{model}\n')
+    # with open(root_folder / 'report.txt', 'w') as f:
+    #     f.write(f'Test loss: {history['test_loss']:.6f}\n')
+    #     f.write(f'Test accuracy: {history['test_acc']:.6f}\n')
+    #     f.write(f'Test percentage: {100*test_perc:.0f}%\n')
+    #     f.write(f'-'*40 + '\n')
+    #     f.write(f'Checkpoint path: {root_folder / "best_model.pt"}\n')
+    #     f.write(f'-'*40 + '\n')
+    #     f.write(f'Model:\n')
+    #     f.write(f'{model}\n')
 
     # Set seed
     torch.manual_seed(42)
@@ -119,9 +119,9 @@ if __name__ == '__main__':  # the camera's process and DataLoader workers re-imp
 
     test_loader = DataLoader(
         test_set,
-        batch_size=1,
+        batch_size=256,
         shuffle=False,
-        num_workers=4,
+        num_workers=0,
         pin_memory=True,
     )
 
@@ -134,4 +134,4 @@ if __name__ == '__main__':  # the camera's process and DataLoader workers re-imp
         device=device,
     )
 
-    # requests.post('https://ntfy.sh/eodla', data='BCNN + EODLA testing done!'.encode(encoding='utf-8'))
+    requests.post('https://ntfy.sh/eodla', data='BCNN + EODLA testing done!'.encode(encoding='utf-8'))
