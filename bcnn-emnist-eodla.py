@@ -89,28 +89,28 @@ if __name__ == '__main__':  # the camera's process and DataLoader workers re-imp
     model = BinaryCNNSingleBin(channels=channels, device=device, eodla=True).to(device)
     model.load_state_dict(torch.load(checkpoint, map_location=device), strict=False)
 
-    # Test
-    # test_loss, test_acc = test(
-    #     model=model,
-    #     data_loader=test_loader,
-    #     cost_fn=cost_fn,
-    #     device=device,
-    # )
-    # history['test_loss'] = test_loss
-    # history['test_acc'] = test_acc
-    # tqdm.write(f'{Font.GREEN}Test loss: {test_loss:.6f}, Test accuracy: {test_acc:.6f}{Font.ENDC}, Test percentage: {100*test_perc:.0f}%')
+    Test
+    test_loss, test_acc = test(
+        model=model,
+        data_loader=test_loader,
+        cost_fn=cost_fn,
+        device=device,
+    )
+    history['test_loss'] = test_loss
+    history['test_acc'] = test_acc
+    tqdm.write(f'{Font.GREEN}Test loss: {test_loss:.6f}, Test accuracy: {test_acc:.6f}{Font.ENDC}, Test percentage: {100*test_perc:.0f}%')
 
-    # Final report
+    Final report
 
-    # with open(root_folder / 'report.txt', 'w') as f:
-    #     f.write(f'Test loss: {history['test_loss']:.6f}\n')
-    #     f.write(f'Test accuracy: {history['test_acc']:.6f}\n')
-    #     f.write(f'Test percentage: {100*test_perc:.0f}%\n')
-    #     f.write(f'-'*40 + '\n')
-    #     f.write(f'Checkpoint path: {root_folder / "best_model.pt"}\n')
-    #     f.write(f'-'*40 + '\n')
-    #     f.write(f'Model:\n')
-    #     f.write(f'{model}\n')
+    with open(root_folder / 'report.txt', 'w') as f:
+        f.write(f'Test loss: {history['test_loss']:.6f}\n')
+        f.write(f'Test accuracy: {history['test_acc']:.6f}\n')
+        f.write(f'Test percentage: {100*test_perc:.0f}%\n')
+        f.write(f'-'*40 + '\n')
+        f.write(f'Checkpoint path: {root_folder / "best_model.pt"}\n')
+        f.write(f'-'*40 + '\n')
+        f.write(f'Model:\n')
+        f.write(f'{model}\n')
 
     # Set seed
     torch.manual_seed(42)
