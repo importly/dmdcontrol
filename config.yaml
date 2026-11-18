@@ -105,5 +105,5 @@ BCNN:
   checkpoint: '/home/main/dmdcontrol/models/emnist/letters-vs-numbers-one-bin-layer-1k-32c-eodla-trans-bf16-scratch/best_model.pt'
   channels: 32
   batch_size: 128
-  test_perc: 0.0009  # 32 images
+  test_perc: 0.0009  # 32 images was 0.1 before
   download: 'store_true'
