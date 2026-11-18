@@ -89,7 +89,7 @@ if __name__ == '__main__':  # the camera's process and DataLoader workers re-imp
     model = BinaryCNNSingleBin(channels=channels, device=device, eodla=True).to(device)
     model.load_state_dict(torch.load(checkpoint, map_location=device), strict=False)
 
-    Test
+    # Test
     test_loss, test_acc = test(
         model=model,
         data_loader=test_loader,
@@ -100,7 +100,7 @@ if __name__ == '__main__':  # the camera's process and DataLoader workers re-imp
     history['test_acc'] = test_acc
     tqdm.write(f'{Font.GREEN}Test loss: {test_loss:.6f}, Test accuracy: {test_acc:.6f}{Font.ENDC}, Test percentage: {100*test_perc:.0f}%')
 
-    Final report
+    # Final report
 
     with open(root_folder / 'report.txt', 'w') as f:
         f.write(f'Test loss: {history['test_loss']:.6f}\n')
